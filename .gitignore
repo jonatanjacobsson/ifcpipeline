@@ -1,10 +1,15 @@
 # Ignore contents of specific folders in ifcpipeline, but keep the folders
 ifcpipeline/models/*
 ifcpipeline/ids/*
-ifcpipeline/output/clash/*
-ifcpipeline/output/csv/*
-ifcpipeline/output/ids/*
+ifcpipeline/output/*
 
+# But don't ignore .gitkeep files to keep empty folders
+!ifcpipeline/models/.gitkeep
+!ifcpipeline/ids/.gitkeep
+!ifcpipeline/output/.gitkeep
+!ifcpipeline/output/clash/.gitkeep
+!ifcpipeline/output/csv/.gitkeep
+!ifcpipeline/output/ids/.gitkeep
 
 # Ignore Python cache files
 __pycache__/
@@ -24,3 +29,4 @@ Thumbs.db
 
 # Ignore n8n data folders
 /n8n-data/*
+!n8n-data/.gitkeep
