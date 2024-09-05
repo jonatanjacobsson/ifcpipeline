@@ -1,0 +1,11 @@
+ifcopenshell
+ifctester
+ifccsv
+ifcclash
+uvicorn
+fastapi
+python-multipart
+requests
+pydantic
+scikit-learn
+mathutils

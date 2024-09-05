@@ -1,0 +1,26 @@
+# Ignore contents of specific folders in ifcpipeline, but keep the folders
+ifcpipeline/models/*
+ifcpipeline/ids/*
+ifcpipeline/output/clash/*
+ifcpipeline/output/csv/*
+ifcpipeline/output/ids/*
+
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore virtual environment
+venv/
+.env
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore n8n data folders
+/n8n-data/*
