@@ -1,19 +1,27 @@
 version: '3'
 services:
   n8n:
-      stdin_open: true
-      tty: true
-      container_name: n8n
-      ports:
-          - 5678:5678
-      volumes:
-          - ~/.n8n:/home/node/.n8n
-      image: docker.n8n.io/n8nio/n8n
-      command: n8n start --tunnel
+    image: docker.n8n.io/n8nio/n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+      - ./ifcpipeline/models:/models
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - IFC_PIPELINE_URL=http://ifcpipeline:8000
+    depends_on:
+      - ifcpipeline
 
-  ifc-pipeline:
+  ifcpipeline:
     build:
-      context: .
-      dockerfile: images/ifc-pipeline/Dockerfile
+      context: ./ifcpipeline
+      dockerfile: Dockerfile
     ports:
       - "8001:8000"
+    volumes:
+      - ./ifcpipeline/models:/app/models
+      - ./ifcpipeline/output:/app/output
+      - ./ifcpipeline/ids:/app/ids
