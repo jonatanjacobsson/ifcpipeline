@@ -1,7 +1,9 @@
 # Ignore contents of specific folders in ifcpipeline, but keep the folders
 ifcpipeline/models/*
 ifcpipeline/ids/*
-ifcpipeline/output/*
+ifcpipeline/output/clash/*
+ifcpipeline/output/csv/*
+ifcpipeline/output/ids/*
 
 # But don't ignore .gitkeep files to keep empty folders
 !ifcpipeline/models/.gitkeep
