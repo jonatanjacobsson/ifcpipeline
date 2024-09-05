@@ -91,17 +91,6 @@ Access the n8n interface at `http://localhost:5678` to create your user and mana
 
 The services can be configured using environment variables in the `docker-compose.yml` file.
 
-## TODO
-
-The following utilities are yet to be converted into endpoints:
-
-1. IFC Diff: Compare two IFC files and generate a diff report
-2. IFC Patch: Apply patches to IFC files
-3. IFC Geolocation: Add or modify geolocation data in IFC files
-4. IFC Merge: Merge multiple IFC files into a single file
-5. IFC Split: Split an IFC file into multiple files based on certain criteria
-6. IFC Property Set: Add, modify, or delete property sets in IFC files
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
