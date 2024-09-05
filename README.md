@@ -10,6 +10,21 @@ IFC Pipeline is a FastAPI-based service for processing Industry Foundation Class
 - IFC file download from URL
 - Integration with n8n for workflow automation
 
+![chrome_sDioFJ8Vvy](https://github.com/user-attachments/assets/c2336ad4-c5bd-4a1f-9346-1b710135a9c9)
+
+## TODO
+
+Utilities from ifcopenshell to implement:
+- [x] ifcCsv
+- [x] ifcClash
+- [x] ifcTester
+- [ ] ifcDiff
+- [ ] ifc4D
+- [ ] ifc5D
+- [ ] ifc2json
+- [ ] ifcPatch
+- [ ] some clever way to add endpoints for custom python tools
+
 ## Architecture
 
 The project consists of two main components:
@@ -28,7 +43,7 @@ The project consists of two main components:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/ifc-pipeline.git
+   git clone https://github.com/jonatanjacobsson/ifc-pipeline.git
    cd ifc-pipeline
    ```
 
@@ -41,10 +56,11 @@ The IFC Pipeline service will be available at `http://localhost:8000`.
 The n8n interface will be accessible at `http://localhost:5678`.
 
 ## Usage
+Use n8n to orchestrate the pipeline. The url to the pipeline inside n8n will be `http://ifcpipeline:8000`.
 
-### IFC Pipeline Service
+### IFC Pipeline API
 
-The service exposes several endpoints:
+The service exposes the following endpoints:
 
 - `/health`: Health check endpoint
 - `/list_models`: List available IFC models
@@ -55,15 +71,21 @@ The service exposes several endpoints:
 
 For detailed API documentation, visit `http://localhost:8000/docs` after starting the service.
 
+![image](https://github.com/user-attachments/assets/7e356a27-2763-4e7c-aeb0-80617166232a)
+
 ### n8n Workflows
 
-n8n is used to create and manage workflows that interact with the IFC Pipeline service. You can use n8n to:
+n8n is used to create and manage workflows that interact with the IFC Pipeline service. 
+It's simple, extendable and powerful enough for this usecase.
+Just be aware of the licensing: https://docs.n8n.io/sustainable-use-license/
+
+You can use n8n to:
 
 - Automate IFC processing tasks
 - Create complex workflows involving multiple IFC operations
-- Integrate IFC processing with other services and tools
+- Integrate IFC processing with other services and tools (!)
 
-Access the n8n interface at `http://localhost:5678` to create and manage workflows.
+Access the n8n interface at `http://localhost:5678` to create your user and manage workflows.
 
 ## Configuration
 
