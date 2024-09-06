@@ -19,10 +19,13 @@ Utilities from ifcopenshell to implement:
 - [x] ifcClash
 - [x] ifcTester
 - [ ] ifcDiff
+- [ ] ifcConvert
 - [ ] ifc4D
 - [ ] ifc5D
 - [ ] ifc2json
 - [ ] ifcPatch
+- [ ] Scalar API front-end
+- [ ] simple way to handle API keys
 - [ ] some clever way to add endpoints for custom python tools
 
 ## Architecture
