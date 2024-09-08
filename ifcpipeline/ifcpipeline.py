@@ -1,24 +1,73 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, ForwardRef
-
+import ipaddress
+import json
 import os
 import requests
-import json
-
+import logging
 import ifcopenshell
 from ifctester import ids, reporter
 from ifccsv import IfcCsv
 from ifcclash.ifcclash import Clasher, ClashSettings
 
-import logging
-
-# Add this at the beginning of your file
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+# Define the load_config function
+def load_config():
+    config_path = '/app/config.json'
+    default_config = {
+        'api_keys': [],
+        'allowed_ip_ranges': ['127.0.0.1/32']  # Default to localhost only
+    }
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        logger.info(f"Loaded configuration: {config}")
+        return config
+    except FileNotFoundError:
+        logger.warning(f"Config file not found at {config_path}. Using default configuration.")
+        return default_config
+    except json.JSONDecodeError:
+        logger.error(f"Error decoding {config_path}. Using default configuration.")
+        return default_config
 
+# Load configuration
+config = load_config()
+API_KEYS = config.get('api_keys', [])
+ALLOWED_IP_RANGES = [ipaddress.ip_network(cidr) for cidr in config.get('allowed_ip_ranges', [])]
+
+# Initialize FastAPI app
+app = FastAPI(swagger_ui_parameters={"tryItOutEnabled": True})
+
+# Set up API key header
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# Define the verify_access function
+async def verify_access(request: Request, api_key: str = Depends(api_key_header)):
+    client_ip = ipaddress.ip_address(request.client.host)
+    logger.info(f"Access attempt from IP: {client_ip}")
+    
+    if any(client_ip in ip_range for ip_range in ALLOWED_IP_RANGES):
+        logger.info(f"Access granted to {client_ip} (IP in allowed range)")
+        return True
+    
+    if not api_key:
+        logger.warning(f"Access denied to {client_ip} (No API key provided)")
+        raise HTTPException(status_code=403, detail="API key required")
+    
+    if api_key not in API_KEYS:
+        logger.warning(f"Access denied to {client_ip} (Invalid API key)")
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    
+    logger.info(f"Access granted to {client_ip} (Valid API key)")
+    return True
+
+# Define model classes
 class ProcessRequest(BaseModel):
     filename: str
     operation: str
@@ -73,6 +122,7 @@ class CustomClasher(Clasher):
         if not hasattr(self.settings, 'logger') or self.settings.logger is None:
             self.settings.logger = self.logger
 
+# Define route handlers
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
@@ -81,13 +131,13 @@ async def health_check():
 async def list_models():
     models_dir = "/app/models"
     try:
-        files = os.listdir(models_dir)
+        files = [f for f in os.listdir(models_dir) if f != '.gitkeep']
         return {"files": files}
     except Exception as e:
         return {"error": str(e)}
 
 @app.post("/ifccsv")
-async def api_ifccsv(request: IfcCsvRequest):
+async def api_ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
     models_dir = "/app/models"
     output_dir = "/app/output/csv"
     file_path = os.path.join(models_dir, request.filename)
@@ -123,7 +173,7 @@ async def api_ifccsv(request: IfcCsvRequest):
 
 
 @app.post("/ifcclash")
-async def api_ifcclash(request: IfcClashRequest):
+async def api_ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
     models_dir = "/app/models"
     output_dir = "/app/output/clash"
     output_path = os.path.join(output_dir, request.output_filename)
@@ -216,7 +266,7 @@ def preprocess_clash_data(clash_sets):
     return clash_sets
 
 @app.post("/ifctester")
-async def ifctester(request: IfcTesterRequest):
+async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
     models_dir = "/app/models"
     ids_dir = "/app/ids"  # Assuming the IDS files are in the /ids directory
     output_dir = "/app/output/ids"
@@ -262,7 +312,7 @@ async def ifctester(request: IfcTesterRequest):
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.post("/download_ifc")
-async def download_ifc(request: DownloadIFCRequest):
+async def download_ifc(request: DownloadIFCRequest, _: str = Depends(verify_access)):
     models_dir = "/app/models"
     output_path = os.path.join(models_dir, request.output_filename)
 

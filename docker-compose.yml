@@ -11,7 +11,7 @@ services:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - IFC_PIPELINE_URL=http://ifcpipeline:8000
+      - IFC_PIPELINE_URL=http://ifcpipeline
     depends_on:
       - ifcpipeline
 
@@ -20,7 +20,7 @@ services:
       context: ./ifcpipeline
       dockerfile: Dockerfile
     ports:
-      - "8001:8000"
+      - "8000:80"
     volumes:
       - ./ifcpipeline/models:/app/models
       - ./ifcpipeline/output:/app/output
