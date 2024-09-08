@@ -28,7 +28,6 @@ Utilities from ifcopenshell to implement:
 Other stuff:
 - [x] simple way to handle API keys
 - [ ] some clever way to add endpoints for custom python tools
-- [ ] figure out what
 - [ ] better Error Handling and Logging
 - [ ] implement ThreadPoolExecutor for I/O-bound tasks like file downloads / reading large ifcs
 - [ ] implement ProcessPoolExecutor for CPU-bound where heavy computation is involved, like clash detection.
