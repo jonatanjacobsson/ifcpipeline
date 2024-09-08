@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code
 COPY ifcpipeline.py .
 
+# Copy the config
+COPY config.json .
+
 # Create necessary directories
 RUN mkdir -p /app/models /app/output /app/ids
 
@@ -20,4 +23,4 @@ RUN mkdir -p /app/models /app/output /app/ids
 EXPOSE 8000
 
 # Set the command to run the application
-CMD ["uvicorn", "ifcpipeline:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "ifcpipeline:app", "--host", "ifcpipeline", "--port", "80"]
