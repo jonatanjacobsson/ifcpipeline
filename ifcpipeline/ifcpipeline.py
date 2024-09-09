@@ -1,14 +1,9 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
-<<<<<<< HEAD
-from typing import List, Dict, Optional, ForwardRef
 import ipaddress
 import json
-=======
 from typing import List, Optional
-
->>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
 import os
 import requests
 import logging
@@ -18,15 +13,12 @@ from ifccsv import IfcCsv
 from ifcclash.ifcclash import Clasher, ClashSettings
 from ifcdiff import IfcDiff
 
-<<<<<<< HEAD
 # Set up logging
-=======
 import logging
 import subprocess
 
 
 # Add this at the beginning of your file
->>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -50,7 +42,6 @@ def load_config():
         logger.error(f"Error decoding {config_path}. Using default configuration.")
         return default_config
 
-<<<<<<< HEAD
 # Load configuration
 config = load_config()
 API_KEYS = config.get('api_keys', [])
@@ -86,7 +77,7 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
 class ProcessRequest(BaseModel):
     filename: str
     operation: str
-=======
+    
 class IfcConvertRequest(BaseModel):
     input_filename: str
     output_filename: str
@@ -102,8 +93,7 @@ class IfcConvertRequest(BaseModel):
     bounds: Optional[str] = None
     include: Optional[List[str]] = None
     exclude: Optional[List[str]] = None
->>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
-
+    
 class IfcCsvRequest(BaseModel):
     filename: str
     output_filename: str = Field(..., alias="spreadsheet")

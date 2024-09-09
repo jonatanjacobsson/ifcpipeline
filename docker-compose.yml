@@ -20,11 +20,7 @@ services:
       context: ./ifcpipeline
       dockerfile: Dockerfile
     ports:
-<<<<<<< HEAD
       - "8000:80"
-=======
-      - "8000:8000"
->>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
     volumes:
       - ./ifcpipeline/models:/app/models
       - ./ifcpipeline/output:/app/output
