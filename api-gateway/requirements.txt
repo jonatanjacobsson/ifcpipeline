@@ -1,0 +1,6 @@
+uvicorn
+fastapi
+python-multipart
+requests
+aiohttp
+typing

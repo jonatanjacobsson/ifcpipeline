@@ -1,27 +1,111 @@
 version: '3'
 services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    ports:
+      - "8000:80"
+    depends_on:
+      - ifcconvert
+      - ifcclash
+      - ifccsv
+      - ifctester
+      - ifcdiff
+    environment:
+      - IFCCONVERT_URL=http://ifcconvert
+      - IFCCLASH_URL=http://ifcclash
+      - IFCCSV_URL=http://ifccsv
+      - IFCTESTER_URL=http://ifctester
+      - IFCDIFF_URL=http://ifcdiff
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+
+  ifcconvert:
+    build:
+      context: .
+      dockerfile: ifcconvert/Dockerfile
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+
+  ifcclash:
+    build:
+      context: .
+      dockerfile: ifcclash/Dockerfile
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+
+  ifccsv:
+    build:
+      context: .
+      dockerfile: ifccsv/Dockerfile
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+
+  ifctester:
+    build:
+      context: .
+      dockerfile: ifctester/Dockerfile
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+
+  ifcdiff:
+    build:
+      context: .
+      dockerfile: ifcdiff/Dockerfile
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+
   n8n:
     image: docker.n8n.io/n8nio/n8n
     ports:
       - "5678:5678"
     volumes:
       - ./n8n-data:/home/node/.n8n
-      - ./ifcpipeline/models:/models
+      - ./shared/uploads:/uploads
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
-      - IFC_PIPELINE_URL=http://ifcpipeline
+      - IFC_PIPELINE_URL=http://api-gateway
     depends_on:
-      - ifcpipeline
+      - api-gateway
 
-  ifcpipeline:
+  ifc2json:
     build:
-      context: ./ifcpipeline
-      dockerfile: Dockerfile
-    ports:
-      - "8000:80"
+      context: .
+      dockerfile: ifc2json/Dockerfile
     volumes:
-      - ./ifcpipeline/models:/app/models
-      - ./ifcpipeline/output:/app/output
-      - ./ifcpipeline/ids:/app/ids
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+
+volumes:
+  uploads:
+  output:
+  ids:
