@@ -1,0 +1,6 @@
+fastapi
+pydantic
+uvicorn
+ifcclash
+ifcopenshell
+scikit-learn

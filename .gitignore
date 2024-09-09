@@ -1,21 +1,9 @@
 # Ignore contents of specific folders in ifcpipeline, but keep the folders
-ifcpipeline/models/*
-ifcpipeline/ids/*
-ifcpipeline/output/clash/*
-ifcpipeline/output/csv/*
-ifcpipeline/output/ids/*
-ifcpipeline/output/diff/*
-ifcpipeline/output/converted/*
+shared/uploads/*
+shared/output/*/*
 
-# But don't ignore .gitkeep files to keep empty folders
-!ifcpipeline/models/.gitkeep
-!ifcpipeline/ids/.gitkeep
-!ifcpipeline/output/.gitkeep
-!ifcpipeline/output/clash/.gitkeep
-!ifcpipeline/output/csv/.gitkeep
-!ifcpipeline/output/ids/.gitkeep
-!ifcpipeline/output/diff/.gitkeep
-!ifcpipeline/output/converted/.gitkeep
+# Don't ignore .gitkeep files in any subdirectory
+!**/.gitkeep
 
 # Ignore Python cache files
 __pycache__/

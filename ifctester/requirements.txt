@@ -1,0 +1,6 @@
+fastapi
+pydantic
+uvicorn
+ifcopenshell
+ifctester
+pystache
