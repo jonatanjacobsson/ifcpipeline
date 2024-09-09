@@ -14,23 +14,21 @@ IFC Pipeline is a FastAPI-based service for processing Industry Foundation Class
 
 ## TODO
 
-Utilities from ifcopenshell to implement:
+Utilities to implement:
 - [x] ifcCsv
 - [x] ifcClash
 - [x] ifcTester
-- [ ] ifcDiff
-- [ ] ifcConvert
+- [x] ifcDiff
+- [x] ifcConvert
 - [ ] ifc4D
 - [ ] ifc5D
-- [ ] ifc2json
+- [x] ifc2json, using https://github.com/bimaps/ifc2json
 - [ ] ifcPatch
 
 Other stuff:
-- [x] simple way to handle API keys
-- [ ] some clever way to add endpoints for custom python tools
+- [x] simple way to handle API keys, using config.json
+- [x] some clever way to add endpoints for custom python tools, add custom containers for them and 
 - [ ] better Error Handling and Logging
-- [ ] implement ThreadPoolExecutor for I/O-bound tasks like file downloads / reading large ifcs
-- [ ] implement ProcessPoolExecutor for CPU-bound where heavy computation is involved, like clash detection.
 
 Documentation:
 - [ ] quick introductory video (1 min)
