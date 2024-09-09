@@ -5,6 +5,7 @@ import os
 import json
 import logging
 from ifcclash.ifcclash import Clasher, ClashSettings
+import subprocess
 
 def process_ifccsv(file_path, output_path, query, attributes, format="csv", delimiter=",", null="-"):
     try:
@@ -94,3 +95,37 @@ def process_ifcclash(clash_sets: List[Dict], output_path: str, tolerance: float 
         }
     except Exception as e:
         raise Exception(f"Error processing IFC Clash: {str(e)}")
+
+def process_ifcdiff(old_file, new_file, output_file, relationships=None):
+    command = ["python", "-m", "ifcdiff"]
+    
+    if relationships:
+        command.extend(["-r", " ".join(relationships)])
+    
+    command.extend(["-o", output_file, old_file, new_file])
+    
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        
+        with open(output_file, 'r') as json_file:
+            diff_results = json.load(json_file)
+        
+        return {
+            "success": True,
+            "message": f"IFC diff completed successfully. Results saved to {output_file}",
+            "results": diff_results,
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }
+    except subprocess.CalledProcessError as e:
+        return {
+            "success": False,
+            "message": f"IFC diff failed: {e.stderr}",
+            "stdout": e.stdout,
+            "stderr": e.stderr
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error during IFC diff: {str(e)}"
+        }
