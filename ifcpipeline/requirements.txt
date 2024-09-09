@@ -2,6 +2,7 @@ ifcopenshell
 ifctester
 ifccsv
 ifcclash
+ifcdiff
 uvicorn
 fastapi
 python-multipart

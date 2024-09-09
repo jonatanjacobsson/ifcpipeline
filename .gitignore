@@ -4,6 +4,8 @@ ifcpipeline/ids/*
 ifcpipeline/output/clash/*
 ifcpipeline/output/csv/*
 ifcpipeline/output/ids/*
+ifcpipeline/output/diff/*
+ifcpipeline/output/converted/*
 
 # But don't ignore .gitkeep files to keep empty folders
 !ifcpipeline/models/.gitkeep
@@ -12,6 +14,8 @@ ifcpipeline/output/ids/*
 !ifcpipeline/output/clash/.gitkeep
 !ifcpipeline/output/csv/.gitkeep
 !ifcpipeline/output/ids/.gitkeep
+!ifcpipeline/output/diff/.gitkeep
+!ifcpipeline/output/converted/.gitkeep
 
 # Ignore Python cache files
 __pycache__/
@@ -24,6 +28,7 @@ venv/
 # Ignore IDE-specific files
 .vscode/
 .idea/
+digitalocean*
 
 # Ignore system files
 .DS_Store

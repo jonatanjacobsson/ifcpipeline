@@ -1,9 +1,14 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
+<<<<<<< HEAD
 from typing import List, Dict, Optional, ForwardRef
 import ipaddress
 import json
+=======
+from typing import List, Optional
+
+>>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
 import os
 import requests
 import logging
@@ -11,8 +16,17 @@ import ifcopenshell
 from ifctester import ids, reporter
 from ifccsv import IfcCsv
 from ifcclash.ifcclash import Clasher, ClashSettings
+from ifcdiff import IfcDiff
 
+<<<<<<< HEAD
 # Set up logging
+=======
+import logging
+import subprocess
+
+
+# Add this at the beginning of your file
+>>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -36,6 +50,7 @@ def load_config():
         logger.error(f"Error decoding {config_path}. Using default configuration.")
         return default_config
 
+<<<<<<< HEAD
 # Load configuration
 config = load_config()
 API_KEYS = config.get('api_keys', [])
@@ -71,6 +86,23 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
 class ProcessRequest(BaseModel):
     filename: str
     operation: str
+=======
+class IfcConvertRequest(BaseModel):
+    input_filename: str
+    output_filename: str
+    verbose: bool = True
+    plan: bool = False
+    model: bool = True
+    weld_vertices: bool = False
+    use_world_coords: bool = False
+    convert_back_units: bool = False
+    sew_shells: bool = False
+    merge_boolean_operands: bool = False
+    disable_opening_subtractions: bool = False
+    bounds: Optional[str] = None
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
+>>>>>>> 7f4b7ffb519deb0887fe757b14edb68e2c2dd00c
 
 class IfcCsvRequest(BaseModel):
     filename: str
@@ -171,7 +203,6 @@ async def api_ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/ifcclash")
 async def api_ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
     models_dir = "/app/models"
@@ -225,30 +256,31 @@ async def api_ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)
             })
 
 
+            clasher_set[side].append({
+                "file": file_path,
+                "mode": file.mode,
+                "selector": file.selector
+            })
+
+
             clasher.clash_sets.append(clasher_set)
 
         logger.info("Starting clash detection")
         clasher.clash()
-        logger.info("Clash detection completed")
 
-        logger.info("Smart clashes....")
+        logger.info("Starting Smart Clashes....")
         preprocessed_clash_sets = preprocess_clash_data(clasher.clash_sets)
         smart_groups = clasher.smart_group_clashes(preprocessed_clash_sets, 10)
 
         logger.info("Exporting clash results")
         clasher.export()
-        logger.info("Clash results exported")
 
         # Read the JSON result from the output file
         with open(output_path, 'r') as json_file:
             clash_results = json.load(json_file)
 
-        clash_count = sum(len(clash_set["clashes"]) for clash_set in clash_results)
-        logger.info(f"Total clashes found: {clash_count}")
-
         return {
             "success": True,
-            "clash_count": clash_count,
             "result": clash_results
         }
     except Exception as e:
@@ -332,4 +364,115 @@ async def download_ifc(request: DownloadIFCRequest, _: str = Depends(verify_acce
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
     except IOError as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+
+
+@app.post("/ifcconvert")
+async def api_ifcconvert(request: IfcConvertRequest):
+    models_dir = "/app/models"
+    output_dir = "/app/output/converted"
+    input_path = os.path.join(models_dir, request.input_filename)
+    output_path = os.path.join(output_dir, request.output_filename)
+
+    if not os.path.exists(input_path):
+        raise HTTPException(status_code=404, detail=f"File {request.input_filename} not found")
+
+    try:
+        command = ["/usr/local/bin/IfcConvert"]
+        
+        # Add options based on the request
+        if request.include:
+            command.append("--include")
+            command.extend(request.include)
+        if request.exclude:
+            command.append("--exclude")
+            command.extend(request.exclude)
+        if request.verbose:
+            command.append("--verbose")
+        if request.plan:
+            command.append("--plan")
+        if not request.model:
+            command.append("--no-model")
+        if request.weld_vertices:
+            command.append("--weld-vertices")
+        if request.use_world_coords:
+            command.append("--use-world-coords")
+        if request.convert_back_units:
+            command.append("--convert-back-units")
+        if request.sew_shells:
+            command.append("--sew-shells")
+        if request.merge_boolean_operands:
+            command.append("--merge-boolean-operands")
+        if request.disable_opening_subtractions:
+            command.append("--disable-opening-subtractions")
+        if request.bounds:
+            command.extend(["--bounds", request.bounds])
+        
+        # Add input and output files
+        command.extend([input_path, output_path])
+
+        logger.info(f"Running IfcConvert command: {' '.join(command)}")
+        
+        # Run the IfcConvert command
+        result = subprocess.run(command, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            logger.error(f"IfcConvert failed: {result.stderr}")
+            raise HTTPException(status_code=500, detail=f"IfcConvert failed: {result.stderr}")
+
+        return {
+            "success": True,
+            "message": f"File converted successfully to {request.output_filename}",
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }
+    except Exception as e:
+        logger.error(f"Error during IFC conversion: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+class IfcDiffRequest(BaseModel):
+    old_file: str
+    new_file: str
+    output_file: str = "diff.json"
+
+@app.post("/ifcdiff")
+async def api_ifcdiff(request: IfcDiffRequest):
+    models_dir = "/app/models"
+    output_dir = "/app/output/diff"
+    old_file_path = os.path.join(models_dir, request.old_file)
+    new_file_path = os.path.join(models_dir, request.new_file)
+    output_path = os.path.join(output_dir, request.output_file)
+
+    if not os.path.exists(old_file_path):
+        raise HTTPException(status_code=404, detail=f"Old file {request.old_file} not found")
+    if not os.path.exists(new_file_path):
+        raise HTTPException(status_code=404, detail=f"New file {request.new_file} not found")
+
+    try:
+        ifc_diff = IfcDiff(old_file_path, new_file_path, output_path)
+        
+        ifc_diff.diff()
+
+        # Custom JSON serialization
+        diff_results = {
+            "added": [str(guid) for guid in ifc_diff.added],
+            "deleted": [str(guid) for guid in ifc_diff.deleted],
+            "changed": {str(guid): changes for guid, changes in ifc_diff.changed.items()},
+            "moved": {str(guid): new_parent for guid, new_parent in ifc_diff.moved.items()},
+            "renamed": {str(guid): new_name for guid, new_name in ifc_diff.renamed.items()}
+        }
+
+        # Save results to file
+        with open(output_path, 'w') as json_file:
+            json.dump(diff_results, json_file, indent=2)
+
+        return {
+            "success": True,
+            "message": f"IFC diff completed successfully. Results saved to {request.output_file}",
+            "results": diff_results
+        }
+    except Exception as e:
+        logger.error(f"Error during IFC diff: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 

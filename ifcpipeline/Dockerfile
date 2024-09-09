@@ -2,9 +2,16 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies and IfcConvert
 RUN apt-get update && apt-get install -y \
-    && rm -rf /var/lib/apt/lists/*
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget https://github.com/IfcOpenShell/IfcOpenShell/releases/download/v0.5.0-preview2/IfcConvert-master-9ad68db-linux64.zip \
+    && unzip IfcConvert-master-9ad68db-linux64.zip \
+    && mv IfcConvert /usr/local/bin/ \
+    && rm IfcConvert-master-9ad68db-linux64.zip
+
 
 # Copy the requirements file and install dependencies
 COPY requirements.txt .
@@ -17,7 +24,7 @@ COPY ifcpipeline.py .
 COPY config.json .
 
 # Create necessary directories
-RUN mkdir -p /app/models /app/output /app/ids
+RUN mkdir -p /app/models /app/output/converted /app/ids
 
 # Expose the port the app runs on
 EXPOSE 8000

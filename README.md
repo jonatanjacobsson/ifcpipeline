@@ -24,9 +24,20 @@ Utilities from ifcopenshell to implement:
 - [ ] ifc5D
 - [ ] ifc2json
 - [ ] ifcPatch
-- [ ] Scalar API front-end
-- [ ] simple way to handle API keys
+
+Other stuff:
+- [x] simple way to handle API keys
 - [ ] some clever way to add endpoints for custom python tools
+- [ ] better Error Handling and Logging
+- [ ] implement ThreadPoolExecutor for I/O-bound tasks like file downloads / reading large ifcs
+- [ ] implement ProcessPoolExecutor for CPU-bound where heavy computation is involved, like clash detection.
+
+Documentation:
+- [ ] quick introductory video (1 min)
+- [ ] video on potential use cases (15 min)
+- [ ] PowerBI example request to copy/paste
+- [ ] example n8n workflows
+- [ ] links to getting started with n8n
 
 ## Architecture
 
