@@ -1,7 +1,0 @@
-{
-    "api_keys": ["your_api_key_1", "your_api_key_2"],
-    "allowed_ip_ranges": [
-        "127.0.0.1/32",
-        "172.18.0.0/16"
-    ]
-}
