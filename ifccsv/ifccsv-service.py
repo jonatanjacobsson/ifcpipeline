@@ -3,6 +3,8 @@ from shared.classes import IfcCsvRequest
 import ifcopenshell
 import ifccsv
 import os
+import pandas as pd
+import openpyxl
 
 app = FastAPI()
 
