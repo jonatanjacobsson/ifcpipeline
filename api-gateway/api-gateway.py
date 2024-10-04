@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 import aiohttp
 from aiohttp import ClientTimeout
@@ -9,18 +10,26 @@ import asyncio
 import ipaddress
 import logging
 import shutil
+import secrets
+from datetime import datetime, timedelta
 from shared.classes import (
     IfcConvertRequest,
     IfcCsvRequest,
     IfcClashRequest,
     IfcTesterRequest,
     IfcDiffRequest,
-    IFC2JSONRequest
+    IFC2JSONRequest,
+    DownloadLink,
+    DownloadRequest,
+    IfcQtoRequest,  # Add this import
 )  
 
 # Add this at the beginning of your file
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Add this new dictionary to store download links
+download_links: Dict[str, DownloadLink] = {}
 
 # Define the load_config function
 def load_config():
@@ -69,6 +78,7 @@ IFCCLASH_URL = os.getenv("IFCCLASH_URL", "http://ifcclash")
 IFCTESTER_URL = os.getenv("IFCTESTER_URL", "http://ifctester")
 IFCDIFF_URL = os.getenv("IFCDIFF_URL", "http://ifcdiff")
 IFC2JSON_URL = os.getenv("IFC2JSON_URL", "http://ifc2json")
+IFC5D_URL = os.getenv("IFC5D_URL", "http://ifc5d")
 
 # Set up API key header
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -110,7 +120,8 @@ async def health_check():
         "ifccsv": IFCCSV_URL,
         "ifcclash": IFCCLASH_URL,
         "ifctester": IFCTESTER_URL,
-        "ifcdiff": IFCDIFF_URL
+        "ifcdiff": IFCDIFF_URL,
+        "ifc5d": IFC5D_URL
     }
 
     async def check_service(name, url):
@@ -174,7 +185,7 @@ async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
 
 
 @app.get("/list_directories", summary="List Available Directories and Files", tags=["File Operations"])
-async def list_directories():
+async def list_directories(_: str = Depends(verify_access)):
     """
     List directories and files in the /app/uploads/ and /app/output/ directories and their subdirectories.
     
@@ -205,7 +216,7 @@ async def list_directories():
     return {"directory_structure": directory_structure}
 
 @app.post("/upload/{file_type}", summary="Upload File", tags=["File Operations"])
-async def upload_file(file_type: str, file: UploadFile = File(...)):
+async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Depends(verify_access)):
     """
     Upload a file to the appropriate directory based on its type.
     
@@ -236,3 +247,64 @@ async def upload_file(file_type: str, file: UploadFile = File(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
+@app.post("/create_download_link", tags=["File Operations"])
+async def create_download_link(request: DownloadRequest, _: str = Depends(verify_access)):
+    """
+    Create a temporary download link for a file.
+    
+    Args:
+        request (DownloadRequest): The request containing the file path.
+    
+    Returns:
+        dict: A dictionary containing the download token and expiry time.
+    """
+    file_path = request.file_path
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    token = secrets.token_urlsafe(32)
+    expiry = datetime.now() + timedelta(minutes=30)
+    
+    download_links[token] = DownloadLink(file_path=file_path, token=token, expiry=expiry)
+    
+    return {"download_token": token, "expiry": expiry}
+
+@app.get("/download/{token}", tags=["File Operations"])
+async def download_file(token: str):
+    """
+    Download a file using a temporary token.
+    
+    Args:
+        token (str): The temporary download token.
+    
+    Returns:
+        FileResponse: The file to be downloaded.
+    """
+    if token not in download_links:
+        raise HTTPException(status_code=404, detail="Invalid or expired download token")
+    
+    download_link = download_links[token]
+    if datetime.now() > download_link.expiry:
+        del download_links[token]
+        raise HTTPException(status_code=404, detail="Download token has expired")
+    
+    file_path = download_link.file_path
+    if not os.path.exists(file_path):
+        del download_links[token]
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return FileResponse(file_path, filename=os.path.basename(file_path))
+
+@app.post("/calculate-qtos", tags=["Analysis"])
+async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)):
+    """
+    Calculate quantities for an IFC file and insert them back into the file.
+    
+    Args:
+        request (IfcQtoRequest): The request body containing the input file and optional output file.
+    
+    Returns:
+        dict: The response from the IFC5D service.
+    """
+    return await make_request(f"{IFC5D_URL}/calculate-qtos", request.dict())

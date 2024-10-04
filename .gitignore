@@ -25,3 +25,12 @@ Thumbs.db
 # Ignore n8n data folders
 /n8n-data/*
 !n8n-data/.gitkeep
+
+# Ignore tfmgen data folders
+/tfmgen/*
+
+# Ignore api-gateway config
+api-gateway/config.json
+
+# Uncomment the line above if you want to ignore the config file
+# Make sure to use a template or example config file for version control

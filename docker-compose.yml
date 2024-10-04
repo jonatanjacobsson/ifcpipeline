@@ -12,17 +12,30 @@ services:
       - ifccsv
       - ifctester
       - ifcdiff
+      - ifc5d
     environment:
       - IFCCONVERT_URL=http://ifcconvert
       - IFCCLASH_URL=http://ifcclash
       - IFCCSV_URL=http://ifccsv
       - IFCTESTER_URL=http://ifctester
       - IFCDIFF_URL=http://ifcdiff
+      - IFC5D_URL=http://ifc5d
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+
+  ifc5d:
+    build:
+      context: .
+      dockerfile: ifc5d/Dockerfile
+    volumes:
+      - ./shared/uploads:/app/uploads
+      - ./shared/output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
 
   ifcconvert:
     build:
@@ -81,16 +94,20 @@ services:
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
+    user: "1000:1000"
     ports:
       - "5678:5678"
     volumes:
       - ./n8n-data:/home/node/.n8n
       - ./shared/uploads:/uploads
+      - ./shared/output:/output
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - IFC_PIPELINE_URL=http://api-gateway
+      - WEBHOOK_URL=https://n8n.byggstyrning.se/
+      - N8N_SECURE_COOKIE=false
     depends_on:
       - api-gateway
 
@@ -106,6 +123,4 @@ services:
       - LOG_LEVEL=DEBUG
 
 volumes:
-  uploads:
-  output:
-  ids:
+  shared:

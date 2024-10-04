@@ -1,7 +1,5 @@
 fastapi
 pydantic
 uvicorn
-ifccsv
 ifcopenshell
-pandas
-openpyxl
+ifc5d

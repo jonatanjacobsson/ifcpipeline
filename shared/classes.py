@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
+from datetime import datetime
 
 class ProcessRequest(BaseModel):
     filename: str
@@ -65,3 +66,15 @@ class IfcDiffRequest(BaseModel):
 class IFC2JSONRequest(BaseModel):
     filename: str
     output_filename: str
+
+class DownloadRequest(BaseModel):
+    file_path: str
+
+class DownloadLink(BaseModel):
+    file_path: str
+    token: str
+    expiry: datetime
+
+class IfcQtoRequest(BaseModel):
+    input_file: str
+    output_file: Optional[str] = None
