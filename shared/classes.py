@@ -50,6 +50,7 @@ class IfcClashRequest(BaseModel):
     clash_sets: List[ClashSet]
     output_filename: str
     tolerance: float = 0.01
+    smart_grouping: bool = False
 
 class IfcTesterRequest(BaseModel):
     ifc_filename: str
