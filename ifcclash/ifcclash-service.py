@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
-from shared.classes import IfcClashRequest, ClashSet, ClashFile
+from shared.classes import IfcClashRequest, ClashSet, ClashFile, ClashMode
 from ifcclash.ifcclash import Clasher, ClashSettings
 import logging
 import json
@@ -63,11 +63,20 @@ async def api_ifcclash(request: IfcClashRequest):
                 "a": [],
                 "b": [],
                 "tolerance": request.tolerance,
-                "mode": "intersection",
-                "check_all": False,
-                "allow_touching": False,
-                "clearance": 0.0
+                "mode": request.mode.value,
+                "check_all": request.check_all,
+                "allow_touching": request.allow_touching,
+                "clearance": request.clearance
             }
+
+            logger.info(f"Setting up clash set '{clash_set.name}' with mode: {request.mode.value}")
+
+            # Validate mode-specific parameters
+            if request.mode == ClashMode.CLEARANCE and request.clearance <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Clearance value must be greater than 0 when using clearance mode"
+                )
 
             for side in ['a', 'b']:
                 for file in getattr(clash_set, side):
@@ -78,20 +87,6 @@ async def api_ifcclash(request: IfcClashRequest):
                         "mode": file.mode,
                         "selector": file.selector
                     })
-
-            clasher_set[side].append({
-                "file": file_path,
-                "mode": file.mode,
-                "selector": file.selector
-            })
-
-
-            clasher_set[side].append({
-                "file": file_path,
-                "mode": file.mode,
-                "selector": file.selector
-            })
-
 
             clasher.clash_sets.append(clasher_set)
 

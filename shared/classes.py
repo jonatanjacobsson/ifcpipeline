@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+from enum import Enum
 
 class ProcessRequest(BaseModel):
     filename: str
@@ -46,11 +47,20 @@ class ClashSet(BaseModel):
     a: List[ClashFile]
     b: List[ClashFile]
 
+class ClashMode(str, Enum):
+    INTERSECTION = "intersection"
+    COLLISION = "collision"
+    CLEARANCE = "clearance"
+
 class IfcClashRequest(BaseModel):
     clash_sets: List[ClashSet]
     output_filename: str
     tolerance: float = 0.01
     smart_grouping: bool = False
+    mode: ClashMode = ClashMode.INTERSECTION
+    clearance: float = 0.0
+    check_all: bool = False
+    allow_touching: bool = False
 
 class IfcTesterRequest(BaseModel):
     ifc_filename: str
