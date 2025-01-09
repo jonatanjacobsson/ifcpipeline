@@ -21,8 +21,10 @@ from shared.classes import (
     IFC2JSONRequest,
     DownloadLink,
     DownloadRequest,
-    IfcQtoRequest,  # Add this import
+    IfcQtoRequest,
+    IfcCsvImportRequest,
 )  
+from pydantic import BaseModel, HttpUrl
 
 # Add this at the beginning of your file
 logging.basicConfig(level=logging.INFO)
@@ -151,6 +153,10 @@ async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)
 @app.post("/ifccsv", tags=["Conversion"])
 async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
     return await make_request(f"{IFCCSV_URL}/ifccsv", request.dict())
+
+@app.post("/ifccsv/import", tags=["Conversion"])
+async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verify_access)):
+    return await make_request(f"{IFCCSV_URL}/ifccsv/import", request.dict())
 
 @app.post("/ifcclash", tags=["Clash Detection"])
 async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
@@ -308,3 +314,81 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
         dict: The response from the IFC5D service.
     """
     return await make_request(f"{IFC5D_URL}/calculate-qtos", request.dict())
+
+# Modify the DownloadUrlRequest class
+class DownloadUrlRequest(BaseModel):
+    url: str  # Changed from HttpUrl to str to be more lenient with URL formats
+
+@app.post("/download-from-url", tags=["File Operations"])
+async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify_access)):
+    """
+    Download a file from a URL and save it to the uploads directory.
+    
+    Args:
+        request (DownloadUrlRequest): The request containing the download URL.
+    
+    Returns:
+        dict: A message indicating success or failure, and the path to the downloaded file.
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        async with await get_aiohttp_session() as session:
+            async with session.get(request.url, headers=headers, allow_redirects=True) as response:
+                if response.status != 200:
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to download file: HTTP {response.status}"
+                    )
+                
+                # Get filename from URL or Content-Disposition header
+                filename = None
+                if 'Content-Disposition' in response.headers:
+                    content_disposition = response.headers['Content-Disposition']
+                    # Try to get filename from filename* parameter first (UTF-8 encoded)
+                    if 'filename*=UTF-8' in content_disposition:
+                        filename = content_disposition.split("filename*=UTF-8''")[-1].split(';')[0]
+                    # Fall back to regular filename parameter
+                    elif 'filename=' in content_disposition:
+                        filename = content_disposition.split('filename=')[1].split(';')[0].strip('"\'')
+                
+                if not filename:
+                    # Extract filename from URL path
+                    url_path = str(request.url).split('?')[0]  # Remove query parameters
+                    filename = url_path.split('/')[-1]
+                
+                # Clean up filename
+                filename = filename.strip()
+                if ';' in filename:
+                    filename = filename.split(';')[0].strip()
+                
+                if not filename:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Could not determine filename from URL or headers"
+                    )
+                
+                file_path = os.path.join("/app/uploads", filename)
+                
+                # Ensure uploads directory exists
+                os.makedirs("/app/uploads", exist_ok=True)
+                
+                # Save the file
+                with open(file_path, 'wb') as f:
+                    while True:
+                        chunk = await response.content.read(8192)  # Read in chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                
+                return {
+                    "message": f"File downloaded successfully as {filename}",
+                    "file_path": file_path
+                }
+                
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")

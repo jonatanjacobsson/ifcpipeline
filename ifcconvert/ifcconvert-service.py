@@ -12,24 +12,37 @@ logger = logging.getLogger(__name__)
 
 @app.post("/ifcconvert")
 async def api_ifcconvert(request: IfcConvertRequest):
-    models_dir = "/app/models"
-    output_dir = "/app/output/converted"
-    input_path = os.path.join(models_dir, request.input_filename)
-    output_path = os.path.join(output_dir, request.output_filename)
+    input_path = request.input_filename  # Use the full path as provided
+    output_path = request.output_filename  # Use the full path as provided
+
+    # Generate default log file path if not provided
+    if not request.log_file:
+        input_basename = os.path.basename(input_path)
+        log_filename = f"{os.path.splitext(input_basename)[0]}_convert.txt"
+        request.log_file = os.path.join("/app/output/converted", log_filename)
+
+    # Ensure the output directory exists
+    os.makedirs(os.path.dirname(request.log_file), exist_ok=True)
 
     if not os.path.exists(input_path):
-        raise HTTPException(status_code=404, detail=f"File {request.input_filename} not found")
+        raise HTTPException(status_code=404, detail=f"File {input_path} not found")
 
     try:
         command = ["/usr/local/bin/IfcConvert"]
         
-        # Add options based on the request
+        # Add log format and file options
+        command.extend(["--log-format", "plain"])
+        command.extend(["--log-file", request.log_file])
+
+        # Modified include/exclude handling
         if request.include:
-            command.append("--include")
-            command.extend(request.include)
+            command.extend(["--include", "entities"])  # Add 'entities' keyword
+            command.extend(request.include)  # Add each entity type as a separate argument
         if request.exclude:
-            command.append("--exclude")
-            command.extend(request.exclude)
+            command.extend(["--exclude", "entities"])  # Add 'entities' keyword
+            command.extend(request.exclude)  # Add each entity type as a separate argument
+
+        # ... rest of the options remain the same ...
         if request.verbose:
             command.append("--verbose")
         if request.plan:
@@ -66,6 +79,7 @@ async def api_ifcconvert(request: IfcConvertRequest):
         return {
             "success": True,
             "message": f"File converted successfully to {request.output_filename}",
+            "log_file": request.log_file,
             "stdout": result.stdout,
             "stderr": result.stderr
         }
