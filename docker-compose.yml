@@ -115,6 +115,7 @@ services:
       - IFC_PIPELINE_URL=http://api-gateway
       - WEBHOOK_URL=https://n8n.byggstyrning.se/
       - N8N_SECURE_COOKIE=false
+      - TZ=Europe/Stockholm
     depends_on:
       - api-gateway
     restart: unless-stopped

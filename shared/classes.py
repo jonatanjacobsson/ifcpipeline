@@ -22,6 +22,7 @@ class IfcConvertRequest(BaseModel):
     bounds: Optional[str] = None
     include: Optional[List[str]] = None
     exclude: Optional[List[str]] = None
+    log_file: Optional[str] = None
     
 class IfcCsvRequest(BaseModel):
     filename: str
@@ -35,7 +36,7 @@ class IfcCsvRequest(BaseModel):
 class IfcCsvImportRequest(BaseModel):
     ifc_filename: str
     csv_filename: str
-    output_filename: str
+    output_filename: str = None
 
 class ClashFile(BaseModel):
     file: str
