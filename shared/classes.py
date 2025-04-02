@@ -58,6 +58,7 @@ class IfcClashRequest(BaseModel):
     output_filename: str
     tolerance: float = 0.01
     smart_grouping: bool = False
+    max_cluster_distance: float = 5.0
     mode: ClashMode = ClashMode.INTERSECTION
     clearance: float = 0.0
     check_all: bool = False
