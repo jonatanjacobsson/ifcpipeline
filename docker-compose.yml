@@ -98,13 +98,6 @@ services:
       - LOG_LEVEL=DEBUG
     restart: unless-stopped
 
-  n8n-nodes-build:
-    image: node:16
-    volumes:
-      - ./n8n-nodes-ifcpipeline:/nodes
-    working_dir: /nodes
-    command: sh -c "npm install && npm run build"
-
   n8n:
     build:
       context: .
@@ -130,7 +123,6 @@ services:
       - NODE_ENV=development
     depends_on:
       - api-gateway
-      - n8n-nodes-build
     restart: unless-stopped
 
   ifc2json:
