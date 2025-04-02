@@ -95,10 +95,12 @@ async def api_ifcclash(request: IfcClashRequest):
         logger.info("Starting clash detection")
         clasher.clash()
 
+        logger.info(f"Smart grouping? {request.smart_grouping}")
+
         if request.smart_grouping:
             logger.info("Starting Smart Clashes....")
             preprocessed_clash_sets = preprocess_clash_data(clasher.clash_sets)
-            smart_groups = clasher.smart_group_clashes(preprocessed_clash_sets, 10)
+            smart_groups = clasher.smart_group_clashes(preprocessed_clash_sets, request.max_cluster_distance)
         else:
             logger.info("Skipping Smart Clashes (disabled)")
 

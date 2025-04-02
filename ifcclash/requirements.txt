@@ -1,6 +1,6 @@
 fastapi
 pydantic
 uvicorn
-ifcclash
-ifcopenshell
+ifcclash==0.7.10
+ifcopenshell==0.7.10
 scikit-learn

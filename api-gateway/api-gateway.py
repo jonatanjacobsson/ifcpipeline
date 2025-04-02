@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
+from fastapi.middleware.cors import CORSMiddleware
 import aiohttp
 from aiohttp import ClientTimeout
 from typing import Dict, List
@@ -73,6 +74,23 @@ app = FastAPI(
     description="API Gateway for a microservice-based IFC processing pipeline. This gateway orchestrates various IFC operations across multiple specialized services, including conversion, clash detection, CSV export, validation, and diff analysis.",
     version="1.0.0",
 )
+
+# Replace the existing CORS middleware configuration with:
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://e107e5b8-c6dc-4a30-af51-e7d0e1e5988c.lovableproject.com",
+        "https://ifcpipeline.byggstyrning.se",
+        "https://cde-gatekeeper.lovable.app",
+        # Add any other specific domains you need
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
+)
+
 # Define service URLs
 IFCCONVERT_URL = os.getenv("IFCCONVERT_URL", "http://ifcconvert")
 IFCCSV_URL = os.getenv("IFCCSV_URL", "http://ifccsv")
