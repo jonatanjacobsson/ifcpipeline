@@ -48,20 +48,23 @@ The project consists of two main components:
 
 ### Prerequisites
 
-- Docker
+- git
 - Docker Compose
 
 ### Installation
-
-1. Clone the repository:
+1. Install Git and docker compose
    ```
-   git clone https://github.com/jonatanjacobsson/ifc-pipeline.git
-   cd ifc-pipeline
+   apt install git
+   apt install docker-compose
    ```
-
-2. Build and run the Docker containers:
+2. Clone the repository:
    ```
-   docker-compose up --build
+   git clone https://github.com/jonatanjacobsson/ifcpipeline.git
+   cd ifcpipeline
+   ```
+3. Build and run the Docker containers:
+   ```
+   docker-compose up --build -d
    ```
 
 The IFC Pipeline service will be available at `http://localhost:8000`.
