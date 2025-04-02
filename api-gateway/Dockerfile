@@ -9,6 +9,6 @@ COPY api-gateway/requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY api-gateway/api-gateway.py .
-COPY api-gateway/config.json .
+RUN test -f api-gateway/config.json && cp api-gateway/config.json . || echo '{}' > config.json
 
 CMD ["uvicorn", "api-gateway:app", "--host", "0.0.0.0", "--port", "80"]
