@@ -24,12 +24,12 @@ async def api_calculate_qtos(request: IfcQtoRequest):
     Returns:
         dict: A dictionary containing the success status and output file path.
     """
-    models_dir = "/app/uploads"
+    models_dir = "/uploads"
     input_file_path = os.path.join(models_dir, request.input_file)
     
     logger.info(f"Received request to process file: {input_file_path}")
     logger.info(f"Current working directory: {os.getcwd()}")
-    logger.info(f"Contents of /app/uploads: {os.listdir('/app/uploads')}")
+    logger.info(f"Contents of /uploads: {os.listdir('/uploads')}")
     
     if not os.path.exists(input_file_path):
         logger.error(f"Input file not found: {input_file_path}")
@@ -69,7 +69,7 @@ async def api_calculate_qtos(request: IfcQtoRequest):
         # After writing the file
         logger.info(f"Attempted to write file to: {output_file_path}")
         logger.info(f"File exists after write: {os.path.exists(output_file_path)}")
-        logger.info(f"Contents of /app/uploads after operation: {os.listdir('/app/uploads')}")
+        logger.info(f"Contents of /uploads after operation: {os.listdir('/uploads')}")
 
         return {
             "success": True,

@@ -19,7 +19,7 @@ async def api_ifcconvert(request: IfcConvertRequest):
     if not request.log_file:
         input_basename = os.path.basename(input_path)
         log_filename = f"{os.path.splitext(input_basename)[0]}_convert.txt"
-        request.log_file = os.path.join("/app/output/converted", log_filename)
+        request.log_file = os.path.join("/output/converted", log_filename)
 
     # Ensure the output directory exists
     os.makedirs(os.path.dirname(request.log_file), exist_ok=True)

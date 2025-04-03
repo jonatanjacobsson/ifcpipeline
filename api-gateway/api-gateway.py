@@ -72,9 +72,9 @@ config = load_config()
 API_KEYS = config.get('api_keys', [])
 ALLOWED_IP_RANGES = [ipaddress.ip_network(cidr) for cidr in config.get('allowed_ip_ranges', [])]
 ALLOWED_UPLOADS: Dict[str, Dict[str, str]] = {
-    "ifc": {"dir": "/app/uploads", "extensions": [".ifc"]},
-    "ids": {"dir": "/app/uploads", "extensions": [".ids"]},
-    "bcf": {"dir": "/app/uploads", "extensions": [".bcf", ".bcfzip"]}
+    "ifc": {"dir": "/uploads", "extensions": [".ifc"]},
+    "ids": {"dir": "/uploads", "extensions": [".ids"]},
+    "bcf": {"dir": "/uploads", "extensions": [".bcf", ".bcfzip"]}
 }
 
 app = FastAPI(
@@ -208,7 +208,7 @@ async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
 
 @app.get("/ifc2json/{filename}", tags=["Conversion"])
 async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
-    output_path = f"/app/output/json/{filename}"
+    output_path = f"/uploads/output/json/{filename}"
     if not os.path.exists(output_path):
         raise HTTPException(status_code=404, detail=f"File {filename} not found")
     
@@ -225,18 +225,18 @@ async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
 @app.get("/list_directories", summary="List Available Directories and Files", tags=["File Operations"])
 async def list_directories(_: str = Depends(verify_access)):
     """
-    List directories and files in the /app/uploads/ and /app/output/ directories and their subdirectories.
+    List directories and files in the /uploads/ and /examples/ and /output/ directories and their subdirectories.
     
     Returns:
         dict: A dictionary containing the directory structure and files.
     """
-    base_dirs = ["/app/uploads", "/app/output", "/app/examples"]
+    base_dirs = ["/uploads", "/output", "/examples"]
     directory_structure = {}
 
     for base_dir in base_dirs:
         try:
             for root, dirs, files in os.walk(base_dir):
-                relative_path = os.path.relpath(root, "/app")
+                relative_path = os.path.relpath(root, "/")
                 
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
                 files = [f for f in files if not f.startswith('.') and f != '.gitkeep']
@@ -402,10 +402,10 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
                         detail="Could not determine filename from URL or headers"
                     )
                 
-                file_path = os.path.join("/app/uploads", filename)
+                file_path = os.path.join("/uploads", filename)
                 
                 # Ensure uploads directory exists
-                os.makedirs("/app/uploads", exist_ok=True)
+                os.makedirs("/uploads", exist_ok=True)
                 
                 # Save the file
                 with open(file_path, 'wb') as f:

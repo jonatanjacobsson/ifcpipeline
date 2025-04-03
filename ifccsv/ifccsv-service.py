@@ -19,8 +19,8 @@ async def api_ifccsv(request: IfcCsvRequest):
     Returns:
         dict: A dictionary containing the conversion results and success status.
     """
-    models_dir = "/app/uploads"
-    output_dir = "/app/output/csv"
+    models_dir = "/uploads"
+    output_dir = "/output/csv"
     file_path = os.path.join(models_dir, request.filename)
     output_path = os.path.join(output_dir, request.output_filename)
 
@@ -63,9 +63,9 @@ async def patch_ifc_from_csv(request: IfcCsvImportRequest):
     Returns:
         dict: A dictionary containing the success status and output file path.
     """
-    models_dir = "/app/uploads"
-    csv_dir = "/app/output/csv"
-    output_dir = "/app/output/ifc"
+    models_dir = "/uploads"
+    csv_dir = "/output/csv"
+    output_dir = "/output/ifc"
     
     # Construct file paths
     ifc_path = os.path.join(models_dir, request.ifc_filename)
