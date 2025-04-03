@@ -87,12 +87,12 @@ The project consists of two main components:
    ```
 
 5. Access the services:
-   - IFC Pipeline API: `http://localhost:8000`
+   - IfcPipeline API: `http://localhost:8000`
    - n8n interface: `http://localhost:5678`
    - API Documentation: `http://localhost:8000/docs`
 
-6. Install the n8n-nodes-ifcpipeline through the GUI
-    - Helpt
+6. Install the community node "n8n-nodes-ifcpipeline" through the n8n GUI.
+    - [Install a Community Node](https://docs.n8n.io/integrations/community-nodes/installation/gui-install/#install-a-community-node)
     
 ## Environment Variables
 
