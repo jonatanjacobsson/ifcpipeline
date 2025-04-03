@@ -1,9 +1,9 @@
 FROM python:3.10
 
-WORKDIR /app
+WORKDIR /
 
-COPY shared /app/shared
-RUN pip install -e /app/shared
+COPY shared /shared
+RUN pip install -e /shared
 
 COPY ifc5d/requirements.txt .
 RUN pip install -r requirements.txt

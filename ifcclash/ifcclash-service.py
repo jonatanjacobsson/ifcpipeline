@@ -35,8 +35,8 @@ async def api_ifcclash(request: IfcClashRequest):
     Returns:
         dict: A dictionary containing the clash detection results and success status.
     """
-    models_dir = "/app/uploads"
-    output_dir = "/app/output/clash"
+    models_dir = "/uploads"
+    output_dir = "/output/clash"
     output_path = os.path.join(output_dir, request.output_filename)
 
     logger.info(f"Starting clash detection for {len(request.clash_sets)} clash sets")

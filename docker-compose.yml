@@ -24,9 +24,9 @@ services:
       - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
       - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     restart: unless-stopped
 
   ifc5d:
@@ -34,9 +34,9 @@ services:
       context: .
       dockerfile: ifc5d/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -47,9 +47,9 @@ services:
       context: .
       dockerfile: ifcconvert/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -60,9 +60,9 @@ services:
       context: .
       dockerfile: ifcclash/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -73,9 +73,9 @@ services:
       context: .
       dockerfile: ifccsv/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -86,9 +86,9 @@ services:
       context: .
       dockerfile: ifctester/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -99,9 +99,9 @@ services:
       context: .
       dockerfile: ifcdiff/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -117,7 +117,6 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
-      - ./n8n-startup.sh:/n8n-startup.sh
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -137,9 +136,9 @@ services:
       context: .
       dockerfile: ifc2json/Dockerfile
     volumes:
-      - ./shared/uploads:/app/uploads
-      - ./shared/output:/app/output
-      - ./shared/examples:/app/examples
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG

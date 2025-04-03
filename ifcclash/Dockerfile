@@ -1,9 +1,8 @@
 FROM python:3.9
 
-WORKDIR /app
 
-COPY shared /app/shared
-RUN pip install -e /app/shared
+COPY shared /shared
+RUN pip install -e /shared
 
 COPY ifcclash/requirements.txt .
 RUN pip install -r requirements.txt

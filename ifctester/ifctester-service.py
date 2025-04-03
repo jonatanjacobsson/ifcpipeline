@@ -18,9 +18,9 @@ async def ifctester(request: IfcTesterRequest):
     Returns:
         dict: A dictionary containing the validation results and success status.
     """
-    models_dir = "/app/uploads"
-    ids_dir = "/app/uploads"
-    output_dir = "/app/output/ids"
+    models_dir = "/uploads"
+    ids_dir = "/uploads"
+    output_dir = "/output/ids"
     
     ifc_path = os.path.join(models_dir, request.ifc_filename)
     ids_path = os.path.join(ids_dir, request.ids_filename)

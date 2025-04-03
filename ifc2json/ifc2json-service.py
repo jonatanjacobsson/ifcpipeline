@@ -17,8 +17,9 @@ async def api_ifc2json(request: IFC2JSONRequest):
     Returns:
         dict: A dictionary containing the conversion results, including the JSON content.
     """
-    input_dir = "/app/uploads"
-    output_dir = "/app/output/json"
+    # Define directories
+    input_dir = "/uploads"
+    output_dir = "/output/json"
     input_path = os.path.join(input_dir, request.filename)
     output_path = os.path.join(output_dir, request.output_filename)
 
@@ -29,7 +30,7 @@ async def api_ifc2json(request: IFC2JSONRequest):
         os.makedirs(output_dir, exist_ok=True)
         
         # Run the ConvertIfc2Json CLI tool
-        result = subprocess.run(["/app/ConvertIfc2Json", input_path, output_path], capture_output=True, text=True)
+        result = subprocess.run(["/ConvertIfc2Json", input_path, output_path], capture_output=True, text=True)
         
         if result.returncode != 0:
             raise HTTPException(status_code=500, detail=f"Conversion failed: {result.stderr}")

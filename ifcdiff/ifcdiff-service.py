@@ -23,8 +23,8 @@ async def api_ifcdiff(request: IfcDiffRequest):
     Returns:
         dict: A dictionary containing the diff results and success status.
     """
-    models_dir = "/app/uploads"
-    output_dir = "/app/output/diff"
+    models_dir = "/uploads"
+    output_dir = "/output/diff"
     old_file_path = os.path.join(models_dir, request.old_file)
     new_file_path = os.path.join(models_dir, request.new_file)
     output_path = os.path.join(output_dir, request.output_file)
