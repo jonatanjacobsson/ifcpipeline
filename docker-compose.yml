@@ -108,17 +108,16 @@ services:
     restart: unless-stopped
 
   n8n:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: docker.n8n.io/n8nio/n8n
     user: root
     ports:
       - "5678:5678"
     volumes:
-      - ./n8n:/home/node/.n8n
+      - ./n8n-data:/home/node/.n8n
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
+      - ./n8n-startup.sh:/n8n-startup.sh
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -132,6 +131,7 @@ services:
     depends_on:
       - api-gateway
     restart: unless-stopped
+    entrypoint: ["/n8n-startup.sh"]
 
   ifc2json:
     build:
