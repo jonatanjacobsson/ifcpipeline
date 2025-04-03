@@ -230,7 +230,7 @@ async def list_directories(_: str = Depends(verify_access)):
     Returns:
         dict: A dictionary containing the directory structure and files.
     """
-    base_dirs = ["/app/uploads", "/app/output"]
+    base_dirs = ["/app/uploads", "/app/output", "/app/examples"]
     directory_structure = {}
 
     for base_dir in base_dirs:
