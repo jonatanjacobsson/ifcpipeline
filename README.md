@@ -91,6 +91,9 @@ The project consists of two main components:
    - n8n interface: `http://localhost:5678`
    - API Documentation: `http://localhost:8000/docs`
 
+6. Install the n8n-nodes-ifcpipeline through the GUI
+    - Helpt
+    
 ## Environment Variables
 
 This project uses environment variables for configuration:
