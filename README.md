@@ -1,6 +1,17 @@
-# IFC Pipeline
+# IfcPipeline
 
-IFC Pipeline is a FastAPI-based service for processing Industry Foundation Classes (IFC) files, integrated with n8n for workflow automation. It provides a set of endpoints for various IFC-related operations, including CSV export, clash detection, and IDS validation.
+<table>
+  <tr>
+    <td>
+      <img src="https://github.com/user-attachments/assets/1279d904-6bc3-41aa-9e9a-9e30e37c3c44" alt="ifcpipeline-smol" width="500"/>
+    </td>
+    <td style="vertical-align: middle;">
+      <p>
+        <strong>IfcPipeline</strong> is a FastAPI-based service for processing Industry Foundation Classes (IFC) files, integrated with n8n for workflow automation. It provides a set of endpoints for various IFC-related operations, including CSV export, clash detection, and IDS validation.
+      </p>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
