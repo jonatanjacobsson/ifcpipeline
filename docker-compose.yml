@@ -122,7 +122,6 @@ services:
     depends_on:
       - api-gateway
     restart: unless-stopped
-    command: n8n start
 
   ifc2json:
     build:
