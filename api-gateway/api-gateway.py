@@ -108,16 +108,22 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
     client_ip = ipaddress.ip_address(request.client.host)
     logger.info(f"Access attempt from IP: {client_ip}")
     
-    if any(client_ip in ip_range for ip_range in ALLOWED_IP_RANGES):
-        logger.info(f"Access granted to {client_ip} (IP in allowed range)")
-        return True
+    # Debug log for troubleshooting IP ranges
+    for ip_range in ALLOWED_IP_RANGES:
+        logger.info(f"Checking if {client_ip} is in allowed range {ip_range}")
+        if client_ip in ip_range:
+            logger.info(f"Access granted to {client_ip} (IP in allowed range {ip_range})")
+            return True
     
+    logger.info(f"IP {client_ip} not in any allowed ranges, checking API key")
+    
+    # Only check API key if not from allowed IP range
     if not api_key:
-        logger.warning(f"Access denied to {client_ip} (No API key provided)")
+        logger.warning(f"Access denied to {client_ip} (No API key provided and not in allowed IP range)")
         raise HTTPException(status_code=403, detail="API key required")
     
     if api_key not in API_KEYS:
-        logger.warning(f"Access denied to {client_ip} (Invalid API key)")
+        logger.warning(f"Access denied to {client_ip} (Invalid API key and not in allowed IP range)")
         raise HTTPException(status_code=403, detail="Invalid API key")
     
     logger.info(f"Access granted to {client_ip} (Valid API key)")
