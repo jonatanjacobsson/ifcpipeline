@@ -106,7 +106,6 @@ services:
       - ./n8n-data:/home/node/.n8n
       - ./shared/uploads:/uploads
       - ./shared/output:/output
-      - ./n8n-nodes-ifcpipeline:/home/node/.n8n/custom/n8n-nodes-ifcpipeline:ro
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -115,12 +114,13 @@ services:
       - WEBHOOK_URL=https://n8n.byggstyrning.se/
       - N8N_SECURE_COOKIE=false
       - TZ=Europe/Stockholm
-      - NODE_FUNCTION_ALLOW_EXTERNAL=puppeteer-core
-      - N8N_CUSTOM_EXTENSIONS=/home/node/.n8n/custom
-      - NODE_ENV=development
     depends_on:
       - api-gateway
     restart: unless-stopped
+    command: >
+      /bin/sh -c "
+        npm install -g n8n-nodes-ifcpipeline &&
+        n8n start"
 
   ifc2json:
     build:
