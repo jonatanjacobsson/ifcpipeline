@@ -131,7 +131,6 @@ services:
     depends_on:
       - api-gateway
     restart: unless-stopped
-    entrypoint: ["/n8n-startup.sh"]
 
   ifc2json:
     build:
