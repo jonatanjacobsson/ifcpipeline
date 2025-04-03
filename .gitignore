@@ -33,4 +33,5 @@ Thumbs.db
 api-gateway/config.json
 
 # Uncomment the line above if you want to ignore the config file
-# Make sure to use a template or example config file for version control
+# Make sure to use a template or example config file for version control# Environment variables
+.env
