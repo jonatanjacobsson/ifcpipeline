@@ -26,6 +26,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     restart: unless-stopped
 
   ifc5d:
@@ -35,6 +36,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -47,6 +49,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -59,6 +62,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -71,6 +75,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -83,6 +88,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -95,6 +101,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -109,6 +116,7 @@ services:
       - ./n8n-data:/home/node/.n8n
       - ./shared/uploads:/uploads
       - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -130,6 +138,7 @@ services:
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
+      - ./shared/examples:/app/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
