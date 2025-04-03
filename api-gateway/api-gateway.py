@@ -36,27 +36,35 @@ download_links: Dict[str, DownloadLink] = {}
 
 # Define the load_config function
 def load_config():
-    config_path = '/app/config.json'
+    # Default configuration
     default_config = {
-        'api_keys': [],
+        'api_keys': ["USE_ENV_VAR"],
         'allowed_ip_ranges': ['127.0.0.1/32']  # Default to localhost only
     }
     
-    try:
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-        # Obscure API keys in logging
-        safe_config = config.copy()
-        if 'api_keys' in safe_config:
-            safe_config['api_keys'] = ['*****' for _ in safe_config['api_keys']]
-        logger.info(f"Loaded configuration: {safe_config}")
-        return config
-    except FileNotFoundError:
-        logger.warning(f"Config file not found at {config_path}. Using default configuration.")
-        return default_config
-    except json.JSONDecodeError:
-        logger.error(f"Error decoding {config_path}. Using default configuration.")
-        return default_config
+    # Load configuration from environment variables
+    env_api_key = os.getenv('IFC_PIPELINE_API_KEY')
+    env_allowed_ip_ranges = os.getenv('IFC_PIPELINE_ALLOWED_IP_RANGES')
+    
+    config = default_config.copy()
+    
+    # Add API key from environment if available
+    if env_api_key:
+        config['api_keys'] = [env_api_key]
+        logger.info("API key loaded from environment variable")
+    
+    # Add IP ranges from environment if available
+    if env_allowed_ip_ranges:
+        config['allowed_ip_ranges'] = env_allowed_ip_ranges.split(',')
+        logger.info(f"Allowed IP ranges loaded from environment: {config['allowed_ip_ranges']}")
+    
+    # Log configuration (with redacted API keys)
+    safe_config = config.copy()
+    if 'api_keys' in safe_config and safe_config['api_keys']:
+        safe_config['api_keys'] = ['*****' for _ in safe_config['api_keys']]
+    logger.info(f"Using configuration: {safe_config}")
+    
+    return config
 
 
 # Load configuration

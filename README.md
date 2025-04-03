@@ -37,8 +37,8 @@ Utilities to implement:
 - [ ] ifcPatch
 
 Other stuff:
-- [x] simple way to handle API keys, using config.json
-- [x] some clever way to add endpoints for custom python tools, add custom containers for them and 
+- [x] simple way to handle API keys, using environment variables
+- [x] some clever way to add endpoints for custom python tools, add custom containers for them
 - [ ] better Error Handling and Logging
 
 Documentation:
@@ -55,34 +55,55 @@ The project consists of two main components:
 1. **IFC Pipeline**: A FastAPI service that handles IFC file processing operations.
 2. **n8n**: A workflow automation tool that orchestrates processes and interacts with the IFC Pipeline service.
 
-## Getting Started
+## Installation and Setup
 
 ### Prerequisites
 
-- git
+- Git
 - Docker Compose
 
-### Installation
-1. Install Git and docker compose
+### Getting Started
+
+1. Install prerequisites (on Ubuntu/Debian):
+   ```bash
+   sudo apt install git docker-compose
    ```
-   apt install git
-   apt install docker-compose
-   ```
+
 2. Clone the repository:
-   ```
+   ```bash
    git clone https://github.com/jonatanjacobsson/ifcpipeline.git
    cd ifcpipeline
    ```
-3. Build and run the Docker containers:
+
+3. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your preferred settings
    ```
+
+4. Build and run the Docker containers:
+   ```bash
    docker-compose up --build -d
    ```
 
-The IFC Pipeline service will be available at `http://localhost:8000`.
-The n8n interface will be accessible at `http://localhost:5678`.
+5. Access the services:
+   - IFC Pipeline API: `http://localhost:8000`
+   - n8n interface: `http://localhost:5678`
+   - API Documentation: `http://localhost:8000/docs`
+
+## Environment Variables
+
+This project uses environment variables for configuration:
+
+### API Gateway Security
+- `IFC_PIPELINE_API_KEY`: API key for authenticating with the API gateway
+- `IFC_PIPELINE_ALLOWED_IP_RANGES`: Comma-separated list of allowed IP ranges in CIDR format
+
+### n8n Configuration
+- `N8N_WEBHOOK_URL`: The webhook URL for n8n
+- `N8N_COMMUNITY_PACKAGES_ENABLED`: Enable/disable community packages
 
 ## Usage
-Use n8n to orchestrate the pipeline. The url to the pipeline inside n8n will be `http://ifcpipeline:8000`.
 
 ### IFC Pipeline API
 
@@ -112,10 +133,6 @@ You can use n8n to:
 - Integrate IFC processing with other services and tools (!)
 
 Access the n8n interface at `http://localhost:5678` to create your user and manage workflows.
-
-## Configuration
-
-The services can be configured using environment variables in the `docker-compose.yml` file.
 
 ## Contributing
 

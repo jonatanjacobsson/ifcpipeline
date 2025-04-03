@@ -21,6 +21,8 @@ services:
       - IFC5D_URL=http://ifc5d
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
+      - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
     volumes:
       - ./shared/uploads:/app/uploads
       - ./shared/output:/app/output
@@ -112,21 +114,15 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - IFC_PIPELINE_URL=http://api-gateway
-      # - WEBHOOK_URL=https://n8n.byggstyrning.se/
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
       - N8N_SECURE_COOKIE=false
       - TZ=Europe/Stockholm
-      - NODE_FUNCTION_ALLOW_EXTERNAL=puppeteer-core
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
     depends_on:
       - api-gateway
     restart: unless-stopped
-    entrypoint: ""
-    command: >
-      /bin/sh -c "mkdir -p /home/node/.n8n/nodes && 
-                 cd /home/node/.n8n/nodes && 
-                 npm install n8n-nodes-ifcpipeline && 
-                 n8n"
+    command: n8n start
 
   ifc2json:
     build:
