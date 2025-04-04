@@ -109,7 +109,6 @@ services:
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
-    user: root
     ports:
       - "5678:5678"
     volumes:
@@ -122,11 +121,12 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - IFC_PIPELINE_URL=http://api-gateway
-      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
       - N8N_SECURE_COOKIE=false
-      - TZ=Europe/Stockholm
+      - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
+      - N8N_RUNNERS_ENABLED=true
     depends_on:
       - api-gateway
     restart: unless-stopped
