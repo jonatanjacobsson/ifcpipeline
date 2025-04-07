@@ -24,6 +24,7 @@ from shared.classes import (
     DownloadRequest,
     IfcQtoRequest,
     IfcCsvImportRequest,
+    DownloadUrlRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 
@@ -347,10 +348,6 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
     """
     return await make_request(f"{IFC5D_URL}/calculate-qtos", request.dict())
 
-# Modify the DownloadUrlRequest class
-class DownloadUrlRequest(BaseModel):
-    url: str  # Changed from HttpUrl to str to be more lenient with URL formats
-
 @app.post("/download-from-url", tags=["File Operations"])
 async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify_access)):
     """
@@ -402,6 +399,11 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
                         detail="Could not determine filename from URL or headers"
                     )
                 
+                # Use the provided output_filename if it exists, otherwise use the original filename
+                if request.output_filename:
+                    filename = request.output_filename
+                
+                # Always save to the uploads directory
                 file_path = os.path.join("/uploads", filename)
                 
                 # Ensure uploads directory exists
