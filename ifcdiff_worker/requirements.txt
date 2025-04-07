@@ -3,3 +3,6 @@ pydantic
 uvicorn
 ifcopenshell
 ifcdiff
+python-multipart
+rq
+redis

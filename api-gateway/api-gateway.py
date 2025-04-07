@@ -1,5 +1,5 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, status
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 import aiohttp
@@ -28,8 +28,14 @@ from shared.classes import (
 )  
 from pydantic import BaseModel, HttpUrl
 
+# RQ Imports
+import redis
+from rq import Queue
+from rq.job import Job
+from rq.exceptions import NoSuchJobError
+
 # Add this at the beginning of your file
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'))
 logger = logging.getLogger(__name__)
 
 # Add this new dictionary to store download links
@@ -105,9 +111,24 @@ IFCCONVERT_URL = os.getenv("IFCCONVERT_URL", "http://ifcconvert")
 IFCCSV_URL = os.getenv("IFCCSV_URL", "http://ifccsv")
 IFCCLASH_URL = os.getenv("IFCCLASH_URL", "http://ifcclash")
 IFCTESTER_URL = os.getenv("IFCTESTER_URL", "http://ifctester")
-IFCDIFF_URL = os.getenv("IFCDIFF_URL", "http://ifcdiff")
 IFC2JSON_URL = os.getenv("IFC2JSON_URL", "http://ifc2json")
 IFC5D_URL = os.getenv("IFC5D_URL", "http://ifc5d")
+
+# Redis and RQ Setup
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost") # Default to localhost if not set, expecting 'redis' in Docker
+REDIS_PORT = 6379
+QUEUE_NAME = "ifcdiff-tasks"
+
+try:
+    redis_conn = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
+    redis_conn.ping() # Check connection
+    logger.info(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+    ifc_diff_queue = Queue(QUEUE_NAME, connection=redis_conn)
+except redis.exceptions.ConnectionError as e:
+    logger.error(f"Failed to connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Error: {e}")
+    # Depending on requirements, you might want to exit or handle this differently
+    redis_conn = None
+    ifc_diff_queue = None
 
 # Set up API key header
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -143,6 +164,10 @@ async def get_aiohttp_session():
     return aiohttp.ClientSession(timeout=timeout)
 
 async def make_request(url, data):
+    # Ensure redis connection is available before proceeding
+    if redis_conn is None:
+         raise HTTPException(status_code=503, detail="Redis service unavailable")
+
     async with await get_aiohttp_session() as session:
         async with session.post(url, json=data) as response:
             return await response.json()
@@ -155,8 +180,8 @@ async def health_check():
         "ifccsv": IFCCSV_URL,
         "ifcclash": IFCCLASH_URL,
         "ifctester": IFCTESTER_URL,
-        "ifcdiff": IFCDIFF_URL,
-        "ifc5d": IFC5D_URL
+        "ifc5d": IFC5D_URL,
+        "redis": f"{REDIS_HOST}:{REDIS_PORT}" # Add Redis status
     }
 
     async def check_service(name, url):
@@ -170,11 +195,20 @@ async def health_check():
         except Exception as e:
             return name, f"unhealthy ({str(e)})"
 
-    tasks = [check_service(name, url) for name, url in services.items() if name != "api-gateway"]
+    tasks = [check_service(name, url) for name, url in services.items() if name not in ["api-gateway", "redis"]]
     results = await asyncio.gather(*tasks)
 
     health_status = dict(results)
     health_status["api-gateway"] = "healthy"
+
+    # Check Redis connection separately
+    try:
+        if redis_conn and redis_conn.ping():
+             health_status["redis"] = "healthy"
+        else:
+             health_status["redis"] = "unhealthy (connection failed)"
+    except Exception as e:
+        health_status["redis"] = f"unhealthy ({str(e)})"
 
     return {"status": "healthy" if all(status == "healthy" for status in health_status.values()) else "unhealthy",
             "services": health_status}
@@ -199,10 +233,117 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
 async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
     return await make_request(f"{IFCTESTER_URL}/ifctester", request.dict())
 
-@app.post("/ifcdiff", tags=["Diff"])
-async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCDIFF_URL}/ifcdiff", request.dict())
-    
+@app.post("/ifcdiff", status_code=status.HTTP_202_ACCEPTED, tags=["Diff"])
+async def enqueue_ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
+    """
+    Enqueue an IFC diff task.
+
+    Receives the diff request and adds it to the background processing queue.
+    Returns a job ID for status tracking.
+    """
+    if ifc_diff_queue is None:
+        raise HTTPException(status_code=503, detail="RQ queue service unavailable due to Redis connection issue.")
+
+    try:
+        # Enqueue the job
+        job = ifc_diff_queue.enqueue(
+            'perform_ifc_diff', # Simple function name (available via the entrypoint script)
+            request.old_file,
+            request.new_file,
+            request.output_file,
+            request.relationships,
+            request.is_shallow,
+            request.filter_elements,
+            job_timeout='2h' # Example: Set a 2-hour timeout for the job
+        )
+        logger.info(f"Enqueued ifcdiff job {job.id} for old='{request.old_file}', new='{request.new_file}'")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Failed to enqueue ifcdiff job: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to enqueue job: {str(e)}")
+
+# New endpoint to check job status
+@app.get("/tasks/{job_id}/status", tags=["Tasks"])
+async def get_task_status(job_id: str, _: str = Depends(verify_access)):
+    """
+    Check the status of a background task.
+    """
+    if redis_conn is None:
+        raise HTTPException(status_code=503, detail="Redis service unavailable")
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+    except NoSuchJobError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+    except Exception as e:
+        logger.error(f"Error fetching job {job_id} status: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error checking job status.")
+
+    status = job.get_status()
+    result = None
+    if status == 'finished':
+        result = job.result
+    elif status == 'failed':
+        # Optionally include error details, be cautious about exposing too much
+        result = job.exc_info # Contains traceback, might be too verbose/sensitive
+        # Or provide a generic error message
+        # result = "Job failed during execution."
+
+    logger.info(f"Status check for job {job_id}: Status='{status}'")
+    return {"job_id": job_id, "status": status, "result": result}
+
+# New endpoint to get job result (if finished)
+@app.get("/tasks/{job_id}/result", tags=["Tasks"])
+async def get_task_result(job_id: str, _: str = Depends(verify_access)):
+    """
+    Get the result of a completed background task.
+    If the result is a file path, consider providing a download link instead.
+    """
+    if redis_conn is None:
+        raise HTTPException(status_code=503, detail="Redis service unavailable")
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+    except NoSuchJobError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+    except Exception as e:
+        logger.error(f"Error fetching job {job_id} result: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error checking job result.")
+
+    status = job.get_status()
+    if status == 'finished':
+        # The result from perform_ifc_diff is the relative output path
+        # Construct the full path on the shared volume
+        output_rel_path = job.result
+        if output_rel_path and isinstance(output_rel_path, str):
+             output_abs_path = os.path.join("/output", output_rel_path) # Assuming worker returns path relative to /output
+             logger.info(f"Result for job {job_id}: File at '{output_abs_path}'")
+             # Option 1: Return the path (client needs to know how to access shared volume)
+             # return {"job_id": job_id, "status": status, "result": output_abs_path}
+
+             # Option 2: Return file content if it's small/text (e.g., JSON diff)
+             # Implement based on expected diff format
+
+             # Option 3: Return a FileResponse to download the file directly
+             if os.path.exists(output_abs_path):
+                 return FileResponse(output_abs_path, filename=os.path.basename(output_rel_path))
+             else:
+                 logger.error(f"Result file for job {job_id} not found at expected path: {output_abs_path}")
+                 raise HTTPException(status_code=404, detail=f"Result file for job {job_id} not found.")
+        else:
+             logger.warning(f"Job {job_id} finished but result is unexpected: {job.result}")
+             return {"job_id": job_id, "status": status, "result": job.result} # Return raw result
+    elif status == 'failed':
+        logger.warning(f"Attempt to get result for failed job {job_id}")
+        return JSONResponse(
+            status_code=400,
+            content={"job_id": job_id, "status": status, "error": "Job failed. Check status endpoint for details."}
+        )
+    else: # queued, started, deferred, scheduled
+        logger.info(f"Result requested for job {job_id} which is not finished (Status: {status})")
+        return JSONResponse(
+            status_code=202, # Accepted or Processing
+            content={"job_id": job_id, "status": status, "message": "Job is still processing."}
+        )
+
 @app.post("/ifc2json", tags=["Conversion"])
 async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
     return await make_request(f"{IFC2JSON_URL}/ifc2json", request.dict())

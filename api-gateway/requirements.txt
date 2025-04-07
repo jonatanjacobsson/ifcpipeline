@@ -4,3 +4,6 @@ python-multipart
 requests
 aiohttp
 typing
+ipaddress
+rq
+redis

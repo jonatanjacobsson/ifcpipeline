@@ -10,17 +10,19 @@ services:
       - ifcclash
       - ifccsv
       - ifctester
-      - ifcdiff
+      - ifcdiff_worker
       - ifc5d
+      - redis
     environment:
       - IFCCONVERT_URL=http://ifcconvert
       - IFCCLASH_URL=http://ifcclash
       - IFCCSV_URL=http://ifccsv
       - IFCTESTER_URL=http://ifctester
-      - IFCDIFF_URL=http://ifcdiff
+      - IFCDIFF_URL=http://ifcdiff_worker
       - IFC5D_URL=http://ifc5d
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_HOST=redis
       - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
       - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
     volumes:
@@ -94,10 +96,11 @@ services:
       - LOG_LEVEL=DEBUG
     restart: unless-stopped
 
-  ifcdiff:
+  ifcdiff_worker:
     build:
       context: .
-      dockerfile: ifcdiff/Dockerfile
+      dockerfile: ifcdiff_worker/Dockerfile
+    command: bash -c "cd /app && PYTHONPATH=/app rq worker -u redis://redis:6379 --worker-ttl 3600 --with-scheduler ifcdiff-tasks"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -105,6 +108,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_HOST=redis
+      - PYTHONPATH=/app
+    depends_on:
+      - redis
     restart: unless-stopped
 
   n8n:
@@ -129,6 +136,7 @@ services:
       - N8N_RUNNERS_ENABLED=true
     depends_on:
       - api-gateway
+      - redis
     restart: unless-stopped
 
   ifc2json:
@@ -144,5 +152,23 @@ services:
       - LOG_LEVEL=DEBUG
     restart: unless-stopped
 
+  redis:
+    image: "redis:7-alpine"
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+
+  rq-dashboard:
+    image: eoranged/rq-dashboard
+    ports:
+      - "9181:9181"
+    environment:
+      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
 volumes:
   shared:
+  redis-data:
