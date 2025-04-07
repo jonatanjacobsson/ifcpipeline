@@ -75,6 +75,9 @@ class IfcDiffRequest(BaseModel):
     old_file: str
     new_file: str
     output_file: str = "diff.json"
+    relationships: Optional[List[str]] = None
+    is_shallow: bool = True
+    filter_elements: Optional[str] = None
 
 class IFC2JSONRequest(BaseModel):
     filename: str
@@ -91,3 +94,7 @@ class DownloadLink(BaseModel):
 class IfcQtoRequest(BaseModel):
     input_file: str
     output_file: Optional[str] = None
+
+class DownloadUrlRequest(BaseModel):
+    url: str
+    output_filename: Optional[str] = None  # Optional path to save the file to, if not provided it will use the filename from the URL
