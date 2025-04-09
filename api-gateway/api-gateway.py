@@ -327,9 +327,9 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
-        # Enqueue job with timeout appropriate for clash detection
+        # Use the direct function path to the worker task
         job = ifcclash_queue.enqueue(
-            "worker_tasks.call_ifcclash",
+            "tasks.run_ifcclash_detection",  # Points directly to function in /app/tasks.py
             request.dict(),
             job_timeout="2h"  # Clash detection can be time-consuming
         )
@@ -352,13 +352,13 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use string reference to worker task
+        # Use the correct path now that tasks.py is directly in /app for this worker
         job = ifctester_queue.enqueue(
-            "worker_tasks.call_ifctester",
+            "tasks.run_ifctester_validation", # Correct path relative to /app
             request.dict(),
             job_timeout="1h"
         )
-        
+
         logger.info(f"Enqueued ifctester job with ID: {job.id}")
         return {"job_id": job.id}
     except Exception as e:

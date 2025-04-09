@@ -7,9 +7,9 @@ services:
       - "8000:80"
     depends_on:
       - ifcconvert
-      - ifcclash
+      - ifcclash-worker
       - ifccsv
-      - ifctester
+      - ifctester-worker
       - ifcdiff
       - ifc5d
       - redis
@@ -17,7 +17,6 @@ services:
       - IFCCONVERT_URL=http://ifcconvert
       - IFCCLASH_URL=http://ifcclash
       - IFCCSV_URL=http://ifccsv
-      - IFCTESTER_URL=http://ifctester
       - IFCDIFF_URL=http://ifcdiff
       - IFC5D_URL=http://ifc5d
       - PYTHONUNBUFFERED=1
@@ -71,9 +70,9 @@ services:
     depends_on:
       - redis
       - ifcconvert
-      - ifcclash
       - ifccsv
-      - ifctester
+      - ifctester-worker
+      - ifcclash-worker
       - ifcdiff
       - ifc5d
     environment:
@@ -91,7 +90,7 @@ services:
       - ./shared/output:/output
       - ./shared/examples:/examples
     restart: unless-stopped
-    command: rq worker default ifcconvert ifcclash ifccsv ifctester ifcdiff ifc5d --url redis://redis:6379/0
+    command: rq worker default ifcconvert ifccsv ifcdiff ifc5d --url redis://redis:6379/0
     deploy:
       resources:
         limits:
@@ -134,10 +133,10 @@ services:
           cpus: '0.3'
           memory: 512M
 
-  ifcclash:
+  ifcclash-worker:
     build:
       context: .
-      dockerfile: ifcclash/Dockerfile
+      dockerfile: ifcclash-worker/Dockerfile
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -145,6 +144,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
     deploy:
       resources:
@@ -170,10 +172,10 @@ services:
           cpus: '0.3'
           memory: 256M
 
-  ifctester:
+  ifctester-worker:
     build:
       context: .
-      dockerfile: ifctester/Dockerfile
+      dockerfile: ifctester-worker/Dockerfile
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -181,6 +183,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
     deploy:
       resources:

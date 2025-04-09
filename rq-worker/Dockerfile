@@ -1,30 +1,35 @@
-FROM python:3.9-slim
+FROM python:3.9
 
 WORKDIR /app
 
-# Install Docker CLI
-RUN apt-get update && \
-    apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
-    apt-get install -y docker-ce-cli && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy the worker task definitions and shared module
-COPY rq-worker/worker_tasks.py .
+# Copy shared libraries first
 COPY shared /app/shared
+RUN pip install -e /app/shared
 
-# Install dependencies including pydantic and shared module
-RUN pip install --no-cache-dir -e /app/shared && \
-    pip install --no-cache-dir rq redis requests pydantic && \
-    rm -rf /root/.cache/pip
+# Copy requirements from all services
+COPY ifctester-worker/requirements.txt /app/service_requirements/ifctester.txt
+COPY ifcconvert/requirements.txt /app/service_requirements/ifcconvert.txt
+COPY ifccsv/requirements.txt /app/service_requirements/ifccsv.txt
+COPY ifcdiff/requirements.txt /app/service_requirements/ifcdiff.txt
+COPY ifc5d/requirements.txt /app/service_requirements/ifc5d.txt
 
-# Define environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH="${PYTHONPATH}:/app"
+# Install all service requirements
+RUN pip install --no-cache-dir -r /app/service_requirements/ifctester.txt \
+                               -r /app/service_requirements/ifcconvert.txt \
+                               -r /app/service_requirements/ifccsv.txt \
+                               -r /app/service_requirements/ifcdiff.txt \
+                               -r /app/service_requirements/ifc5d.txt \
+                               rq
 
-# Command to run (will be overridden by docker-compose)
-CMD ["rq", "worker", "default", "--url", "redis://redis:6379/0"] 
+# Copy worker tasks module
+COPY rq-worker/worker_tasks.py /app/worker_tasks.py
+COPY rq-worker/__init__.py /app/
+
+# Copy service task modules
+COPY ifctester-worker /app/ifctester_worker
+
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH=/app
+
+# Command to run the RQ worker for all queues
+CMD ["rq", "worker", "default", "ifcconvert", "ifccsv", "ifctester", "ifcdiff", "ifc5d", "--url", "redis://redis:6379/0"] 

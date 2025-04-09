@@ -1,0 +1,7 @@
+ifcclash==0.7.10
+ifcopenshell==0.7.10
+numpy
+scikit-learn
+typing_extensions
+pydantic
+rq 
