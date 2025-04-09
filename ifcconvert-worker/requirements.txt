@@ -1,0 +1,3 @@
+ifcopenshell
+rq
+pydantic # Needed for IfcConvertRequest 

@@ -1,7 +1,0 @@
-fastapi
-pydantic
-uvicorn
-ifccsv
-ifcopenshell
-pandas
-openpyxl

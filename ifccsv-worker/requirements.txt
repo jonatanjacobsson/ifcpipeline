@@ -1,0 +1,6 @@
+ifccsv
+ifcopenshell
+pandas
+openpyxl # Required for XLSX export/import
+rq
+pydantic # Needed for request models 

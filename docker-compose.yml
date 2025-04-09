@@ -6,19 +6,14 @@ services:
     ports:
       - "8000:80"
     depends_on:
-      - ifcconvert
+      - ifcconvert-worker
       - ifcclash-worker
-      - ifccsv
+      - ifccsv-worker
       - ifctester-worker
-      - ifcdiff
-      - ifc5d
+      - ifcdiff-worker
+      - ifc5d-worker
       - redis
     environment:
-      - IFCCONVERT_URL=http://ifcconvert
-      - IFCCLASH_URL=http://ifcclash
-      - IFCCSV_URL=http://ifccsv
-      - IFCDIFF_URL=http://ifcdiff
-      - IFC5D_URL=http://ifc5d
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
@@ -63,51 +58,20 @@ services:
           cpus: '0.1'
           memory: 128M
 
-  rq-worker:
+  ifc5d-worker:
     build:
       context: .
-      dockerfile: rq-worker/Dockerfile
-    depends_on:
-      - redis
-      - ifcconvert
-      - ifccsv
-      - ifctester-worker
-      - ifcclash-worker
-      - ifcdiff
-      - ifc5d
+      dockerfile: ifc5d-worker/Dockerfile
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
-      - IFCCONVERT_URL=http://ifcconvert
-      - IFCCLASH_URL=http://ifcclash
-      - IFCCSV_URL=http://ifccsv
-      - IFCTESTER_URL=http://ifctester
-      - IFCDIFF_URL=http://ifcdiff
-      - IFC5D_URL=http://ifc5d
-    volumes:
-      - ./shared/uploads:/uploads
-      - ./shared/output:/output
-      - ./shared/examples:/examples
-    restart: unless-stopped
-    command: rq worker default ifcconvert ifccsv ifcdiff ifc5d --url redis://redis:6379/0
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: '1G'
-
-  ifc5d:
-    build:
-      context: .
-      dockerfile: ifc5d/Dockerfile
-    volumes:
-      - ./shared/uploads:/uploads
-      - ./shared/output:/output
-      - ./shared/examples:/examples
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+    depends_on:
+      - redis
     restart: unless-stopped
     deploy:
       resources:
@@ -115,10 +79,10 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  ifcconvert:
+  ifcconvert-worker:
     build:
       context: .
-      dockerfile: ifcconvert/Dockerfile
+      dockerfile: ifcconvert-worker/Dockerfile
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -126,11 +90,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.3'
+          cpus: '0.5'
           memory: 512M
 
   ifcclash-worker:
@@ -149,15 +116,16 @@ services:
       - redis
     restart: unless-stopped
     deploy:
+      replicas: 2
       resources:
         limits:
           cpus: '4.0'
           memory: 6G
 
-  ifccsv:
+  ifccsv-worker:
     build:
       context: .
-      dockerfile: ifccsv/Dockerfile
+      dockerfile: ifccsv-worker/Dockerfile
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -165,12 +133,15 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.3'
-          memory: 256M
+          cpus: '0.5'
+          memory: 512M
 
   ifctester-worker:
     build:
@@ -193,10 +164,10 @@ services:
           cpus: '0.3'
           memory: 512M
 
-  ifcdiff:
+  ifcdiff-worker:
     build:
       context: .
-      dockerfile: ifcdiff/Dockerfile
+      dockerfile: ifcdiff-worker/Dockerfile
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -204,12 +175,37 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+
+  ifc2json-worker:
+    build:
+      context: .
+      dockerfile: ifc2json-worker/Dockerfile
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
+          cpus: '0.5'
+          memory: 512M
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
@@ -239,24 +235,6 @@ services:
         limits:
           cpus: '4'
           memory: 4000M
-
-  ifc2json:
-    build:
-      context: .
-      dockerfile: ifc2json/Dockerfile
-    volumes:
-      - ./shared/uploads:/uploads
-      - ./shared/output:/output
-      - ./shared/examples:/examples
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 512M
 
 volumes:
   shared:

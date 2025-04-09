@@ -2,8 +2,6 @@ from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
-import aiohttp
-from aiohttp import ClientTimeout
 from typing import Dict, List
 import os
 import json
@@ -30,6 +28,9 @@ from pydantic import BaseModel, HttpUrl
 from redis import Redis
 from rq import Queue
 from rq.job import Job, JobStatus
+from rq.worker import Worker
+import aiohttp
+from aiohttp import ClientTimeout
 
 # Add this at the beginning of your file
 logging.basicConfig(level=logging.INFO)
@@ -124,15 +125,6 @@ app.add_middleware(
     max_age=3600,
 )
 
-# Define service URLs
-IFCCONVERT_URL = os.getenv("IFCCONVERT_URL", "http://ifcconvert")
-IFCCSV_URL = os.getenv("IFCCSV_URL", "http://ifccsv")
-IFCCLASH_URL = os.getenv("IFCCLASH_URL", "http://ifcclash")
-IFCTESTER_URL = os.getenv("IFCTESTER_URL", "http://ifctester")
-IFCDIFF_URL = os.getenv("IFCDIFF_URL", "http://ifcdiff")
-IFC2JSON_URL = os.getenv("IFC2JSON_URL", "http://ifc2json")
-IFC5D_URL = os.getenv("IFC5D_URL", "http://ifc5d")
-
 # Set up API key header
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -162,55 +154,95 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
     logger.info(f"Access granted to {client_ip} (Valid API key)")
     return True
 
+# Re-add get_aiohttp_session function needed for /download-from-url
 async def get_aiohttp_session():
-    timeout = ClientTimeout(total=3600)
+    timeout = ClientTimeout(total=3600) # Set a reasonable timeout for downloads
     return aiohttp.ClientSession(timeout=timeout)
-
-# Keep this function for direct requests (used by health check)
-async def make_request(url, data):
-    async with await get_aiohttp_session() as session:
-        async with session.post(url, json=data) as response:
-            return await response.json()
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    services = {
+    """Checks the health of the API Gateway, Redis, and Worker Queues."""
+    health_status = {
         "api-gateway": "healthy",
-        "ifcconvert": IFCCONVERT_URL,
-        "ifccsv": IFCCSV_URL,
-        "ifcclash": IFCCLASH_URL,
-        "ifctester": IFCTESTER_URL,
-        "ifcdiff": IFCDIFF_URL,
-        "ifc5d": IFC5D_URL,
-        "redis": redis_url
+        "redis": "unhealthy", 
+        "ifcconvert_queue": "unhealthy",
+        "ifcclash_queue": "unhealthy",
+        "ifccsv_queue": "unhealthy",
+        "ifctester_queue": "unhealthy",
+        "ifcdiff_queue": "unhealthy",
+        "ifc5d_queue": "unhealthy",
+        "ifc2json_queue": "unhealthy",
+        "default_queue": "unhealthy",
     }
 
-    async def check_service(name, url):
-        try:
-            async with await get_aiohttp_session() as session:
-                async with session.get(f"{url}/health") as response:
-                    if response.status == 200:
-                        return name, "healthy"
-                    else:
-                        return name, f"unhealthy (status code: {response.status})"
-        except Exception as e:
-            return name, f"unhealthy ({str(e)})"
-
-    tasks = [check_service(name, url) for name, url in services.items() if name not in ["api-gateway", "redis"]]
-    results = await asyncio.gather(*tasks)
-
-    health_status = dict(results)
-    health_status["api-gateway"] = "healthy"
-    
     # Check Redis health
     try:
         redis_alive = redis_conn.ping()
-        health_status["redis"] = "healthy" if redis_alive else "unhealthy"
+        if redis_alive:
+            health_status["redis"] = "healthy"
+        else:
+             logger.warning("Redis ping failed.")
     except Exception as e:
+        logger.error(f"Redis connection error: {str(e)}")
         health_status["redis"] = f"unhealthy ({str(e)})"
+        # If Redis is down, queues can't be checked
+        overall_status = "unhealthy"
+        return {"status": overall_status, "services": health_status}
+        
+    # Check Queue Health (requires Redis connection)
+    all_queues = {
+        "ifcconvert_queue": ifcconvert_queue,
+        "ifcclash_queue": ifcclash_queue,
+        "ifccsv_queue": ifccsv_queue,
+        "ifctester_queue": ifctester_queue,
+        "ifcdiff_queue": ifcdiff_queue,
+        "ifc5d_queue": ifc5d_queue,
+        "ifc2json_queue": ifc2json_queue,
+        "default_queue": default_queue
+    }
+    
+    try:
+        # Fetch all registered workers
+        workers = Worker.all(connection=redis_conn)
+        active_queues_by_workers = set()
+        for worker in workers:
+            active_queues_by_workers.update(worker.queue_names())
+        logger.info(f"Active workers are listening to queues: {active_queues_by_workers}")
 
-    return {"status": "healthy" if all(status == "healthy" for status in health_status.values()) else "unhealthy",
-            "services": health_status}
+        for key, queue_obj in all_queues.items():
+            queue_name = queue_obj.name
+            # Basic check: Does the queue exist in Redis?
+            if redis_conn.exists(queue_obj.key):
+                # More advanced check: Is at least one worker listening to this queue?
+                if queue_name in active_queues_by_workers:
+                    health_status[key] = "healthy"
+                else:
+                    health_status[key] = "degraded (queue exists, no active worker)"
+                    logger.warning(f"Queue '{queue_name}' exists but no worker is actively listening.")
+            else:
+                health_status[key] = "unhealthy (queue key not found in Redis)"
+                logger.warning(f"Queue key '{queue_obj.key}' not found in Redis for queue '{queue_name}'.")
+                
+    except Exception as e:
+        logger.error(f"Error checking RQ queues/workers: {str(e)}")
+        # Mark all unchecked queues as unknown or error state
+        for key in all_queues.keys():
+            if health_status[key] == "unhealthy": # Only update if not already checked
+                 health_status[key] = f"error checking ({str(e)})"
+
+    # Determine overall status
+    # Healthy only if API Gateway, Redis, and all queues are healthy
+    is_healthy = all(status == "healthy" for key, status in health_status.items() if key != "api-gateway")
+    is_degraded = any("degraded" in status for status in health_status.values())
+    
+    if is_healthy and health_status["redis"] == "healthy": # Double check redis explicitly
+        overall_status = "healthy"
+    elif is_degraded:
+        overall_status = "degraded"
+    else:
+        overall_status = "unhealthy"
+
+    return {"status": overall_status, "services": health_status}
 
 # Add endpoint to check job status
 @app.get("/jobs/{job_id}/status", response_model=JobStatusResponse, tags=["Jobs"])
@@ -252,11 +284,11 @@ async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use string reference to worker task
+        # Enqueue job to the dedicated ifcconvert worker queue
         job = ifcconvert_queue.enqueue(
-            "worker_tasks.call_ifcconvert",
+            "tasks.run_ifcconvert",  # Points directly to function in /app/tasks.py for ifcconvert-worker
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h"  # Adjust timeout as needed
         )
         
         logger.info(f"Enqueued ifcconvert job with ID: {job.id}")
@@ -268,7 +300,7 @@ async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)
 @app.post("/ifccsv", tags=["Conversion"])
 async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
     """
-    Export IFC data to CSV.
+    Export IFC data to CSV, ODS, or XLSX.
     
     Args:
         request (IfcCsvRequest): The request body containing the export parameters.
@@ -277,23 +309,23 @@ async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use string reference to worker task
+        # Enqueue job to the dedicated ifccsv worker queue
         job = ifccsv_queue.enqueue(
-            "worker_tasks.call_ifccsv",
+            "tasks.run_ifc_to_csv_conversion", # Points to function in /app/tasks.py for ifccsv-worker
             request.dict(),
             job_timeout="1h"
         )
         
-        logger.info(f"Enqueued ifccsv job with ID: {job.id}")
+        logger.info(f"Enqueued ifccsv export job with ID: {job.id}")
         return {"job_id": job.id}
     except Exception as e:
-        logger.error(f"Error enqueueing ifccsv job: {str(e)}")
+        logger.error(f"Error enqueueing ifccsv export job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifccsv/import", tags=["Conversion"])
 async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verify_access)):
     """
-    Import CSV data to IFC.
+    Import data from CSV, ODS, or XLSX into an IFC model.
     
     Args:
         request (IfcCsvImportRequest): The request body containing the import parameters.
@@ -302,9 +334,9 @@ async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verif
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use string reference to worker task
+        # Enqueue job to the dedicated ifccsv worker queue
         job = ifccsv_queue.enqueue(
-            "worker_tasks.call_ifccsv_import",
+            "tasks.run_csv_to_ifc_import", # Points to function in /app/tasks.py for ifccsv-worker
             request.dict(),
             job_timeout="1h"
         )
@@ -377,9 +409,9 @@ async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use direct HTTP request instead of importing worker task
+        # Enqueue job to the dedicated ifcdiff worker queue
         job = ifcdiff_queue.enqueue(
-            "worker_tasks.call_ifcdiff",  # Use string to specify function name
+            "tasks.run_ifcdiff",  # Points to function in /app/tasks.py for ifcdiff-worker
             request.dict(),
             job_timeout="1h"
         )
@@ -402,9 +434,9 @@ async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use string reference to worker task
+        # Enqueue job to the dedicated ifc2json worker queue
         job = ifc2json_queue.enqueue(
-            "worker_tasks.call_ifc2json",
+            "tasks.run_ifc_to_json_conversion", # Points to function in /app/tasks.py for ifc2json-worker
             request.dict(),
             job_timeout="1h"
         )
@@ -442,9 +474,9 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
         dict: A dictionary containing the job ID.
     """
     try:
-        # Use string reference to worker task
+        # Enqueue job to the dedicated ifc5d worker queue
         job = ifc5d_queue.enqueue(
-            "worker_tasks.call_ifc5d_qtos",
+            "tasks.run_qto_calculation", # Points to function in /app/tasks.py for ifc5d-worker
             request.dict(),
             job_timeout="1h"
         )

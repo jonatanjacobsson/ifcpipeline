@@ -1,0 +1,4 @@
+ifcopenshell
+ifc5d
+rq
+pydantic # Needed for IfcQtoRequest 

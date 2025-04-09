@@ -1,0 +1,4 @@
+ifcopenshell
+ifcdiff
+rq
+pydantic # Needed for IfcDiffRequest 
