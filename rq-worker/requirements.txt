@@ -2,3 +2,5 @@ rq
 redis
 requests
 pydantic
+ifcopenshell
+ifctester

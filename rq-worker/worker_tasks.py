@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 IFCCONVERT_URL = os.getenv("IFCCONVERT_URL", "http://ifcconvert")
 IFCCSV_URL = os.getenv("IFCCSV_URL", "http://ifccsv")
 IFCCLASH_URL = os.getenv("IFCCLASH_URL", "http://ifcclash")
-IFCTESTER_URL = os.getenv("IFCTESTER_URL", "http://ifctester")
 IFCDIFF_URL = os.getenv("IFCDIFF_URL", "http://ifcdiff")
 IFC2JSON_URL = os.getenv("IFC2JSON_URL", "http://ifc2json")
 IFC5D_URL = os.getenv("IFC5D_URL", "http://ifc5d")
@@ -58,7 +57,24 @@ def call_ifcclash(request_data):
 
 def call_ifctester(request_data):
     """Task function for IFC validation service"""
-    return call_service(IFCTESTER_URL, "ifctester", request_data)
+    logger.info(f"Processing IFC validation request: {request_data.get('ifc_filename', 'unknown')}")
+    try:
+        # Import the specific function directly to avoid namespace conflicts with the external ifctester package
+        # Use absolute import to ensure we get our local implementation
+        import sys
+        import os
+        
+        # Ensure the local module is found first
+        module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        if module_path not in sys.path:
+            sys.path.insert(0, module_path)
+            
+        # Now import our specific implementation
+        from ifctester.tasks import run_ifctester_validation
+        return run_ifctester_validation(request_data)
+    except Exception as e:
+        logger.error(f"Error in call_ifctester: {str(e)}", exc_info=True)
+        raise
 
 def call_ifcdiff(request_data):
     """Task function for IFC diff service"""

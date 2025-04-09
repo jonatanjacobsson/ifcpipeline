@@ -1,0 +1,1 @@
+# Make rq-worker a proper Python package 
