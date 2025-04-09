@@ -190,12 +190,12 @@ rq-worker:
 Based on service complexity and importance, we'll migrate the remaining services in this order:
 
 1. ✅ ifctester → ifctester-worker (completed)
-2. 🔲 ifcclash → ifcclash-worker (next to implement)
-3. 🔲 ifcconvert → ifcconvert-worker
-4. 🔲 ifccsv → ifccsv-worker
-5. 🔲 ifcdiff → ifcdiff-worker
-6. 🔲 ifc5d → ifc5d-worker
-7. 🔲 ifc2json → ifc2json-worker
+2. ✅ ifcclash → ifcclash-worker (completed)
+3. ✅ ifcconvert → ifcconvert-worker (completed)
+4. ✅ ifccsv → ifccsv-worker (completed)
+5. ✅ ifcdiff → ifcdiff-worker (completed)
+6. ✅ ifc5d → ifc5d-worker (completed)
+7. ✅ ifc2json → ifc2json-worker (completed)
 
 ## Key Learnings from ifctester-worker Migration
 

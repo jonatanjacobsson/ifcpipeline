@@ -1,0 +1,3 @@
+rq
+pydantic # Needed for IFC2JSONRequest
+# No ifcopenshell needed as it uses an external tool 

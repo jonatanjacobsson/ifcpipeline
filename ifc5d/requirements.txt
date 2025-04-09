@@ -1,5 +1,0 @@
-fastapi
-pydantic
-uvicorn
-ifcopenshell
-ifc5d
