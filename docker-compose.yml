@@ -116,7 +116,7 @@ services:
       - redis
     restart: unless-stopped
     deploy:
-      replicas: 2
+      replicas: 1
       resources:
         limits:
           cpus: '4.0'
@@ -180,7 +180,7 @@ services:
       - redis
     restart: unless-stopped
     deploy:
-      replicas: 2
+      replicas: 1
       resources:
         limits:
           cpus: '4.0'
