@@ -1,0 +1,4 @@
+rq
+redis
+requests
+pydantic

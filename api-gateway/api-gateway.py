@@ -27,6 +27,9 @@ from shared.classes import (
     DownloadUrlRequest,
 )  
 from pydantic import BaseModel, HttpUrl
+from redis import Redis
+from rq import Queue
+from rq.job import Job, JobStatus
 
 # Add this at the beginning of your file
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +37,27 @@ logger = logging.getLogger(__name__)
 
 # Add this new dictionary to store download links
 download_links: Dict[str, DownloadLink] = {}
+
+# Configure Redis connection
+redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+redis_conn = Redis.from_url(redis_url)
+
+# Create RQ queues
+default_queue = Queue('default', connection=redis_conn)
+ifcconvert_queue = Queue('ifcconvert', connection=redis_conn)
+ifccsv_queue = Queue('ifccsv', connection=redis_conn)
+ifcclash_queue = Queue('ifcclash', connection=redis_conn)
+ifctester_queue = Queue('ifctester', connection=redis_conn)
+ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
+ifc2json_queue = Queue('ifc2json', connection=redis_conn)
+ifc5d_queue = Queue('ifc5d', connection=redis_conn)
+
+# Define job status response model
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: dict = None
+    error: str = None
 
 # Define the load_config function
 def load_config():
@@ -142,6 +166,7 @@ async def get_aiohttp_session():
     timeout = ClientTimeout(total=3600)
     return aiohttp.ClientSession(timeout=timeout)
 
+# Keep this function for direct requests (used by health check)
 async def make_request(url, data):
     async with await get_aiohttp_session() as session:
         async with session.post(url, json=data) as response:
@@ -156,7 +181,8 @@ async def health_check():
         "ifcclash": IFCCLASH_URL,
         "ifctester": IFCTESTER_URL,
         "ifcdiff": IFCDIFF_URL,
-        "ifc5d": IFC5D_URL
+        "ifc5d": IFC5D_URL,
+        "redis": redis_url
     }
 
     async def check_service(name, url):
@@ -170,42 +196,224 @@ async def health_check():
         except Exception as e:
             return name, f"unhealthy ({str(e)})"
 
-    tasks = [check_service(name, url) for name, url in services.items() if name != "api-gateway"]
+    tasks = [check_service(name, url) for name, url in services.items() if name not in ["api-gateway", "redis"]]
     results = await asyncio.gather(*tasks)
 
     health_status = dict(results)
     health_status["api-gateway"] = "healthy"
+    
+    # Check Redis health
+    try:
+        redis_alive = redis_conn.ping()
+        health_status["redis"] = "healthy" if redis_alive else "unhealthy"
+    except Exception as e:
+        health_status["redis"] = f"unhealthy ({str(e)})"
 
     return {"status": "healthy" if all(status == "healthy" for status in health_status.values()) else "unhealthy",
             "services": health_status}
 
+# Add endpoint to check job status
+@app.get("/jobs/{job_id}/status", response_model=JobStatusResponse, tags=["Jobs"])
+async def get_job_status(job_id: str, _: str = Depends(verify_access)):
+    """
+    Get the status of a job.
+    
+    Args:
+        job_id (str): The ID of the job to check.
+    
+    Returns:
+        JobStatusResponse: A response containing the job status and result if available.
+    """
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+        status = job.get_status()
+        
+        response = {"job_id": job_id, "status": status}
+        
+        if status == JobStatus.FINISHED:
+            response["result"] = job.result
+        elif status == JobStatus.FAILED and job.exc_info:
+            response["error"] = job.exc_info
+            
+        return response
+    except Exception as e:
+        logger.error(f"Error getting job status: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
 @app.post("/ifcconvert", tags=["Conversion"])
 async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCCONVERT_URL}/ifcconvert", request.dict())
+    """
+    Convert an IFC file to another format.
+    
+    Args:
+        request (IfcConvertRequest): The request body containing the conversion parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use string reference to worker task
+        job = ifcconvert_queue.enqueue(
+            "worker_tasks.call_ifcconvert",
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued ifcconvert job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifcconvert job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifccsv", tags=["Conversion"])
 async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCCSV_URL}/ifccsv", request.dict())
+    """
+    Export IFC data to CSV.
+    
+    Args:
+        request (IfcCsvRequest): The request body containing the export parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use string reference to worker task
+        job = ifccsv_queue.enqueue(
+            "worker_tasks.call_ifccsv",
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued ifccsv job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifccsv job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifccsv/import", tags=["Conversion"])
 async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCCSV_URL}/ifccsv/import", request.dict())
+    """
+    Import CSV data to IFC.
+    
+    Args:
+        request (IfcCsvImportRequest): The request body containing the import parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use string reference to worker task
+        job = ifccsv_queue.enqueue(
+            "worker_tasks.call_ifccsv_import",
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued ifccsv import job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifccsv import job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifcclash", tags=["Clash Detection"])
 async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCCLASH_URL}/ifcclash", request.model_dump())
+    """
+    Detect clashes between IFC models.
+    
+    Args:
+        request (IfcClashRequest): The request body containing the clash detection parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Enqueue job with timeout appropriate for clash detection
+        job = ifcclash_queue.enqueue(
+            "worker_tasks.call_ifcclash",
+            request.dict(),
+            job_timeout="2h"  # Clash detection can be time-consuming
+        )
+        
+        logger.info(f"Enqueued ifcclash job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifcclash job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifctester", tags=["Validation"])
 async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCTESTER_URL}/ifctester", request.dict())
+    """
+    Validate an IFC file against IDS rules.
+    
+    Args:
+        request (IfcTesterRequest): The request body containing the validation parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use string reference to worker task
+        job = ifctester_queue.enqueue(
+            "worker_tasks.call_ifctester",
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued ifctester job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifctester job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifcdiff", tags=["Diff"])
 async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFCDIFF_URL}/ifcdiff", request.dict())
+    """
+    Compare two IFC files and generate a diff report.
+    
+    Args:
+        request (IfcDiffRequest): The request body containing the diff parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use direct HTTP request instead of importing worker task
+        job = ifcdiff_queue.enqueue(
+            "worker_tasks.call_ifcdiff",  # Use string to specify function name
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued ifcdiff job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifcdiff job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     
 @app.post("/ifc2json", tags=["Conversion"])
 async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
-    return await make_request(f"{IFC2JSON_URL}/ifc2json", request.dict())
+    """
+    Convert an IFC file to JSON.
+    
+    Args:
+        request (IFC2JSONRequest): The request body containing the conversion parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use string reference to worker task
+        job = ifc2json_queue.enqueue(
+            "worker_tasks.call_ifc2json",
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued ifc2json job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifc2json job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/ifc2json/{filename}", tags=["Conversion"])
 async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
@@ -222,6 +430,30 @@ async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/calculate-qtos", tags=["Analysis"])
+async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)):
+    """
+    Calculate quantities for an IFC file and insert them back into the file.
+    
+    Args:
+        request (IfcQtoRequest): The request body containing the calculation parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        # Use string reference to worker task
+        job = ifc5d_queue.enqueue(
+            "worker_tasks.call_ifc5d_qtos",
+            request.dict(),
+            job_timeout="1h"
+        )
+        
+        logger.info(f"Enqueued calculate-qtos job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing calculate-qtos job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/list_directories", summary="List Available Directories and Files", tags=["File Operations"])
 async def list_directories(_: str = Depends(verify_access)):
@@ -334,19 +566,6 @@ async def download_file(token: str):
         raise HTTPException(status_code=404, detail="File not found")
     
     return FileResponse(file_path, filename=os.path.basename(file_path))
-
-@app.post("/calculate-qtos", tags=["Analysis"])
-async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)):
-    """
-    Calculate quantities for an IFC file and insert them back into the file.
-    
-    Args:
-        request (IfcQtoRequest): The request body containing the input file and optional output file.
-    
-    Returns:
-        dict: The response from the IFC5D service.
-    """
-    return await make_request(f"{IFC5D_URL}/calculate-qtos", request.dict())
 
 @app.post("/download-from-url", tags=["File Operations"])
 async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify_access)):
