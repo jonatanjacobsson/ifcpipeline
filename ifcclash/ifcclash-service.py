@@ -1,10 +1,57 @@
 from fastapi import FastAPI, HTTPException, Depends
 from shared.classes import IfcClashRequest, ClashSet, ClashFile, ClashMode
-from ifcclash.ifcclash import Clasher, ClashSettings
 import logging
 import json
 import os
 import time
+import ifcopenshell
+import ifcopenshell.util.selector
+import ifcopenshell.geom
+import multiprocessing
+
+# Monkey patch the problematic method in ifcclash before importing the module
+import sys
+
+# Define a replacement for the add_collision_objects method
+def patched_add_collision_objects(self, name, ifc_file, mode, selector):
+    start = time.time()
+    self.settings.logger.info("Creating iterator")
+    if not mode or mode == "a" or not selector:
+        elements = set(ifc_file.by_type("IfcElement"))
+        elements -= set(ifc_file.by_type("IfcFeatureElement"))
+    elif mode == "e":
+        elements = set(ifc_file.by_type("IfcElement"))
+        elements -= set(ifc_file.by_type("IfcFeatureElement"))
+        elements -= set(ifcopenshell.util.selector.filter_elements(ifc_file, selector))
+    elif mode == "i":
+        elements = set(ifcopenshell.util.selector.filter_elements(ifc_file, selector))
+        
+    # Convert elements to a list of element ID strings for the iterator
+    element_ids = [str(e.id()) for e in elements]
+    
+    iterator = ifcopenshell.geom.iterator(
+        self.geom_settings, ifc_file, multiprocessing.cpu_count(), include=element_ids
+    )
+    self.settings.logger.info(f"Iterator creation finished {time.time() - start}")
+
+    start = time.time()
+    self.logger.info(f"Adding objects {name} ({len(elements)} elements)")
+    assert iterator.initialize()
+    while True:
+        self.tree.add_element(iterator.get())
+        shape = iterator.get()
+        if not iterator.next():
+            break
+    self.logger.info(f"Tree finished {time.time() - start}")
+    start = time.time()
+    self.groups[name]["elements"].update({e.GlobalId: e for e in elements})
+    self.logger.info(f"Element metadata finished {time.time() - start}")
+    start = time.time()
+
+# Import and apply monkey patch
+from ifcclash.ifcclash import Clasher, ClashSettings
+# Apply the patch
+Clasher.add_collision_objects = patched_add_collision_objects
 
 app = FastAPI()
 

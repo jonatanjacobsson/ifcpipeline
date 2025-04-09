@@ -1,13 +1,17 @@
-FROM python:3.9
+FROM python:3.9-slim
 
-WORKDIR /
+WORKDIR /app
 
-COPY shared /shared
-RUN pip install -e /shared
+COPY ./shared /app/shared
+COPY ./api-gateway/requirements.txt .
+COPY ./api-gateway/api-gateway.py .
+COPY ./rq-worker/worker_tasks.py .
 
-COPY api-gateway/requirements.txt .
-RUN pip install -r requirements.txt
+# Install pip requirements
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir rq redis
 
-COPY api-gateway/api-gateway.py .
+ENV PYTHONUNBUFFERED=1
 
+# Command to run the API gateway
 CMD ["uvicorn", "api-gateway:app", "--host", "0.0.0.0", "--port", "80"]
