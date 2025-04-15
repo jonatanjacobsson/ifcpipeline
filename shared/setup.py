@@ -6,5 +6,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         "pydantic",
+        "psycopg2-binary>=2.9.5",
     ],
 )

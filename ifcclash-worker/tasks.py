@@ -8,6 +8,7 @@ import ifcopenshell.util.selector
 import ifcopenshell.geom
 import multiprocessing
 from ifcclash.ifcclash import Clasher, ClashSettings
+from shared.db_client import save_clash_result
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -150,16 +151,37 @@ def run_ifcclash_detection(job_data: dict) -> dict:
             
             # Count clashes
             clash_count = 0
+            clash_set_names = []
             for clash_set in clash_results:
                 clash_count += len(clash_set.get("clashes", {}))
-                
-            # Return the results
-            return {
+                clash_set_names.append(clash_set.get("name", "Unnamed"))
+            
+            # Create a comma-separated string of clash set names
+            clash_set_name = ", ".join(clash_set_names)
+            
+            # Save to PostgreSQL
+            logger.info("Saving clash result to PostgreSQL database")
+            db_id = save_clash_result(
+                clash_set_name=clash_set_name,
+                output_filename=output_path,
+                clash_count=clash_count,
+                clash_data=clash_results,
+                original_clash_id=None  # Set to None for new clash sets
+            )
+            
+            # Return the results (include db_id if available)
+            result = {
                 "success": True,
                 "result": clash_results,
                 "clash_count": clash_count,
                 "output_path": output_path
             }
+            
+            # Add database ID if available
+            if db_id:
+                result["db_id"] = db_id
+            
+            return result
         except Exception as e:
             logger.error(f"Error reading result file: {str(e)}")
             return {

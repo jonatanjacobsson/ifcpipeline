@@ -1,8 +1,10 @@
 import logging
 import os
+import json
 import ifcopenshell
 from ifcdiff import IfcDiff
 from shared.classes import IfcDiffRequest
+from shared.db_client import save_diff_result
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -67,14 +69,36 @@ def run_ifcdiff(job_data: dict) -> dict:
         ifc_diff_instance.export(output_path)
         logger.info("Diff results exported successfully.")
         
+        # Load the diff data from the output file
+        diff_data = {}
+        try:
+            with open(output_path, 'r') as json_file:
+                diff_data = json.load(json_file)
+        except Exception as e:
+            logger.error(f"Error reading diff result file: {str(e)}")
+            logger.warning("Continuing with empty diff data for database storage")
+        
+        # Save to database
+        logger.info("Saving diff results to database...")
+        db_id = save_diff_result(
+            old_file=request.old_file,
+            new_file=request.new_file,
+            output_filename=output_path,
+            diff_data=diff_data
+        )
+        
         # The ifcdiff library writes the file directly, return success and path
-        return {
+        result = {
             "success": True,
             "message": f"IFC diff completed. Results saved to {output_path}",
             "output_path": output_path
-            # We could potentially load and return the JSON content from output_path if needed
-            # For now, just confirming success and output location.
         }
+        
+        # Add database ID if available
+        if db_id:
+            result["db_id"] = db_id
+            
+        return result
 
     except FileNotFoundError as e:
         logger.error(f"File not found error during IFC diff: {str(e)}", exc_info=True)

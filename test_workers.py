@@ -3,9 +3,14 @@ Test script to enqueue jobs to the IFC Pipeline RQ workers and monitor their com
 
 Prerequisites:
 1. Docker environment running (`docker-compose up -d`).
-2. Local Python environment with `redis` and `rq` installed (`pip install redis rq`).
+2. Local Python environment with `redis`, `rq`, and `psycopg2` installed (`pip install redis rq psycopg2-binary`).
 3. Sample IFC files (`sample_a.ifc`, `sample_b.ifc`) in `./shared/uploads/`.
 4. Optionally, clean `./shared/output/` before running for clearer results.
+
+Note on database verification:
+- The ifcclash test includes verification that results are saved to the PostgreSQL database.
+- The test will only pass if the worker successfully performs clash detection AND saves results to the database.
+- This ensures that the database connectivity is working properly.
 """
 
 import redis
@@ -15,6 +20,8 @@ import os
 import uuid
 import pprint
 import logging
+import argparse
+import psycopg2
 
 # --- Configuration ---
 REDIS_HOST = 'localhost'
@@ -27,8 +34,8 @@ SHARED_UPLOADS_DIR = os.path.join(SCRIPT_DIR, 'shared', 'uploads')
 SHARED_OUTPUT_DIR = os.path.join(SCRIPT_DIR, 'shared', 'output')
 
 # Sample filenames (ensure these exist in ./shared/uploads)
-SAMPLE_FILE_A = "sample_a.ifc"
-SAMPLE_FILE_B = "sample_b.ifc"
+SAMPLE_FILE_A = "A1_2b_BIM_XXX_0001_00.ifc"
+SAMPLE_FILE_B = "S2_2b_BIM_XXX_0001_00.ifc"
 
 # Worker Queues
 QUEUE_NAMES = [
@@ -101,6 +108,8 @@ def enqueue_and_wait(queue, func_string, job_data, description):
         return False
 
     start_time = time.time()
+    max_wait_time = min(WAIT_TIMEOUT, 300)  # Use a shorter timeout of 5 minutes max
+    
     while True:
         job.refresh()
         status = job.get_status()
@@ -124,7 +133,7 @@ def enqueue_and_wait(queue, func_string, job_data, description):
         else:
              logger.warning(f"Job {job.id} has unexpected status: {status}")
              
-        if elapsed_time > WAIT_TIMEOUT:
+        if elapsed_time > max_wait_time:
             logger.error(f"Job {job.id} timed out waiting for completion after {elapsed_time:.2f} seconds.")
             return False
             
@@ -143,17 +152,18 @@ def test_ifcconvert(queues):
 
 def test_ifcclash(queues):
     # Basic clash request structure (mimics IfcClashRequest)
+    test_name = f"TestSet_A_vs_B_{uuid.uuid4().hex[:8]}"
     job_data = {
         "clash_sets": [
             {
-                "name": "TestSet_A_vs_B",
+                "name": test_name,
                 "a": [{"file": SAMPLE_FILE_A, "mode": "a", "selector": None}],
                 "b": [{"file": SAMPLE_FILE_B, "mode": "a", "selector": None}]
             }
         ],
         "tolerance": 0.05,
-        "output_filename": "clash_result.json",
-        "mode": "basic", # or "clearance"
+        "output_filename": f"clash_result_{uuid.uuid4().hex[:8]}.json",
+        "mode": "intersection",  # Changed from "basic" to valid enum value
         "clearance": 0.1, # Only used if mode is clearance
         "check_all": False,
         "allow_touching": False,
@@ -161,7 +171,61 @@ def test_ifcclash(queues):
         "max_cluster_distance": 1.0
     }
     # Paths within job_data need to be relative to /uploads
-    return enqueue_and_wait(queues['ifcclash'], 'tasks.run_ifcclash_detection', job_data, "IFC Clash Detection")
+    job_success = enqueue_and_wait(queues['ifcclash'], 'tasks.run_ifcclash_detection', job_data, "IFC Clash Detection")
+    
+    # Verify database insertion
+    if job_success:
+        logger.info("Checking database for clash results...")
+        try:
+            # Get PostgreSQL connection details from environment
+            db_host = os.environ.get("POSTGRES_HOST", "localhost")
+            db_port = os.environ.get("POSTGRES_PORT", "5432")
+            db_name = os.environ.get("POSTGRES_DB", "ifcpipeline")
+            db_user = os.environ.get("POSTGRES_USER", "ifcpipeline")
+            db_pass = os.environ.get("POSTGRES_PASSWORD", "")
+            
+            logger.info(f"Connecting to PostgreSQL at {db_host}:{db_port}, database: {db_name}")
+            
+            # Connect to PostgreSQL
+            conn = psycopg2.connect(
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                user=db_user,
+                password=db_pass
+            )
+            
+            # Query clash_results table
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM clash_results WHERE clash_set_name LIKE %s", 
+                          (f"%{test_name}%",))
+            count = cursor.fetchone()[0]
+            
+            # Check if at least one record exists with the test clash set name
+            if count > 0:
+                logger.info(f"Database verification successful: Found {count} record(s) in clash_results table for test set: {test_name}")
+                
+                # Get the most recent record for detailed information
+                cursor.execute("SELECT id, clash_count, created_at FROM clash_results WHERE clash_set_name LIKE %s ORDER BY created_at DESC LIMIT 1", 
+                             (f"%{test_name}%",))
+                record = cursor.fetchone()
+                if record:
+                    logger.info(f"Latest record: ID={record[0]}, Clash Count={record[1]}, Created at={record[2]}")
+                
+                conn.close()
+                return True
+            else:
+                logger.error(f"Database verification failed: No records found in clash_results table for test set: {test_name}")
+                conn.close()
+                return False
+                
+        except Exception as e:
+            logger.error(f"Database verification failed with error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    return job_success
 
 def test_ifccsv_export(queues):
     job_data = {
@@ -195,21 +259,31 @@ def test_ifccsv_import(queues):
     return enqueue_and_wait(queues['ifccsv'], 'tasks.run_csv_to_ifc_import', job_data, "CSV to IFC Import")
     
 def test_ifctester(queues):
-    # Assuming a simple request structure for ifctester-worker
+    # Get list of available IDS files
+    ids_files = [f for f in os.listdir(SHARED_UPLOADS_DIR) if f.endswith('.ids')]
+    
+    if not ids_files:
+        logger.error("No IDS files found in uploads directory. Skipping ifctester test.")
+        return False
+    
+    ids_file = ids_files[0]  # Use the first available IDS file
+    logger.info(f"Using IDS file: {ids_file}")
+    
     job_data = {
-        "filename": SAMPLE_FILE_A, # Relative to /uploads
-        "output_filename": f"{SAMPLE_FILE_A}_test_report.json" # Relative to /output/test (adjust if needed)
+        "ifc_filename": SAMPLE_FILE_A,  # Relative to /uploads
+        "ids_filename": ids_file,  # Relative to /uploads
+        "output_filename": f"{SAMPLE_FILE_A}_test_report.json",  # Relative to /output/test
+        "report_type": "json"
     }
-    # The actual task function name might be different, assuming 'tasks.run_ifctester'
-    # Check ifctester-worker/tasks.py if this fails.
-    return enqueue_and_wait(queues['ifctester'], 'tasks.run_ifctester', job_data, "IFC Tester Execution")
+    
+    return enqueue_and_wait(queues['ifctester'], 'tasks.run_ifctester_validation', job_data, "IFC Tester Execution")
     
 def test_ifcdiff(queues):
     job_data = {
         "old_file": SAMPLE_FILE_A, # Relative to /uploads
         "new_file": SAMPLE_FILE_B, # Relative to /uploads
         "output_file": "diff_a_vs_b.json", # Relative to /output/diff
-        "relationships": True, # Example options
+        "relationships": None,  # Changed from True to None to match expected List[str] type
         "is_shallow": False,
         "filter_elements": None
     }
@@ -232,6 +306,14 @@ def test_ifc2json(queues):
 # --- Main Execution ---
 
 def main():
+    parser = argparse.ArgumentParser(description='Test IFC Pipeline workers')
+    parser.add_argument('--workers', type=str, nargs='+', choices=[
+        'ifcconvert', 'ifcclash', 'ifccsv_export', 'ifctester', 'ifcdiff', 'ifc5d', 'ifc2json', 'all'
+    ], default=['all'], help='Workers to test')
+    
+    args = parser.parse_args()
+    workers = args.workers
+    
     logger.info("Starting Worker Test Script...")
     
     if not check_sample_files():
@@ -243,21 +325,43 @@ def main():
     
     results = {}
     
-    # Run tests sequentially
-    results["ifcconvert"] = test_ifcconvert(queues)
-    results["ifcclash"] = test_ifcclash(queues)
-    results["ifccsv_export"] = test_ifccsv_export(queues)
-    # results["ifccsv_import"] = test_ifccsv_import(queues) # Uncomment if CSV import setup is ready
-    results["ifctester"] = test_ifctester(queues)
-    results["ifcdiff"] = test_ifcdiff(queues)
-    results["ifc5d"] = test_ifc5d(queues)
-    results["ifc2json"] = test_ifc2json(queues)
+    # Determine which tests to run
+    all_tests = 'all' in workers
+    
+    # Run selected tests
+    if all_tests or 'ifcconvert' in workers:
+        results["ifcconvert"] = test_ifcconvert(queues)
+    
+    if all_tests or 'ifcclash' in workers:
+        logger.info("Running ifcclash test with database verification - test will only pass if data is saved to PostgreSQL")
+        results["ifcclash"] = test_ifcclash(queues)
+    
+    if all_tests or 'ifccsv_export' in workers:
+        results["ifccsv_export"] = test_ifccsv_export(queues)
+    
+    # if all_tests or 'ifccsv_import' in workers:
+    #     results["ifccsv_import"] = test_ifccsv_import(queues)
+    
+    if all_tests or 'ifctester' in workers:
+        results["ifctester"] = test_ifctester(queues)
+    
+    if all_tests or 'ifcdiff' in workers:
+        results["ifcdiff"] = test_ifcdiff(queues)
+    
+    if all_tests or 'ifc5d' in workers:
+        results["ifc5d"] = test_ifc5d(queues)
+    
+    if all_tests or 'ifc2json' in workers:
+        results["ifc2json"] = test_ifc2json(queues)
     
     logger.info("--- Test Summary ---")
     all_passed = True
     for test_name, success in results.items():
         status = "PASSED" if success else "FAILED"
-        logger.info(f"Test {test_name}: {status}")
+        if test_name == "ifcclash" and not success:
+            logger.error(f"Test {test_name}: {status} - Including database insertion verification")
+        else:
+            logger.info(f"Test {test_name}: {status}")
         if not success:
             all_passed = False
             
