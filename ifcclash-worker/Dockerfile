@@ -17,4 +17,4 @@ COPY ifcclash-worker/ /app/
 ENV PYTHONUNBUFFERED=1
 
 # Run the RQ worker pointing to the specific queue
-CMD ["rq", "worker", "ifcclash", "--url", "redis://redis:6379/0"] 
+CMD ["rq", "worker", "ifcclash", "--url", "redis://redis:6379/0"]

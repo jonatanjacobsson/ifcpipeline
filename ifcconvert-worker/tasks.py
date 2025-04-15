@@ -2,6 +2,7 @@ import subprocess
 import os
 import logging
 from shared.classes import IfcConvertRequest
+from shared.db_client import save_conversion_result
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -102,15 +103,46 @@ Log content:
                 
             raise RuntimeError(error_message) # Raise for RQ
 
+        # Create a dictionary of conversion options for database storage
+        conversion_options = {
+            "verbose": request.verbose,
+            "plan": request.plan,
+            "model": request.model,
+            "weld_vertices": request.weld_vertices,
+            "use_world_coords": request.use_world_coords,
+            "convert_back_units": request.convert_back_units,
+            "sew_shells": request.sew_shells,
+            "merge_boolean_operands": request.merge_boolean_operands,
+            "disable_opening_subtractions": request.disable_opening_subtractions,
+            "bounds": request.bounds,
+            "include": request.include,
+            "exclude": request.exclude,
+            "log_file": log_file_path
+        }
+        
+        # Save to database
+        logger.info("Saving conversion result to database...")
+        db_id = save_conversion_result(
+            input_filename=request.input_filename,
+            output_filename=output_path,
+            conversion_options=conversion_options
+        )
+
         # Success
         logger.info(f"File converted successfully to {output_path}")
-        return {
+        result_dict = {
             "success": True,
             "message": f"File converted successfully to {output_path}",
             "log_file": log_file_path,
             "stdout": result.stdout,
             "stderr": result.stderr # Might contain warnings even on success
         }
+        
+        # Add database ID if available
+        if db_id:
+            result_dict["db_id"] = db_id
+            
+        return result_dict
 
     except FileNotFoundError as e:
         logger.error(f"File not found error during IFC conversion: {str(e)}", exc_info=True)

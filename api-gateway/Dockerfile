@@ -5,7 +5,6 @@ WORKDIR /app
 COPY ./shared /app/shared
 COPY ./api-gateway/requirements.txt .
 COPY ./api-gateway/api-gateway.py .
-COPY ./rq-worker/worker_tasks.py .
 
 # Install pip requirements
 RUN pip install --no-cache-dir -r requirements.txt && \

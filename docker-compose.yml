@@ -91,8 +91,14 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     deploy:
       resources:
@@ -112,15 +118,21 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     deploy:
       replicas: 1
       resources:
         limits:
           cpus: '4.0'
-          memory: 6G
+          memory: '6G'
 
   ifccsv-worker:
     build:
@@ -141,7 +153,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M
+          memory: 1gb
 
   ifctester-worker:
     build:
@@ -155,14 +167,20 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: '0.3'
-          memory: 512M
+          memory: 1gb
 
   ifcdiff-worker:
     build:
@@ -176,11 +194,17 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     deploy:
-      replicas: 1
+      replicas: 2
       resources:
         limits:
           cpus: '4.0'
@@ -205,12 +229,15 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M
+          memory: 1gb
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
     ports:
       - "5678:5678"
+    networks:
+      - default
+      - remotely-net
     volumes:
       - ./n8n-data:/home/node/.n8n
       - ./shared/uploads:/uploads
@@ -222,20 +249,72 @@ services:
       - N8N_PROTOCOL=http
       - IFC_PIPELINE_URL=http://api-gateway
       - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - REMOTELY_URL=http://remotely:5000
       - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
       - N8N_RUNNERS_ENABLED=true
+      # PostgreSQL SSL settings
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - PGSSLMODE=disable
     depends_on:
       - api-gateway
+      - postgres
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: '4'
-          memory: 4000M
+          memory: 6000M
+
+  postgres:
+    image: postgres:14
+    container_name: ifc_pipeline_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ifcpipeline}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  pgweb:
+    image: sosedoff/pgweb
+    container_name: ifc_pipeline_pgweb
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-ifcpipeline}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ifcpipeline}?sslmode=disable
+    depends_on:
+      - postgres
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 256M
 
 volumes:
   shared:
   redis-data:
+  postgres-data:
+  pgadmin-data:
+
+networks:
+  default:
+  remotely-net:
+    name: remotely-net
+    external: true

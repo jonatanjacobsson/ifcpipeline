@@ -20,6 +20,8 @@
 - IFC validation against IDS (Information Delivery Specification)
 - IFC file download from URL
 - Integration with n8n for workflow automation
+- PostgreSQL database integration for storing processing results
+- Centralized database client for all workers
 
 ![chrome_sDioFJ8Vvy](https://github.com/user-attachments/assets/c2336ad4-c5bd-4a1f-9346-1b710135a9c9)
 
@@ -39,6 +41,7 @@ Utilities to implement:
 Other stuff:
 - [x] simple way to handle API keys, using environment variables
 - [x] some clever way to add endpoints for custom python tools, add custom containers for them
+- [x] persistent storage of processing results in PostgreSQL
 - [ ] better Error Handling and Logging
 
 Documentation:
@@ -50,10 +53,11 @@ Documentation:
 
 ## Architecture
 
-The project consists of two main components:
+The project consists of three main components:
 
 1. **IFC Pipeline**: A FastAPI service that handles IFC file processing operations.
 2. **n8n**: A workflow automation tool that orchestrates processes and interacts with the IFC Pipeline service.
+3. **PostgreSQL**: A database for storing processing results from various IFC workers.
 
 ## Installation and Setup
 
@@ -106,6 +110,13 @@ This project uses environment variables for configuration:
 - `N8N_WEBHOOK_URL`: The webhook URL for n8n
 - `N8N_COMMUNITY_PACKAGES_ENABLED`: Enable/disable community packages
 
+### Database Configuration
+- `POSTGRES_USER`: PostgreSQL username (default: ifcpipeline)
+- `POSTGRES_PASSWORD`: PostgreSQL password
+- `POSTGRES_DB`: PostgreSQL database name (default: ifcpipeline)
+- `POSTGRES_HOST`: PostgreSQL host (default: postgres)
+- `POSTGRES_PORT`: PostgreSQL port (default: 5432)
+
 ## Usage
 
 ### IFC Pipeline API
@@ -136,6 +147,16 @@ You can use n8n to:
 - Integrate IFC processing with other services and tools (!)
 
 Access the n8n interface at `http://localhost:5678` to create your user and manage workflows.
+
+### Database Management
+
+The PostgreSQL database stores results from IFC processing workers. The `postgres/` directory contains utilities for database management:
+
+- `postgres/backup.sh`: Script for backing up the database
+- `postgres/maintenance.sh`: Script for database maintenance
+- `postgres/README.md`: Documentation for PostgreSQL integration
+
+For more details on the database configuration and management, see the [PostgreSQL README](postgres/README.md).
 
 ## Contributing
 
