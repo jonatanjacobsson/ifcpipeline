@@ -12,12 +12,17 @@ services:
       - ifctester-worker
       - ifcdiff-worker
       - ifc5d-worker
+      - ifcpatch-worker
+      - ifc-classifier
       - redis
+      - ifc-viewer
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
       - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
+      - IFC_PIPELINE_EXTERNAL_URL=${IFC_PIPELINE_EXTERNAL_URL}
+      - IFC_PIPELINE_PREVIEW_EXTERNAL_URL=${IFC_PIPELINE_PREVIEW_EXTERNAL_URL}
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./shared/uploads:/uploads
@@ -29,6 +34,21 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+
+  ifc-viewer:
+    build:
+      context: ./ifc-viewer
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE=${IFC_PIPELINE_EXTERNAL_URL}
+    ports:
+      - "8001:3000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 256M
 
   redis:
     image: "redis:alpine"
@@ -78,6 +98,28 @@ services:
         limits:
           cpus: '0.5'
           memory: 512M
+
+  ifcpatch-worker:
+    build:
+      context: .
+      dockerfile: ifcpatch-worker/Dockerfile
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+      - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
 
   ifcconvert-worker:
     build:
@@ -132,7 +174,7 @@ services:
       resources:
         limits:
           cpus: '4.0'
-          memory: '6G'
+          memory: '12G'
 
   ifccsv-worker:
     build:
@@ -153,7 +195,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 1gb
+          memory: 1G
 
   ifctester-worker:
     build:
@@ -180,7 +222,7 @@ services:
       resources:
         limits:
           cpus: '0.3'
-          memory: 1gb
+          memory: 1G
 
   ifcdiff-worker:
     build:
@@ -208,7 +250,7 @@ services:
       resources:
         limits:
           cpus: '4.0'
-          memory: 4G
+          memory: '12G'
 
   ifc2json-worker:
     build:
@@ -229,7 +271,25 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 1gb
+          memory: 1G
+
+  ifc-classifier:
+    build:
+      context: .
+      dockerfile: ifc-classifier-service/Dockerfile
+    ports:
+      - "8002:8000"  # Exposed for debugging, accessed internally via service name
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./ifc-classifier-service/models:/app/models
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
@@ -254,7 +314,6 @@ services:
       - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
-      - N8N_RUNNERS_ENABLED=true
       # PostgreSQL SSL settings
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - PGSSLMODE=disable
@@ -306,6 +365,28 @@ services:
         limits:
           cpus: '0.3'
           memory: 256M
+
+  cleanup-service:
+    image: alpine
+    volumes:
+      - ./shared/output:/output
+    command: >
+      sh -c '
+      while true; do
+        echo "[Cleanup] Starting cleanup process..."
+        find /output/clash -type f -name "*.json" -mtime +7 -exec sh -c "echo \"[Cleanup] Removing file (older than 7 days): {}\"; rm \"{}\"" \;
+        find /output/diff -type f -name "*.json" -mtime +7 -exec sh -c "echo \"[Cleanup] Removing file (older than 7 days): {}\"; rm \"{}\"" \;
+        find /output -type d -empty -exec sh -c "echo \"[Cleanup] Removing empty directory: {}\"; rmdir \"{}\"" \;
+        echo "[Cleanup] Cleanup completed. Sleeping for 24 hours..."
+        sleep 86400
+      done
+      '
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
 
 volumes:
   shared:

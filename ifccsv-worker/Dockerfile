@@ -1,5 +1,5 @@
 # ifccsv-worker/Dockerfile
-FROM python:3.10 as base
+FROM python:3.10 AS base
 
 WORKDIR /app
 
