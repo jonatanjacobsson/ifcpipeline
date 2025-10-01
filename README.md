@@ -15,6 +15,8 @@
 
 ## Features
 
+
+
 - IFC to CSV conversion
 - Clash detection between IFC models
 - IFC validation against IDS (Information Delivery Specification)
@@ -57,7 +59,11 @@ The project consists of three main components:
 
 1. **IFC Pipeline**: A FastAPI service that handles IFC file processing operations.
 2. **n8n**: A workflow automation tool that orchestrates processes and interacts with the IFC Pipeline service.
-3. **PostgreSQL**: A database for storing processing results from various IFC workers.
+3. **Queue system**: A Redis Queue system that can handle incoming schedules tasks
+4. **Workers**: A set of containarized python workers that execute queued tasks
+
+### Diagram
+<img width="1698" height="1712" alt="diagram-export-2025-10-01-13_46_57" src="https://github.com/user-attachments/assets/840f3e4e-4562-44ef-9172-71b24e9d2b38" />
 
 ## Installation and Setup
 
