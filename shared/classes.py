@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 from enum import Enum
 
@@ -98,3 +98,68 @@ class IfcQtoRequest(BaseModel):
 class DownloadUrlRequest(BaseModel):
     url: str
     output_filename: Optional[str] = None  # Optional path to save the file to, if not provided it will use the filename from the URL
+
+class IfcClassifyRequest(BaseModel):
+    category: str
+    family: str
+    type: str
+    manufacturer: str = ""
+    description: str = ""
+
+class IfcClassifyBatchRequest(BaseModel):
+    elements: List[IfcClassifyRequest]
+
+class IfcClassificationResult(BaseModel):
+    ifc_class: str
+    predefined_type: Optional[str] = None
+    confidence: float
+    element_id: Optional[str] = None
+
+class IfcClassifyResponse(BaseModel):
+    result: IfcClassificationResult
+    processing_time_ms: float
+
+class IfcClassifyBatchResponse(BaseModel):
+    results: List[IfcClassificationResult]
+    processing_time_ms: float
+    total_elements: int
+
+# IfcPatch Worker Classes
+class IfcPatchRequest(BaseModel):
+    """Request model for IfcPatch operations"""
+    input_file: str = Field(..., description="Input IFC filename in /uploads")
+    output_file: str = Field(..., description="Output IFC filename")
+    recipe: str = Field(..., description="Recipe name (built-in or custom)")
+    arguments: Optional[List[Any]] = Field(default=[], description="Recipe-specific arguments")
+    use_custom: bool = Field(default=False, description="Whether to use custom recipe")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "input_file": "model.ifc",
+                "output_file": "model_patched.ifc",
+                "recipe": "ExtractElements",
+                "arguments": [".IfcWall"],
+                "use_custom": False
+            }
+        }
+
+class IfcPatchListRecipesRequest(BaseModel):
+    """Request to list available recipes"""
+    include_custom: bool = Field(default=True, description="Include custom recipes")
+    include_builtin: bool = Field(default=True, description="Include built-in recipes")
+
+class RecipeInfo(BaseModel):
+    """Information about a recipe"""
+    name: str
+    description: str
+    is_custom: bool
+    parameters: List[Dict[str, Any]]
+    output_type: Optional[str] = None
+
+class IfcPatchListRecipesResponse(BaseModel):
+    """Response with available recipes"""
+    recipes: List[RecipeInfo]
+    total_count: int
+    builtin_count: int
+    custom_count: int

@@ -1,5 +1,5 @@
 # ifc5d-worker/Dockerfile
-FROM python:3.10-slim as base
+FROM python:3.10-slim AS base
 
 WORKDIR /app
 

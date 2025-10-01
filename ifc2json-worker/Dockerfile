@@ -1,6 +1,6 @@
 # ifc2json-worker/Dockerfile
 # Use the same base image that provides the .NET runtime needed by ConvertIfc2Json
-FROM mcr.microsoft.com/dotnet/aspnet:6.0 as base
+FROM mcr.microsoft.com/dotnet/aspnet:6.0 AS base
 
 WORKDIR /
 

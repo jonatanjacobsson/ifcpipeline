@@ -1,0 +1,10 @@
+# Core dependencies
+rq
+pydantic
+
+# IFC dependencies
+ifcopenshell
+ifcpatch
+
+# Additional utilities
+typing-extensions

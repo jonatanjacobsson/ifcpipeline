@@ -142,13 +142,69 @@ def enqueue_and_wait(queue, func_string, job_data, description):
 # --- Test Functions ---
 
 def test_ifcconvert(queues):
+    test_name = f"ConvertTest_{uuid.uuid4().hex[:8]}"
     job_data = {
         "input_filename": f"/uploads/{SAMPLE_FILE_A}",
         "output_filename": f"/output/converted/{SAMPLE_FILE_A}.obj",
         # Add other IfcConvertRequest options as needed
-        "log_file": f"/output/converted/{SAMPLE_FILE_A}_convert_log.txt"
+        "log_file": f"/output/converted/{SAMPLE_FILE_A}_convert_log.txt",
+        "test_name": test_name  # Add test identifier
     }
-    return enqueue_and_wait(queues['ifcconvert'], 'tasks.run_ifcconvert', job_data, "IFC to OBJ Conversion")
+    job_success = enqueue_and_wait(queues['ifcconvert'], 'tasks.run_ifcconvert', job_data, "IFC to OBJ Conversion")
+    
+    # Verify database insertion
+    if job_success:
+        logger.info("Checking database for conversion results...")
+        try:
+            # Get PostgreSQL connection details from environment
+            db_host = os.environ.get("POSTGRES_HOST", "localhost")
+            db_port = os.environ.get("POSTGRES_PORT", "5432")
+            db_name = os.environ.get("POSTGRES_DB", "ifcpipeline")
+            db_user = os.environ.get("POSTGRES_USER", "ifcpipeline")
+            db_pass = os.environ.get("POSTGRES_PASSWORD", "")
+            
+            logger.info(f"Connecting to PostgreSQL at {db_host}:{db_port}, database: {db_name}")
+            
+            # Connect to PostgreSQL
+            conn = psycopg2.connect(
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                user=db_user,
+                password=db_pass
+            )
+            
+            # Query conversions table
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM conversions WHERE test_name = %s", 
+                          (test_name,))
+            count = cursor.fetchone()[0]
+            
+            # Check if at least one record exists with the test name
+            if count > 0:
+                logger.info(f"Database verification successful: Found {count} record(s) in conversions table for test: {test_name}")
+                
+                # Get the most recent record for detailed information
+                cursor.execute("SELECT id, filename, output_format, created_at FROM conversions WHERE test_name = %s ORDER BY created_at DESC LIMIT 1", 
+                             (test_name,))
+                record = cursor.fetchone()
+                if record:
+                    logger.info(f"Latest record: ID={record[0]}, Filename={record[1]}, Format={record[2]}, Created at={record[3]}")
+                
+                conn.close()
+                return True
+            else:
+                logger.error(f"Database verification failed: No records found in conversions table for test: {test_name}")
+                conn.close()
+                return False
+                
+        except Exception as e:
+            logger.error(f"Database verification failed with error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    return job_success
 
 def test_ifcclash(queues):
     # Basic clash request structure (mimics IfcClashRequest)
@@ -269,25 +325,137 @@ def test_ifctester(queues):
     ids_file = ids_files[0]  # Use the first available IDS file
     logger.info(f"Using IDS file: {ids_file}")
     
+    test_name = f"TestIFC_{uuid.uuid4().hex[:8]}"
     job_data = {
         "ifc_filename": SAMPLE_FILE_A,  # Relative to /uploads
         "ids_filename": ids_file,  # Relative to /uploads
         "output_filename": f"{SAMPLE_FILE_A}_test_report.json",  # Relative to /output/test
-        "report_type": "json"
+        "report_type": "json",
+        "test_name": test_name  # Add test identifier
     }
     
-    return enqueue_and_wait(queues['ifctester'], 'tasks.run_ifctester_validation', job_data, "IFC Tester Execution")
+    job_success = enqueue_and_wait(queues['ifctester'], 'tasks.run_ifctester_validation', job_data, "IFC Tester Execution")
+    
+    # Verify database insertion
+    if job_success:
+        logger.info("Checking database for validation results...")
+        try:
+            # Get PostgreSQL connection details from environment
+            db_host = os.environ.get("POSTGRES_HOST", "localhost")
+            db_port = os.environ.get("POSTGRES_PORT", "5432")
+            db_name = os.environ.get("POSTGRES_DB", "ifcpipeline")
+            db_user = os.environ.get("POSTGRES_USER", "ifcpipeline")
+            db_pass = os.environ.get("POSTGRES_PASSWORD", "")
+            
+            logger.info(f"Connecting to PostgreSQL at {db_host}:{db_port}, database: {db_name}")
+            
+            # Connect to PostgreSQL
+            conn = psycopg2.connect(
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                user=db_user,
+                password=db_pass
+            )
+            
+            # Query validations table
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM validations WHERE test_name = %s", 
+                          (test_name,))
+            count = cursor.fetchone()[0]
+            
+            # Check if at least one record exists with the test name
+            if count > 0:
+                logger.info(f"Database verification successful: Found {count} record(s) in validations table for test: {test_name}")
+                
+                # Get the most recent record for detailed information
+                cursor.execute("SELECT id, pass_count, fail_count, created_at FROM validations WHERE test_name = %s ORDER BY created_at DESC LIMIT 1", 
+                             (test_name,))
+                record = cursor.fetchone()
+                if record:
+                    logger.info(f"Latest record: ID={record[0]}, Pass Count={record[1]}, Fail Count={record[2]}, Created at={record[3]}")
+                
+                conn.close()
+                return True
+            else:
+                logger.error(f"Database verification failed: No records found in validations table for test: {test_name}")
+                conn.close()
+                return False
+                
+        except Exception as e:
+            logger.error(f"Database verification failed with error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    return job_success
     
 def test_ifcdiff(queues):
+    test_name = f"DiffTest_{uuid.uuid4().hex[:8]}"
     job_data = {
         "old_file": SAMPLE_FILE_A, # Relative to /uploads
         "new_file": SAMPLE_FILE_B, # Relative to /uploads
         "output_file": "diff_a_vs_b.json", # Relative to /output/diff
         "relationships": None,  # Changed from True to None to match expected List[str] type
         "is_shallow": False,
-        "filter_elements": None
+        "filter_elements": None,
+        "test_name": test_name  # Add test identifier
     }
-    return enqueue_and_wait(queues['ifcdiff'], 'tasks.run_ifcdiff', job_data, "IFC Diff Comparison")
+    job_success = enqueue_and_wait(queues['ifcdiff'], 'tasks.run_ifcdiff', job_data, "IFC Diff Comparison")
+    
+    # Verify database insertion
+    if job_success:
+        logger.info("Checking database for diff results...")
+        try:
+            # Get PostgreSQL connection details from environment
+            db_host = os.environ.get("POSTGRES_HOST", "localhost")
+            db_port = os.environ.get("POSTGRES_PORT", "5432")
+            db_name = os.environ.get("POSTGRES_DB", "ifcpipeline")
+            db_user = os.environ.get("POSTGRES_USER", "ifcpipeline")
+            db_pass = os.environ.get("POSTGRES_PASSWORD", "")
+            
+            logger.info(f"Connecting to PostgreSQL at {db_host}:{db_port}, database: {db_name}")
+            
+            # Connect to PostgreSQL
+            conn = psycopg2.connect(
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                user=db_user,
+                password=db_pass
+            )
+            
+            # Query diff_results table
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM diff_results WHERE test_name = %s", 
+                          (test_name,))
+            count = cursor.fetchone()[0]
+            
+            # Check if at least one record exists with the test name
+            if count > 0:
+                logger.info(f"Database verification successful: Found {count} record(s) in diff_results table for test: {test_name}")
+                
+                # Get the most recent record for detailed information
+                cursor.execute("SELECT id, added_count, modified_count, deleted_count, created_at FROM diff_results WHERE test_name = %s ORDER BY created_at DESC LIMIT 1", 
+                             (test_name,))
+                record = cursor.fetchone()
+                if record:
+                    logger.info(f"Latest record: ID={record[0]}, Added={record[1]}, Modified={record[2]}, Deleted={record[3]}, Created at={record[4]}")
+                
+                conn.close()
+                return True
+            else:
+                logger.error(f"Database verification failed: No records found in diff_results table for test: {test_name}")
+                conn.close()
+                return False
+                
+        except Exception as e:
+            logger.error(f"Database verification failed with error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+    
+    return job_success
     
 def test_ifc5d(queues):
     job_data = {
@@ -303,6 +471,65 @@ def test_ifc2json(queues):
     }
     return enqueue_and_wait(queues['ifc2json'], 'tasks.run_ifc_to_json_conversion', job_data, "IFC to JSON Conversion")
 
+def clean_test_data_from_db():
+    """Cleans test data from the database by removing test records created by the test script."""
+    try:
+        # Get PostgreSQL connection details from environment
+        db_host = os.environ.get("POSTGRES_HOST", "localhost")
+        db_port = os.environ.get("POSTGRES_PORT", "5432")
+        db_name = os.environ.get("POSTGRES_DB", "ifcpipeline")
+        db_user = os.environ.get("POSTGRES_USER", "ifcpipeline")
+        db_pass = os.environ.get("POSTGRES_PASSWORD", "")
+        
+        logger.info(f"Connecting to PostgreSQL at {db_host}:{db_port} to clean test data")
+        
+        # Connect to PostgreSQL
+        conn = psycopg2.connect(
+            host=db_host,
+            port=db_port,
+            dbname=db_name,
+            user=db_user,
+            password=db_pass
+        )
+        
+        cursor = conn.cursor()
+        deleted_counts = {}
+        
+        # Delete test records from clash_results table
+        cursor.execute("DELETE FROM clash_results WHERE clash_set_name LIKE %s", 
+                      ("TestSet_A_vs_B_%",))
+        deleted_counts['clash_results'] = cursor.rowcount
+        
+        # Delete test records from conversions table
+        cursor.execute("DELETE FROM conversions WHERE test_name LIKE %s", 
+                      ("ConvertTest_%",))
+        deleted_counts['conversions'] = cursor.rowcount
+        
+        # Delete test records from validations table
+        cursor.execute("DELETE FROM validations WHERE test_name LIKE %s", 
+                      ("TestIFC_%",))
+        deleted_counts['validations'] = cursor.rowcount
+        
+        # Delete test records from diff_results table
+        cursor.execute("DELETE FROM diff_results WHERE test_name LIKE %s", 
+                      ("DiffTest_%",))
+        deleted_counts['diff_results'] = cursor.rowcount
+        
+        conn.commit()
+        
+        logger.info("Database cleanup summary:")
+        for table, count in deleted_counts.items():
+            logger.info(f"  - Deleted {count} test record(s) from {table} table")
+        
+        conn.close()
+        return True
+            
+    except Exception as e:
+        logger.error(f"Database cleanup failed with error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
+
 # --- Main Execution ---
 
 def main():
@@ -310,9 +537,11 @@ def main():
     parser.add_argument('--workers', type=str, nargs='+', choices=[
         'ifcconvert', 'ifcclash', 'ifccsv_export', 'ifctester', 'ifcdiff', 'ifc5d', 'ifc2json', 'all'
     ], default=['all'], help='Workers to test')
+    parser.add_argument('--clean-db', action='store_true', help='Clean test data from database after tests')
     
     args = parser.parse_args()
     workers = args.workers
+    clean_db = args.clean_db
     
     logger.info("Starting Worker Test Script...")
     
@@ -353,6 +582,15 @@ def main():
     
     if all_tests or 'ifc2json' in workers:
         results["ifc2json"] = test_ifc2json(queues)
+    
+    # Clean test data from database if requested
+    if clean_db:
+        logger.info("Cleaning test data from database...")
+        clean_result = clean_test_data_from_db()
+        if clean_result:
+            logger.info("Database cleanup completed successfully")
+        else:
+            logger.error("Database cleanup failed")
     
     logger.info("--- Test Summary ---")
     all_passed = True

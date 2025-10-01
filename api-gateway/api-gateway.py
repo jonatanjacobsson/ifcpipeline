@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from typing import Dict, List
 import os
 import json
@@ -23,6 +24,13 @@ from shared.classes import (
     IfcQtoRequest,
     IfcCsvImportRequest,
     DownloadUrlRequest,
+    IfcClassifyRequest,
+    IfcClassifyBatchRequest,
+    IfcClassifyResponse,
+    IfcClassifyBatchResponse,
+    IfcPatchRequest,
+    IfcPatchListRecipesRequest,
+    IfcPatchListRecipesResponse,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -31,6 +39,7 @@ from rq.job import Job, JobStatus
 from rq.worker import Worker
 import aiohttp
 from aiohttp import ClientTimeout
+import httpx
 
 # Add this at the beginning of your file
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +61,7 @@ ifctester_queue = Queue('ifctester', connection=redis_conn)
 ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
 ifc2json_queue = Queue('ifc2json', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
+ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 
 # Define job status response model
 class JobStatusResponse(BaseModel):
@@ -110,18 +120,31 @@ app = FastAPI(
 )
 
 # Replace the existing CORS middleware configuration with:
+# Configure CORS origins from environment variables
+cors_origins = []
+if os.environ.get("IFC_PIPELINE_EXTERNAL_URL"):
+    cors_origins.append(os.environ.get("IFC_PIPELINE_EXTERNAL_URL"))
+if os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL"):
+    cors_origins.append(os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL"))
+
+# Add additional origins from environment variable (comma-separated)
+additional_origins = os.environ.get("IFC_PIPELINE_CORS_ORIGINS", "")
+if additional_origins:
+    cors_origins.extend([origin.strip() for origin in additional_origins.split(",") if origin.strip()])
+
+# Add local development origins
+cors_origins.extend([
+    "http://172.26.121.78:5173",  # Local dev viewer
+    "http://localhost:5173",      # Local dev fallback
+])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://e107e5b8-c6dc-4a30-af51-e7d0e1e5988c.lovableproject.com",
-        "https://ifcpipeline.byggstyrning.se",
-        "https://cde-gatekeeper.lovable.app",
-        # Add any other specific domains you need
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
+    expose_headers=["*", "Content-Disposition"],
     max_age=3600,
 )
 
@@ -172,6 +195,7 @@ async def health_check():
         "ifcdiff_queue": "unhealthy",
         "ifc5d_queue": "unhealthy",
         "ifc2json_queue": "unhealthy",
+        "ifcpatch_queue": "unhealthy",
         "default_queue": "unhealthy",
     }
 
@@ -198,6 +222,7 @@ async def health_check():
         "ifcdiff_queue": ifcdiff_queue,
         "ifc5d_queue": ifc5d_queue,
         "ifc2json_queue": ifc2json_queue,
+        "ifcpatch_queue": ifcpatch_queue,
         "default_queue": default_queue
     }
     
@@ -490,33 +515,32 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
 @app.get("/list_directories", summary="List Available Directories and Files", tags=["File Operations"])
 async def list_directories(_: str = Depends(verify_access)):
     """
-    List directories and files in the /uploads/ and /examples/ and /output/ directories and their subdirectories.
+    List all files in the /uploads/, /examples/, and /output/ directories and their subdirectories.
     
     Returns:
-        dict: A dictionary containing the directory structure and files.
+        dict: A dictionary containing a flat list of all file paths.
     """
-    base_dirs = ["/uploads", "/output", "/examples"]
-    directory_structure = {}
+    base_dirs = ["/examples", "/uploads", "/output"]
+    all_files = []
 
     for base_dir in base_dirs:
         try:
             for root, dirs, files in os.walk(base_dir):
-                relative_path = os.path.relpath(root, "/")
-                
+                # Filter out hidden directories
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
+                
+                # Filter out hidden files and .gitkeep
                 files = [f for f in files if not f.startswith('.') and f != '.gitkeep']
 
-                current_dir = directory_structure
-                for part in relative_path.split(os.sep):
-                    current_dir = current_dir.setdefault(part, {})
-
-                if files:
-                    current_dir["files"] = files
+                # Add full path for each file
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    all_files.append(full_path)
 
         except Exception as e:
             return {"error": f"Error processing {base_dir}: {str(e)}"}
 
-    return {"directory_structure": directory_structure}
+    return {"files": sorted(all_files)}
 
 @app.post("/upload/{file_type}", summary="Upload File", tags=["File Operations"])
 async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Depends(verify_access)):
@@ -571,7 +595,15 @@ async def create_download_link(request: DownloadRequest, _: str = Depends(verify
     
     download_links[token] = DownloadLink(file_path=file_path, token=token, expiry=expiry)
     
-    return {"download_token": token, "expiry": expiry}
+    # Generate preview URL based on env var
+    external = os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL")
+    if external and external.strip():
+        base_url = external.strip().rstrip('/')
+    else:
+        # Fallback to a default URL if env var not set
+        base_url = "https://ifcpipeline.byggstyrning.se"
+    
+    return {"preview_url": f"{base_url}/{token}", "download_token": token, "expiry": expiry}
 
 @app.get("/download/{token}", tags=["File Operations"])
 async def download_file(token: str):
@@ -677,3 +709,282 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+@app.post("/patch/execute", tags=["Patch"])
+async def execute_patch(request: IfcPatchRequest, _: str = Depends(verify_access)):
+    """
+    Execute an IfcPatch recipe on an IFC file.
+    
+    Supports both built-in recipes from IfcOpenShell and custom user-defined recipes.
+    
+    Args:
+        request (IfcPatchRequest): The request body containing patch parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        job = ifcpatch_queue.enqueue(
+            "tasks.run_ifcpatch",
+            request.dict(),
+            job_timeout="2h"  # Patches can be time-consuming
+        )
+        
+        logger.info(f"Enqueued ifcpatch job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifcpatch job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/patch/recipes/list", tags=["Patch"])
+async def list_patch_recipes(
+    request: IfcPatchListRecipesRequest = IfcPatchListRecipesRequest(),
+    _: str = Depends(verify_access)
+):
+    """
+    List all available IfcPatch recipes (built-in and custom).
+    
+    Args:
+        request (IfcPatchListRecipesRequest): Filter parameters for recipe listing.
+    
+    Returns:
+        dict: A dictionary containing available recipes.
+    """
+    try:
+        job = ifcpatch_queue.enqueue(
+            "tasks.list_available_recipes",
+            request.dict(),
+            job_timeout="1m"
+        )
+        
+        # Wait for result (this is a quick operation)
+        import time
+        max_wait = 10  # seconds
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait:
+            job.refresh()
+            if job.is_finished:
+                return job.result
+            elif job.is_failed:
+                raise HTTPException(status_code=500, detail="Failed to list recipes")
+            time.sleep(0.1)
+        
+        raise HTTPException(status_code=408, detail="Request timeout")
+        
+    except Exception as e:
+        logger.error(f"Error listing recipes: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/classify", response_model=IfcClassifyResponse, tags=["Classification"])
+async def classify_single(request: IfcClassifyRequest, _: str = Depends(verify_access)):
+    """
+    Classify a single IFC element using the CatBoost model.
+    
+    Args:
+        request (IfcClassifyRequest): The element to classify with category, family, type, etc.
+    
+    Returns:
+        IfcClassifyResponse: The classification result with IFC class, predefined type, and confidence.
+    """
+    try:
+        # Call the classifier service
+        classifier_url = "http://ifc-classifier:8000/classify"
+        
+        async with await get_aiohttp_session() as session:
+            async with session.post(
+                classifier_url,
+                json=request.dict(),
+                headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Classifier service returned {response.status}: {error_text}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Classification service error: {response.status}"
+                    )
+                
+                result = await response.json()
+                return result
+                
+    except aiohttp.ClientError as e:
+        logger.error(f"Error connecting to classifier service: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail="Classification service unavailable"
+        )
+    except Exception as e:
+        logger.error(f"Error in classification: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
+
+@app.post("/classify/batch", response_model=IfcClassifyBatchResponse, tags=["Classification"])
+async def classify_batch(request: IfcClassifyBatchRequest, _: str = Depends(verify_access)):
+    """
+    Classify multiple IFC elements using the CatBoost model.
+    
+    Args:
+        request (IfcClassifyBatchRequest): The elements to classify.
+    
+    Returns:
+        IfcClassifyBatchResponse: The classification results for all elements.
+    """
+    try:
+        # Call the classifier service
+        classifier_url = "http://ifc-classifier:8000/classify/batch"
+        
+        async with await get_aiohttp_session() as session:
+            async with session.post(
+                classifier_url,
+                json=request.dict(),
+                headers={"Content-Type": "application/json"}
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"Classifier service returned {response.status}: {error_text}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Classification service error: {response.status}"
+                    )
+                
+                result = await response.json()
+                return result
+                
+    except aiohttp.ClientError as e:
+        logger.error(f"Error connecting to classifier service: {str(e)}")
+        raise HTTPException(
+            status_code=503,
+            detail="Classification service unavailable"
+        )
+    except Exception as e:
+        logger.error(f"Error in batch classification: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Batch classification failed: {str(e)}")
+
+
+# Viewer routes - serve the IFC viewer at token URLs
+@app.get("/{token}")
+async def viewer_with_token_direct(token: str):
+    """
+    Serve the IFC viewer directly at the token URL (e.g., /token123).
+    The viewer will parse the token from the URL path.
+    """
+    # Validate that this looks like a token (not another API endpoint)
+    if (len(token) < 20 or 
+        token in ["docs", "openapi.json", "health", "create_download_link", "download"] or
+        "." in token):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            req = client.build_request(
+                "GET",
+                "http://ifc-viewer:3000/",
+                headers={"Accept-Encoding": "identity"},
+            )
+            resp = await client.send(req, stream=True)
+
+            hop_by_hop = {
+                "connection",
+                "keep-alive", 
+                "proxy-authenticate",
+                "proxy-authorization",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            }
+            headers = {k: v for k, v in resp.headers.items() if k.lower() not in hop_by_hop and k.lower() not in {"content-length", "content-encoding"}}
+
+            from starlette.responses import StreamingResponse
+
+            return StreamingResponse(
+                resp.aiter_bytes(),
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "text/html"),
+                headers=headers,
+            )
+    except Exception as e:
+        logger.error(f"Error proxying to viewer: {str(e)}")
+        raise HTTPException(status_code=503, detail="Viewer service unavailable")
+
+
+@app.get("/assets/{path:path}")
+async def viewer_assets(path: str):
+    """
+    Serve viewer assets (CSS, JS, etc.)
+    """
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            req = client.build_request(
+                "GET",
+                f"http://ifc-viewer:3000/assets/{path}",
+                headers={"Accept-Encoding": "identity"},
+            )
+            resp = await client.send(req, stream=True)
+
+            hop_by_hop = {
+                "connection",
+                "keep-alive",
+                "proxy-authenticate", 
+                "proxy-authorization",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            }
+            headers = {k: v for k, v in resp.headers.items() if k.lower() not in hop_by_hop and k.lower() not in {"content-length", "content-encoding"}}
+
+            from starlette.responses import StreamingResponse
+
+            return StreamingResponse(
+                resp.aiter_bytes(),
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type"),
+                headers=headers,
+            )
+    except Exception as e:
+        logger.error(f"Error proxying viewer asset {path}: {str(e)}")
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+
+@app.get("/node_modules/{path:path}")
+async def viewer_node_modules(path: str):
+    """
+    Serve node_modules assets (including WebWorkers)
+    """
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            req = client.build_request(
+                "GET",
+                f"http://ifc-viewer:3000/node_modules/{path}",
+                headers={"Accept-Encoding": "identity"},
+            )
+            resp = await client.send(req, stream=True)
+
+            hop_by_hop = {
+                "connection",
+                "keep-alive",
+                "proxy-authenticate", 
+                "proxy-authorization",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            }
+            headers = {k: v for k, v in resp.headers.items() if k.lower() not in hop_by_hop and k.lower() not in {"content-length", "content-encoding"}}
+
+            # Ensure proper MIME type for JavaScript modules
+            if path.endswith('.mjs') or path.endswith('.js'):
+                headers['content-type'] = 'application/javascript'
+
+            from starlette.responses import StreamingResponse
+
+            return StreamingResponse(
+                resp.aiter_bytes(),
+                status_code=resp.status_code,
+                media_type=headers.get("content-type", "application/javascript"),
+                headers=headers,
+            )
+    except Exception as e:
+        logger.error(f"Error proxying node_modules asset {path}: {str(e)}")
+        raise HTTPException(status_code=404, detail="Asset not found")

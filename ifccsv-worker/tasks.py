@@ -102,7 +102,7 @@ def run_csv_to_ifc_import(job_data: dict) -> dict:
     """
     try:
         request = IfcCsvImportRequest(**job_data)
-        logger.info(f"Starting import from {request.data_filename} into {request.ifc_filename}")
+        logger.info(f"Starting import from {request.csv_filename} into {request.ifc_filename}")
         
         models_dir = "/uploads" # Source IFC file
         data_input_dir = "/output" # Assuming CSV/XLSX/ODS comes from a previous output
@@ -112,7 +112,7 @@ def run_csv_to_ifc_import(job_data: dict) -> dict:
         ifc_path = os.path.join(models_dir, request.ifc_filename)
         # Determine data file path (could be csv, xlsx, ods)
         # We might need the format in the request or infer from filename
-        data_path = os.path.join(data_input_dir, request.data_filename)
+        data_path = os.path.join(data_input_dir, request.csv_filename)
         
         # Determine output path
         if request.output_filename:
@@ -131,7 +131,7 @@ def run_csv_to_ifc_import(job_data: dict) -> dict:
             raise FileNotFoundError(f"Input IFC file {request.ifc_filename} not found")
         if not os.path.exists(data_path):
              logger.error(f"Input data file not found: {data_path}")
-             raise FileNotFoundError(f"Input data file {request.data_filename} not found")
+             raise FileNotFoundError(f"Input data file {request.csv_filename} not found")
 
         # Open the IFC model
         logger.info(f"Opening IFC model: {ifc_path}")
@@ -150,7 +150,7 @@ def run_csv_to_ifc_import(job_data: dict) -> dict:
         logger.info(f"Writing updated IFC model to: {output_ifc_path}")
         model.write(output_ifc_path)
         
-        logger.info(f"Successfully imported data from {request.data_filename} into {output_ifc_path}")
+        logger.info(f"Successfully imported data from {request.csv_filename} into {output_ifc_path}")
         return {
             "success": True,
             "message": "Data changes successfully imported to IFC model",
