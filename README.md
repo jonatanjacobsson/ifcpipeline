@@ -156,6 +156,25 @@ View running services:
 ```bash
 docker compose ps
 ```
+
+## Updating
+
+To update IFC Pipeline to the latest version:
+
+1. **Stop all running services**:
+   ```bash
+   docker compose down
+   ```
+
+2. **Pull the latest changes**:
+   ```bash
+   git pull
+   ```
+
+3. **Rebuild and restart services**:
+   ```bash
+   docker compose up --build -d
+   ```
     
 ## Configuration
 
