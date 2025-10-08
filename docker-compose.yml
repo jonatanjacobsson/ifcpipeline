@@ -315,6 +315,14 @@ services:
       - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
+      # PostgreSQL Database Configuration
+      - DB_TYPE=${DB_TYPE:-postgresdb}
+      - DB_POSTGRESDB_DATABASE=${N8N_POSTGRES_DB:-n8n}
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-ifcpipeline}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_SCHEMA=public
       # PostgreSQL SSL settings
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - PGSSLMODE=disable
