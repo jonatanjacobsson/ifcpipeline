@@ -1,6 +1,7 @@
 # Core dependencies
 rq
 pydantic
+requests
 
 # IFC dependencies
 ifcopenshell

@@ -744,6 +744,9 @@ async def list_patch_recipes(
     """
     List all available IfcPatch recipes (built-in and custom).
     
+    This endpoint executes synchronously without requiring a worker, so it works
+    even when no workers are running.
+    
     Args:
         request (IfcPatchListRecipesRequest): Filter parameters for recipe listing.
     
@@ -751,29 +754,178 @@ async def list_patch_recipes(
         dict: A dictionary containing available recipes.
     """
     try:
-        job = ifcpatch_queue.enqueue(
-            "tasks.list_available_recipes",
-            request.dict(),
-            job_timeout="1m"
-        )
+        import sys
+        import importlib
+        import inspect
+        from pathlib import Path
+        from typing import get_type_hints
         
-        # Wait for result (this is a quick operation)
-        import time
-        max_wait = 10  # seconds
-        start_time = time.time()
+        # Helper function to parse type annotations
+        def format_type_annotation(type_annotation) -> str:
+            """Format type annotation for display."""
+            try:
+                if type_annotation is inspect.Parameter.empty:
+                    return "Any"
+                if hasattr(type_annotation, '__name__'):
+                    return type_annotation.__name__
+                type_str = str(type_annotation)
+                if 'typing.' in type_str:
+                    type_str = type_str.replace('typing.', '')
+                return type_str
+            except:
+                return "Any"
         
-        while time.time() - start_time < max_wait:
-            job.refresh()
-            if job.is_finished:
-                return job.result
-            elif job.is_failed:
-                raise HTTPException(status_code=500, detail="Failed to list recipes")
-            time.sleep(0.1)
+        # Helper function to extract parameters from recipe
+        def extract_recipe_parameters(patcher_class):
+            """Extract parameter information from a Patcher class."""
+            parameters = []
+            try:
+                sig = inspect.signature(patcher_class.__init__)
+                docstring = inspect.getdoc(patcher_class.__init__) or ""
+                
+                for param_name, param in sig.parameters.items():
+                    if param_name in ['self', 'file', 'logger']:
+                        continue
+                    
+                    param_info = {
+                        "name": param_name,
+                        "type": format_type_annotation(param.annotation),
+                        "required": param.default is inspect.Parameter.empty,
+                        "default": None if param.default is inspect.Parameter.empty else str(param.default),
+                        "description": ""
+                    }
+                    
+                    # Try to extract description from docstring
+                    if docstring:
+                        for line in docstring.split('\n'):
+                            line = line.strip()
+                            if line.startswith(f'{param_name}:') or line.startswith(f':param {param_name}:'):
+                                desc = line.split(':', 2)[-1].strip()
+                                param_info["description"] = desc
+                                break
+                    
+                    parameters.append(param_info)
+            except Exception as e:
+                logger.debug(f"Could not extract parameters: {str(e)}")
+            
+            return parameters
         
-        raise HTTPException(status_code=408, detail="Request timeout")
+        recipes = []
+        
+        # Get built-in recipes
+        if request.include_builtin:
+            logger.info("Discovering built-in recipes...")
+            try:
+                import ifcpatch.recipes
+                recipes_dir = Path(ifcpatch.recipes.__file__).parent
+                
+                for recipe_file in recipes_dir.glob("*.py"):
+                    if recipe_file.stem.startswith('_'):
+                        continue
+                    
+                    recipe_name = recipe_file.stem
+                    try:
+                        recipe_module = importlib.import_module(f'ifcpatch.recipes.{recipe_name}')
+                        
+                        if hasattr(recipe_module, 'Patcher'):
+                            patcher_class = recipe_module.Patcher
+                            parameters = extract_recipe_parameters(patcher_class)
+                            
+                            description = inspect.getdoc(patcher_class.__init__) or "Built-in IfcPatch recipe"
+                            if '\n\n' in description:
+                                description = description.split('\n\n')[0]
+                            elif ':param' in description:
+                                description = description.split(':param')[0]
+                            elif 'Args:' in description:
+                                description = description.split('Args:')[0]
+                            description = ' '.join(description.split()).strip()
+                            
+                            recipes.append({
+                                "name": recipe_name,
+                                "description": description,
+                                "is_custom": False,
+                                "parameters": parameters,
+                                "output_type": None
+                            })
+                    except Exception as e:
+                        logger.debug(f"Could not inspect {recipe_name}: {str(e)}")
+                        recipes.append({
+                            "name": recipe_name,
+                            "description": "Built-in IfcPatch recipe",
+                            "is_custom": False,
+                            "parameters": [],
+                            "output_type": None
+                        })
+                
+                logger.info(f"Found {len([r for r in recipes if not r['is_custom']])} built-in recipes")
+            except Exception as e:
+                logger.error(f"Error discovering built-in recipes: {str(e)}", exc_info=True)
+        
+        # Get custom recipes
+        if request.include_custom:
+            logger.info("Discovering custom recipes...")
+            try:
+                # Mount path where custom recipes should be accessible
+                custom_recipes_path = Path("/app/custom_recipes")
+                
+                # Add to path if not already there
+                if str(custom_recipes_path) not in sys.path:
+                    sys.path.insert(0, str(custom_recipes_path))
+                
+                if custom_recipes_path.exists():
+                    for recipe_file in custom_recipes_path.glob("*.py"):
+                        if recipe_file.stem.startswith('_') or recipe_file.stem == 'example_recipe':
+                            continue
+                        
+                        recipe_name = recipe_file.stem
+                        try:
+                            module = importlib.import_module(recipe_name)
+                            
+                            if hasattr(module, 'Patcher'):
+                                patcher_class = module.Patcher
+                                parameters = extract_recipe_parameters(patcher_class)
+                                
+                                description = inspect.getdoc(patcher_class.__init__) or "Custom IfcPatch recipe"
+                                if '\n\n' in description:
+                                    description = description.split('\n\n')[0]
+                                elif ':param' in description:
+                                    description = description.split(':param')[0]
+                                elif 'Args:' in description:
+                                    description = description.split('Args:')[0]
+                                description = ' '.join(description.split()).strip()
+                                
+                                recipes.append({
+                                    "name": recipe_name,
+                                    "description": description,
+                                    "is_custom": True,
+                                    "parameters": parameters,
+                                    "output_type": None
+                                })
+                        except Exception as e:
+                            logger.debug(f"Could not load custom recipe {recipe_name}: {str(e)}")
+                            recipes.append({
+                                "name": recipe_name,
+                                "description": "Custom IfcPatch recipe",
+                                "is_custom": True,
+                                "parameters": [],
+                                "output_type": None
+                            })
+                    
+                    logger.info(f"Found {len([r for r in recipes if r['is_custom']])} custom recipes")
+                else:
+                    logger.warning(f"Custom recipes directory not found: {custom_recipes_path}")
+            except Exception as e:
+                logger.error(f"Error discovering custom recipes: {str(e)}", exc_info=True)
+        
+        return {
+            "recipes": recipes,
+            "total_count": len(recipes),
+            "builtin_count": len([r for r in recipes if not r['is_custom']]),
+            "custom_count": len([r for r in recipes if r['is_custom']])
+        }
         
     except Exception as e:
-        logger.error(f"Error listing recipes: {str(e)}")
+        logger.error(f"Error listing recipes: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/classify", response_model=IfcClassifyResponse, tags=["Classification"])
