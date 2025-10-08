@@ -38,22 +38,23 @@ class Patcher(BasePatcher):
         output = patcher.get_output()
     """
     
-    def __init__(self, file: ifcopenshell.file, logger: logging.Logger, *args):
+    def __init__(self, file: ifcopenshell.file, logger: logging.Logger,
+                 element_type: str = "IfcWall",
+                 property_name: str = "Processed"):
         """
         Initialize the patcher.
         
         Args:
             file: IFC file to patch
             logger: Logger instance
-            *args: Additional recipe-specific arguments
-                args[0]: element_type (str) - Type of elements to process
-                args[1]: property_name (str) - Name of property to add
+            element_type: Type of elements to process (default: "IfcWall")
+            property_name: Name of property to add (default: "Processed")
         """
         super().__init__(file, logger)
         
         # Parse custom arguments with defaults
-        self.element_type = args[0] if len(args) > 0 else "IfcWall"
-        self.property_name = args[1] if len(args) > 1 else "Processed"
+        self.element_type = element_type if element_type else "IfcWall"
+        self.property_name = property_name if property_name else "Processed"
         
         # Validate arguments
         if not isinstance(self.element_type, str):

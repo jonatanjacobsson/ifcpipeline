@@ -28,11 +28,16 @@ const viewport = BUI.Component.create<BUI.Viewport>(() => {
   return BUI.html`<bim-viewport></bim-viewport>`;
 });
 
-world.renderer = new OBF.PostproductionRenderer(components, viewport);
-world.camera = new OBC.OrthoPerspectiveCamera(components);
-world.camera.threePersp.near = 0.01;
-world.camera.threePersp.updateProjectionMatrix();
-world.camera.controls.restThreshold = 0.05;
+// Initialize renderer with error handling
+try {
+  world.renderer = new OBF.PostproductionRenderer(components, viewport);
+  world.camera = new OBC.OrthoPerspectiveCamera(components);
+  world.camera.threePersp.near = 0.01;
+  world.camera.threePersp.updateProjectionMatrix();
+  world.camera.controls.restThreshold = 0.05;
+} catch (error) {
+  console.error("Error initializing renderer or camera:", error);
+}
 
 const worldGrid = components.get(OBC.Grids).create(world);
 worldGrid.material.uniforms.uColor.value = new THREE.Color(0x494b50);
@@ -40,8 +45,20 @@ worldGrid.material.uniforms.uSize1.value = 2;
 worldGrid.material.uniforms.uSize2.value = 8;
 
 const resizeWorld = () => {
-  world.renderer?.resize();
-  world.camera.updateAspect();
+  try {
+    // Ensure viewport has valid dimensions before resizing
+    const viewportElement = viewport as any;
+    if (
+      viewportElement &&
+      viewportElement.offsetWidth > 0 &&
+      viewportElement.offsetHeight > 0
+    ) {
+      world.renderer?.resize();
+      world.camera.updateAspect();
+    }
+  } catch (error) {
+    console.warn("Error during world resize:", error);
+  }
 };
 
 viewport.addEventListener("resize", resizeWorld);
@@ -52,36 +69,38 @@ components.init();
 
 components.get(OBC.Raycasters).get(world);
 
-const { postproduction } = world.renderer;
-postproduction.enabled = true;
-postproduction.style = OBF.PostproductionAspect.COLOR_SHADOWS;
+if (world.renderer) {
+  const { postproduction } = world.renderer;
+  postproduction.enabled = true;
+  postproduction.style = OBF.PostproductionAspect.COLOR_SHADOWS;
 
-const { aoPass, edgesPass } = world.renderer.postproduction;
+  const { aoPass, edgesPass } = world.renderer.postproduction;
 
-edgesPass.color = new THREE.Color(0x494b50);
+  edgesPass.color = new THREE.Color(0x494b50);
 
-const aoParameters = {
-  radius: 0.25,
-  distanceExponent: 1,
-  thickness: 1,
-  scale: 1,
-  samples: 16,
-  distanceFallOff: 1,
-  screenSpaceRadius: true,
-};
+  const aoParameters = {
+    radius: 0.25,
+    distanceExponent: 1,
+    thickness: 1,
+    scale: 1,
+    samples: 16,
+    distanceFallOff: 1,
+    screenSpaceRadius: true,
+  };
 
-const pdParameters = {
-  lumaPhi: 10,
-  depthPhi: 2,
-  normalPhi: 3,
-  radius: 4,
-  radiusExponent: 1,
-  rings: 2,
-  samples: 16,
-};
+  const pdParameters = {
+    lumaPhi: 10,
+    depthPhi: 2,
+    normalPhi: 3,
+    radius: 4,
+    radiusExponent: 1,
+    rings: 2,
+    samples: 16,
+  };
 
-aoPass.updateGtaoMaterial(aoParameters);
-aoPass.updatePdMaterial(pdParameters);
+  aoPass.updateGtaoMaterial(aoParameters);
+  aoPass.updatePdMaterial(pdParameters);
+}
 
 const fragments = components.get(OBC.FragmentsManager);
 fragments.init("/node_modules/@thatopen/fragments/dist/Worker/worker.mjs");
@@ -286,16 +305,22 @@ app.layouts = {
 app.layout = "App";
 
 // Token-based model loading functionality
-const API_BASE = (import.meta as any).env?.VITE_API_BASE;
+const API_BASE =
+  (import.meta as any).env?.VITE_API_BASE ||
+  "https://ifcpipeline.byggstyrning.se";
 console.log(`API_BASE: ${API_BASE}`);
 
 function getTokenFromUrl(): string | null {
   // Check if token is in the path directly after the first / (e.g., /token123)
-  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
   if (pathParts.length >= 1) {
     const potentialToken = pathParts[0];
     // Basic check to ensure it looks like a token and not another path segment
-    if (potentialToken && !potentialToken.includes(".") && potentialToken.length > 10) {
+    if (
+      potentialToken &&
+      !potentialToken.includes(".") &&
+      potentialToken.length > 10
+    ) {
       return potentialToken;
     }
   }
@@ -311,10 +336,20 @@ async function loadModelFromToken(token: string) {
   try {
     const response = await fetch(
       `${API_BASE}/download/${encodeURIComponent(token)}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/octet-stream, */*",
+        },
+        // Add credentials if needed for CORS
+        credentials: "omit",
+      },
     );
 
     if (!response.ok) {
-      throw new Error(`Download failed with status: ${response.status}`);
+      throw new Error(
+        `Download failed with status: ${response.status} - ${response.statusText}`,
+      );
     }
 
     // Extract filename from Content-Disposition header
@@ -339,7 +374,6 @@ async function loadModelFromToken(token: string) {
 
     // Determine file type and load accordingly
     const lowerFilename = filename.toLowerCase();
-    
     if (lowerFilename.endsWith(".frag")) {
       // Load as fragments model
       await fragments.core.load(bytes.buffer, {
@@ -374,12 +408,47 @@ async function loadModelFromToken(token: string) {
   }
 }
 
-// Check for token and auto-load model
-const token = getTokenFromUrl();
-if (token) {
-  console.log(`Token found in URL: ${token}`);
-  // Load the model after a brief delay to ensure all components are fully initialized
-  setTimeout(() => {
-    loadModelFromToken(token);
-  }, 100);
+// Initialize the application with proper timing
+const initializeApp = async () => {
+  // Wait for DOM to be ready and viewport to have dimensions
+  await new Promise((resolve) => {
+    const checkViewport = () => {
+      const viewportElement = viewport as any;
+      if (
+        viewportElement &&
+        viewportElement.offsetWidth > 0 &&
+        viewportElement.offsetHeight > 0
+      ) {
+        resolve(true);
+      } else {
+        setTimeout(checkViewport, 50);
+      }
+    };
+    checkViewport();
+  });
+
+  // Ensure renderer is properly sized
+  try {
+    world.renderer?.resize();
+    world.camera.updateAspect();
+  } catch (error) {
+    console.warn("Error during initial resize:", error);
+  }
+
+  // Check for token and auto-load model
+  const token = getTokenFromUrl();
+  if (token) {
+    console.log(`Token found in URL: ${token}`);
+    // Load the model after ensuring all components are fully initialized
+    setTimeout(() => {
+      loadModelFromToken(token);
+    }, 200);
+  }
+};
+
+// Start initialization after DOM is ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeApp);
+} else {
+  setTimeout(initializeApp, 100);
 }

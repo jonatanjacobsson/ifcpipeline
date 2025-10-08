@@ -288,6 +288,10 @@ def run_ifcpatch(job_data: dict) -> dict:
             logger.info(f"Loading custom recipe: {request.recipe}")
             custom_patcher = load_custom_recipe(request.recipe)
             
+            # Set the actual input path as an attribute on the IFC file object
+            # This allows custom recipes to know the real filename
+            ifc_file._input_file_path = input_path
+            
             # Instantiate and execute custom patcher
             # Pass arguments if any
             if request.arguments:
