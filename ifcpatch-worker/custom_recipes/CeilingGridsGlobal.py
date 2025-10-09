@@ -77,7 +77,7 @@ class Patcher(BasePatcher):
         profile_height: Height of T-profile in mm (default: 40.0)
         profile_width: Width of profiles in mm (default: 20.0)
         profile_thickness: Thickness of profiles in mm (default: 5.0)
-        tolerance: Connection tolerance in mm (default: 50.0)
+        tolerance: Connection tolerance in mm (default: 10.0)
         output_path: Path for extracted beams file (default: auto-generated)
     
     Example:
@@ -96,7 +96,7 @@ class Patcher(BasePatcher):
                  profile_height: str = "40.0",
                  profile_width: str = "20.0", 
                  profile_thickness: str = "5.0",
-                 tolerance: str = "50.0",
+                 tolerance: str = "10.0",
                  output_path: str = ""):
         """
         Initialize the CeilingGridsGlobal patcher.
@@ -108,7 +108,7 @@ class Patcher(BasePatcher):
             profile_height: Height of T-profile in mm (default: "40.0")
             profile_width: Width of profiles in mm (default: "20.0")
             profile_thickness: Thickness of profiles in mm (default: "5.0")
-            tolerance: Connection tolerance in mm (default: "50.0")
+            tolerance: Connection tolerance in mm (default: "10.0")
             output_path: Path for extracted beams file, empty for auto-generated (default: "")
         """
         super().__init__(file, logger)
@@ -141,7 +141,7 @@ class Patcher(BasePatcher):
         }
         
         # Cache for style, contexts, and spatial container
-        self.black_style = None
+        self.grid_covering_style = None
         self.body_context = None
         self.axis_context = None
         self.spatial_container = None
@@ -170,8 +170,8 @@ class Patcher(BasePatcher):
             self.unit_scale = self._get_project_unit_scale()
             self.logger.info(f"Project unit scale: {self.unit_scale}x (1.0=mm, 1000.0=meters)")
             
-            # Create black style for beams
-            self.black_style = self._create_black_style()
+            # Create grid covering style for beams
+            self.grid_covering_style = self._create_grid_covering_style()
             
             # Get representation contexts
             self._setup_contexts()
@@ -326,15 +326,15 @@ class Patcher(BasePatcher):
         
         return None
     
-    def _create_black_style(self) -> Optional[ifcopenshell.entity_instance]:
-        """Create a black surface style for beams"""
+    def _create_grid_covering_style(self) -> Optional[ifcopenshell.entity_instance]:
+        """Create a grid covering surface style for beams"""
         try:
-            presentation_style = ifcopenshell.api.style.add_style(self.file, name="Black Beam Style")
-            
-            black_color = self.file.createIfcColourRgb("Black", 0.0, 0.0, 0.0)
+            presentation_style = ifcopenshell.api.style.add_style(self.file, name="Grid Covering Style")
+                        
+            grey_color = self.file.createIfcColourRgb("Grid Covering", 0.5, 0.5, 0.5)
             
             surface_style = self.file.createIfcSurfaceStyleRendering(
-                black_color,
+                grey_color,
                 0.0,  # Transparency
                 None, None, None, None, None, None,
                 "NOTDEFINED"
@@ -344,7 +344,7 @@ class Patcher(BasePatcher):
             
             return presentation_style
         except Exception as e:
-            self.logger.warning(f"Could not create black style: {str(e)}")
+            self.logger.warning(f"Could not create grid covering style: {str(e)}")
             return None
     
     def _setup_contexts(self) -> None:
@@ -449,64 +449,106 @@ class Patcher(BasePatcher):
     
     def _find_closed_loop_segments(self, all_segments: List[Dict[str, Any]]) -> Set[int]:
         """
-        Find segments that form a closed loop (perimeter).
+        Find segments that form a closed loop (perimeter) by recursively tracing connected segments.
         Returns the set of segment indices that form the outer perimeter loop.
         """
         def points_coincident(p1: Tuple[float, float, float], 
                             p2: Tuple[float, float, float]) -> bool:
+            """Check if two 3D points are coincident within tolerance"""
             dx = p1[0] - p2[0]
             dy = p1[1] - p2[1]
             dz = p1[2] - p2[2]
             dist = (dx*dx + dy*dy + dz*dz) ** 0.5
             return dist < self.tolerance
         
-        # Build endpoint connectivity map
-        endpoint_connections = {}
+        # Build connectivity map: for each segment, find which segments connect at each endpoint
+        # Structure: segment_idx -> {'start': [connected_seg_indices], 'end': [connected_seg_indices]}
+        connectivity = {}
         
         for idx, segment in enumerate(all_segments):
-            start = segment['start_point']
-            end = segment['end_point']
-            
-            # Count connections for each endpoint
-            for point in [start, end]:
-                point_key = None
-                for existing_point in endpoint_connections.keys():
-                    if points_coincident(point, existing_point):
-                        point_key = existing_point
-                        break
+            connectivity[idx] = {'start': [], 'end': []}
+        
+        # Check each pair of segments for connections
+        for i in range(len(all_segments)):
+            seg_i = all_segments[i]
+            for j in range(i + 1, len(all_segments)):
+                seg_j = all_segments[j]
                 
-                if point_key is None:
-                    point_key = point
-                    endpoint_connections[point_key] = []
+                # Check all four endpoint combinations
+                if points_coincident(seg_i['start_point'], seg_j['start_point']):
+                    connectivity[i]['start'].append(j)
+                    connectivity[j]['start'].append(i)
+                elif points_coincident(seg_i['start_point'], seg_j['end_point']):
+                    connectivity[i]['start'].append(j)
+                    connectivity[j]['end'].append(i)
+                elif points_coincident(seg_i['end_point'], seg_j['start_point']):
+                    connectivity[i]['end'].append(j)
+                    connectivity[j]['start'].append(i)
+                elif points_coincident(seg_i['end_point'], seg_j['end_point']):
+                    connectivity[i]['end'].append(j)
+                    connectivity[j]['end'].append(i)
+        
+        # Find the longest closed loop by trying different starting points
+        def trace_loop(start_idx: int, visited: List[int], current_endpoint: str) -> Tuple[bool, List[int]]:
+            """
+            Recursively trace a path from current position.
+            Returns (success, path) where success is True if we found a closed loop.
+            """
+            if len(visited) > 1 and start_idx in connectivity[visited[-1]][current_endpoint]:
+                # We've come back to the start - found a closed loop!
+                return True, visited
+            
+            # Get next possible segments
+            current_seg_idx = visited[-1]
+            next_segments = connectivity[current_seg_idx][current_endpoint]
+            
+            for next_idx in next_segments:
+                if next_idx in visited and next_idx != start_idx:
+                    # Already visited (but not closing the loop)
+                    continue
                 
-                if idx not in endpoint_connections[point_key]:
-                    endpoint_connections[point_key].append(idx)
-        
-        # A segment is truly interior only if BOTH endpoints have 3+ connections
-        truly_interior = set()
-        
-        for idx in range(len(all_segments)):
-            segment = all_segments[idx]
-            start = segment['start_point']
-            end = segment['end_point']
+                if next_idx == start_idx and len(visited) < 3:
+                    # Too short to be a valid loop
+                    continue
+                
+                # Determine which endpoint of next segment connects to us
+                next_seg = all_segments[next_idx]
+                if points_coincident(all_segments[current_seg_idx][current_endpoint + '_point'], 
+                                    next_seg['start_point']):
+                    next_endpoint = 'end'
+                else:
+                    next_endpoint = 'start'
+                
+                # Recursively explore this path
+                new_visited = visited + [next_idx]
+                success, path = trace_loop(start_idx, new_visited, next_endpoint)
+                
+                if success:
+                    return True, path
             
-            start_connections = 0
-            end_connections = 0
-            
-            for point, connected_segs in endpoint_connections.items():
-                if points_coincident(start, point):
-                    start_connections = len(connected_segs)
-                if points_coincident(end, point):
-                    end_connections = len(connected_segs)
-            
-            # Interior only if both endpoints have 3+ connections
-            if start_connections >= 3 and end_connections >= 3:
-                truly_interior.add(idx)
+            return False, visited
         
-        # Perimeter: all segments except truly interior ones
-        perimeter_segment_indices = set(range(len(all_segments))) - truly_interior
+        # Try to find closed loops starting from segments with 2 connections (likely perimeter)
+        best_loop = set()
         
-        return perimeter_segment_indices
+        # Prioritize segments with exactly 2 total connections
+        candidates = [(idx, len(conn['start']) + len(conn['end'])) 
+                      for idx, conn in connectivity.items()]
+        candidates.sort(key=lambda x: (0 if x[1] == 2 else 1, x[0]))  # Prefer 2-connection segments
+        
+        for start_idx, _ in candidates:
+            if start_idx in best_loop:
+                continue
+            
+            # Try starting from each endpoint
+            for start_endpoint in ['start', 'end']:
+                if connectivity[start_idx][start_endpoint]:
+                    success, loop_path = trace_loop(start_idx, [start_idx], start_endpoint)
+                    
+                    if success and len(loop_path) > len(best_loop):
+                        best_loop = set(loop_path)
+        
+        return best_loop
     
     def _extract_beam_data_from_covering(self, elem_index: int, 
                                         elem: ifcopenshell.entity_instance) -> Tuple[List[Dict[str, Any]], int]:
@@ -655,7 +697,7 @@ class Patcher(BasePatcher):
                 )
             else:
                 extrude_placement = self.file.createIfcAxis2Placement3D(
-                    self.file.createIfcCartesianPoint([0.0, 0.0, 0.0]),
+                    self.file.createIfcCartesianPoint([0.0, 0.0, 15.0]),
                     self.file.createIfcDirection(beam_dir),
                     self.file.createIfcDirection((-axis_x[0], -axis_x[1], -axis_x[2]))
                 )
@@ -672,10 +714,10 @@ class Patcher(BasePatcher):
             )
             
             # Apply style
-            if self.black_style:
+            if self.grid_covering_style:
                 try:
                     ifcopenshell.api.style.assign_representation_styles(
-                        self.file, shape_representation=body_repr, styles=[self.black_style]
+                        self.file, shape_representation=body_repr, styles=[self.grid_covering_style]
                     )
                 except Exception as e:
                     self.logger.debug(f"Could not assign style: {str(e)}")
@@ -841,6 +883,8 @@ class Patcher(BasePatcher):
             positioned in global coordinates
         """
         return self.file
+
+
 
 
 

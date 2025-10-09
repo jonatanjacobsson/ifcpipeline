@@ -1,3 +1,9 @@
+# Patch typing module for Python 3.10 compatibility with ifcopenshell 0.8.x
+import typing
+from typing_extensions import NotRequired
+if not hasattr(typing, 'NotRequired'):
+    typing.NotRequired = NotRequired
+
 import logging
 import os
 import sys

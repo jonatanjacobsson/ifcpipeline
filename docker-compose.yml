@@ -117,6 +117,7 @@ services:
       - redis
     restart: unless-stopped
     deploy:
+      replicas: 2
       resources:
         limits:
           cpus: '1.0'
