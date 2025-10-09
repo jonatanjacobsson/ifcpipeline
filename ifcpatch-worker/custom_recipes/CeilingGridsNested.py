@@ -126,7 +126,7 @@ class Patcher(BasePatcher):
         }
         
         # Cache for style and contexts
-        self.black_style = None
+        self.grid_covering_style = None
         self.body_context = None
         self.axis_context = None
         
@@ -146,8 +146,8 @@ class Patcher(BasePatcher):
             # Assign units if not already present
             ifcopenshell.api.unit.assign_unit(self.file)
             
-            # Create black style for beams
-            self.black_style = self._create_black_style()
+            # Create grid covering style for beams
+            self.grid_covering_style = self._create_grid_covering_style()
             
             # Get representation contexts
             self._setup_contexts()
@@ -214,15 +214,15 @@ class Patcher(BasePatcher):
             self.logger.error(f"Error during CeilingGridsNested patch: {str(e)}", exc_info=True)
             raise
     
-    def _create_black_style(self) -> ifcopenshell.entity_instance:
-        """Create a black surface style for beams"""
+    def _create_grid_covering_style(self) -> ifcopenshell.entity_instance:
+        """Create a grid covering surface style for beams"""
         try:
-            presentation_style = ifcopenshell.api.style.add_style(self.file, name="Black Beam Style")
+            presentation_style = ifcopenshell.api.style.add_style(self.file, name="Grid Covering Style")
             
-            black_color = self.file.createIfcColourRgb("Black", 0.0, 0.0, 0.0)
+            grey_color = self.file.createIfcColourRgb("Grid Covering", 0.5, 0.5, 0.5)
             
             surface_style = self.file.createIfcSurfaceStyleRendering(
-                black_color,
+                grey_color,
                 0.0,  # Transparency
                 None, None, None, None, None, None,
                 "NOTDEFINED"
@@ -232,7 +232,7 @@ class Patcher(BasePatcher):
             
             return presentation_style
         except Exception as e:
-            self.logger.warning(f"Could not create black style: {str(e)}")
+            self.logger.warning(f"Could not create grid covering style: {str(e)}")
             return None
     
     def _setup_contexts(self) -> None:
@@ -575,10 +575,10 @@ class Patcher(BasePatcher):
             )
             
             # Apply style
-            if self.black_style:
+            if self.grid_covering_style:
                 try:
                     ifcopenshell.api.style.assign_representation_styles(
-                        self.file, shape_representation=body_repr, styles=[self.black_style]
+                        self.file, shape_representation=body_repr, styles=[self.grid_covering_style]
                     )
                 except Exception as e:
                     self.logger.debug(f"Could not assign style: {str(e)}")
@@ -628,6 +628,8 @@ class Patcher(BasePatcher):
             nested within their parent IfcCovering elements
         """
         return self.file
+
+
 
 
 

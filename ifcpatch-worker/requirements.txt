@@ -9,3 +9,4 @@ ifcpatch
 
 # Additional utilities
 typing-extensions
+networkx  # Required for sequence.recalculate_schedule API

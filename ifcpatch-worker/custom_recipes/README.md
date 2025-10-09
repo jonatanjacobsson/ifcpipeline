@@ -127,9 +127,16 @@ result.write("modified.ifc")
 
 ## Available Custom Recipes
 
+### MergeTasksFromPrevious
+**Description**: Preserves IfcTask history across IFC model versions by re-injecting tasks from previous models and appending new tasks from diff results. Automatically generates "PM" property sets on affected elements with task history.  
+**Author**: IFC Pipeline Team  
+**Status**: Production Ready  
+**Documentation**: [MERGE_TASKS_README.md](MERGE_TASKS_README.md)  
+**Use Case**: Project management change tracking, maintaining PM history across model versions
+
 ### CeilingGrids
-**Description**: Custom recipe for processing ceiling grids
-**Author**: IFC Pipeline Team
+**Description**: Custom recipe for processing ceiling grids  
+**Author**: IFC Pipeline Team  
 **Status**: In Development
 
 Add descriptions of your custom recipes here as you create them.

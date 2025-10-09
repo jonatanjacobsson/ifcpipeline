@@ -18,9 +18,7 @@ import tempfile
 import shutil
 import requests
 from urllib.parse import quote
-from pathlib import Path
 from typing import Optional, Dict, Any
-from datetime import datetime
 import json
 import ifcopenshell
 from ifcpatch import BasePatcher
@@ -166,12 +164,6 @@ class Patcher(BasePatcher):
         self.file_path: Optional[str] = None
         self.file_name: Optional[str] = None
         
-        # Setup HTTP request logging
-        script_dir = Path(__file__).parent
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.http_log_file = script_dir / f"dalux_api_requests_{timestamp}.log"
-        self._init_http_log()
-        
         self.logger.info(f"Initialized DaluxUpload recipe:")
         self.logger.info(f"  Project ID: {self.project_id}")
         self.logger.info(f"  File Area ID: {self.file_area_id}")
@@ -179,106 +171,6 @@ class Patcher(BasePatcher):
         self.logger.info(f"  Base URL: {self.base_url}")
         self.logger.info(f"  File Type: {self.file_type}")
         self.logger.info(f"  Chunk Size: {self.chunk_size_mb}MB")
-        self.logger.info(f"  HTTP Request Log: {self.http_log_file}")
-    
-    def _init_http_log(self) -> None:
-        """Initialize the HTTP request log file."""
-        try:
-            with open(self.http_log_file, 'w') as f:
-                f.write(f"Dalux API HTTP Request Log\n")
-                f.write(f"Started: {datetime.now().isoformat()}\n")
-                f.write(f"Project ID: {self.project_id}\n")
-                f.write(f"File Area ID: {self.file_area_id}\n")
-                f.write(f"Folder ID: {self.folder_id}\n")
-                f.write(f"Base URL: {self.base_url}\n")
-                f.write("=" * 80 + "\n\n")
-        except Exception as e:
-            self.logger.warning(f"Failed to initialize HTTP log file: {str(e)}")
-    
-    def _log_http_request(self, method: str, url: str, headers: Dict[str, str], 
-                          body: Any = None, response: Optional[requests.Response] = None,
-                          error: Optional[Exception] = None) -> None:
-        """
-        Log HTTP request and response details to file.
-        
-        Args:
-            method: HTTP method (GET, POST, etc.)
-            url: Request URL
-            headers: Request headers
-            body: Request body (can be dict, bytes, or file-like object)
-            response: Response object (if successful)
-            error: Exception object (if failed)
-        """
-        try:
-            with open(self.http_log_file, 'a') as f:
-                # Request timestamp
-                f.write(f"\n{'=' * 80}\n")
-                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-                f.write(f"{'=' * 80}\n\n")
-                
-                # Request details
-                f.write(f"REQUEST:\n")
-                f.write(f"  Method: {method}\n")
-                f.write(f"  URL: {url}\n")
-                f.write(f"  Headers:\n")
-                
-                # Mask sensitive data in headers
-                for key, value in headers.items():
-                    if key.lower() in ['x-api-key', 'authorization', 'api-key']:
-                        masked_value = value[:8] + "..." if len(value) > 8 else "***"
-                        f.write(f"    {key}: {masked_value}\n")
-                    else:
-                        f.write(f"    {key}: {value}\n")
-                
-                # Request body
-                f.write(f"  Body:\n")
-                if body is None:
-                    f.write(f"    None\n")
-                elif isinstance(body, dict):
-                    f.write(f"    {json.dumps(body, indent=6)}\n")
-                elif isinstance(body, str):
-                    f.write(f"    {body}\n")
-                elif hasattr(body, 'read'):
-                    f.write(f"    <binary file stream>\n")
-                else:
-                    f.write(f"    <binary data, type: {type(body).__name__}>\n")
-                
-                f.write("\n")
-                
-                # Response details
-                if response:
-                    f.write(f"RESPONSE:\n")
-                    f.write(f"  Status Code: {response.status_code}\n")
-                    f.write(f"  Reason: {response.reason}\n")
-                    f.write(f"  Headers:\n")
-                    for key, value in response.headers.items():
-                        f.write(f"    {key}: {value}\n")
-                    
-                    f.write(f"  Body:\n")
-                    try:
-                        # Try to parse as JSON for better formatting
-                        response_json = response.json()
-                        f.write(f"    {json.dumps(response_json, indent=6)}\n")
-                    except:
-                        # Fall back to text
-                        response_text = response.text[:5000]  # Limit to 5000 chars
-                        if len(response.text) > 5000:
-                            response_text += "\n    ... (truncated)"
-                        f.write(f"    {response_text}\n")
-                
-                # Error details
-                if error:
-                    f.write(f"ERROR:\n")
-                    f.write(f"  Type: {type(error).__name__}\n")
-                    f.write(f"  Message: {str(error)}\n")
-                    if hasattr(error, 'response') and error.response:
-                        f.write(f"  Response Status: {error.response.status_code}\n")
-                        f.write(f"  Response Body: {error.response.text}\n")
-                
-                f.write("\n")
-                
-        except Exception as e:
-            self.logger.warning(f"Failed to write to HTTP log: {str(e)}")
     
     def patch(self) -> None:
         """
@@ -395,20 +287,13 @@ class Patcher(BasePatcher):
             if not self.upload_guid:
                 raise RuntimeError("No uploadGuid received from Dalux")
             
-            # Log successful HTTP request/response
-            self._log_http_request("POST", url, headers, body=None, response=response)
-            
         except requests.exceptions.HTTPError as e:
             self.logger.error(f"HTTP Error: {e}")
             if hasattr(e.response, 'text'):
                 self.logger.error(f"Response body: {e.response.text}")
-            # Log error
-            self._log_http_request("POST", url, headers, body=None, error=e)
             raise RuntimeError(f"Upload slot creation failed: {str(e)}")
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create upload slot: {str(e)}")
-            # Log error
-            self._log_http_request("POST", url, headers, body=None, error=e)
             raise RuntimeError(f"Upload slot creation failed: {str(e)}")
     
     def _upload_chunks(self, chunk_files: list) -> None:
@@ -451,13 +336,8 @@ class Patcher(BasePatcher):
                     
                     response.raise_for_status()
                     
-                    # Log successful HTTP request/response
-                    self._log_http_request("POST", url, headers, body=f"<binary chunk {idx+1}: {chunk_file_size:,} bytes>", response=response)
-                    
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"Failed to upload chunk: {str(e)}")
-                # Log error
-                self._log_http_request("POST", url, headers, body=f"<binary chunk {idx+1}: {chunk_file_size:,} bytes>", error=e)
                 raise RuntimeError(f"Chunk upload failed: {str(e)}")
             
         self.logger.info(f"All {len(chunk_files)} chunks uploaded successfully")
@@ -549,18 +429,12 @@ class Patcher(BasePatcher):
             
             response.raise_for_status()
             
-            # Log successful HTTP request/response (only after raise_for_status succeeds)
-            self._log_http_request("POST", url, headers, body=body, response=response)
-            
             return response.json()
             
         except requests.exceptions.HTTPError as e:
             self.logger.error(f"HTTP Error during finalize: {e}")
             if hasattr(e.response, 'text'):
                 self.logger.error(f"Response body: {e.response.text}")
-            
-            # Log error (this will be the only log entry for failed requests)
-            self._log_http_request("POST", url, headers, body=body, error=e)
             
             # If we got a 500 error and we had properties, try again without them
             if e.response.status_code == 500 and self.properties:
@@ -579,21 +453,14 @@ class Patcher(BasePatcher):
                     
                     retry_response.raise_for_status()
                     
-                    # Log successful retry HTTP request/response (only after raise_for_status succeeds)
-                    self._log_http_request("POST", url, headers, body=retry_body, response=retry_response)
-                    
                     self.logger.warning("Upload succeeded without properties! Properties may not be configured in Dalux.")
                     return retry_response.json()
                 except Exception as retry_error:
                     self.logger.error(f"Retry also failed: {retry_error}")
-                    # Log retry error (this will be the only log entry for failed retry)
-                    self._log_http_request("POST", url, headers, body=retry_body, error=retry_error)
             
             raise RuntimeError(f"Upload finalization failed: {str(e)}")
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to finalize upload: {str(e)}")
-            # Log error
-            self._log_http_request("POST", url, headers, body=body, error=e)
             raise RuntimeError(f"Upload finalization failed: {str(e)}")
     
     def _cleanup(self) -> None:

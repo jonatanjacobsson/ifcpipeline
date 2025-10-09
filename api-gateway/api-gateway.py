@@ -69,6 +69,10 @@ class JobStatusResponse(BaseModel):
     status: str
     result: dict = None
     error: str = None
+    execution_time_seconds: float = None
+    created_at: datetime = None
+    started_at: datetime = None
+    ended_at: datetime = None
 
 # Define the load_config function
 def load_config():
@@ -286,6 +290,17 @@ async def get_job_status(job_id: str, _: str = Depends(verify_access)):
         status = job.get_status()
         
         response = {"job_id": job_id, "status": status}
+        
+        
+        # Calculate execution time if both started_at and ended_at are available
+        if job.started_at and job.ended_at:
+            execution_time = (job.ended_at - job.started_at).total_seconds()
+            response["execution_time_seconds"] = execution_time
+        
+        # Add timing information
+        response["created_at"] = job.created_at
+        response["started_at"] = job.started_at
+        response["ended_at"] = job.ended_at
         
         if status == JobStatus.FINISHED:
             response["result"] = job.result
