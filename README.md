@@ -194,7 +194,12 @@ IFC_PIPELINE_PREVIEW_EXTERNAL_URL=https://viewer.your-domain.com
 ```bash
 N8N_WEBHOOK_URL=https://your-n8n-webhooks.com
 N8N_COMMUNITY_PACKAGES_ENABLED=true
+# n8n Database (PostgreSQL instead of SQLite)
+DB_TYPE=postgresdb
+N8N_POSTGRES_DB=n8n
 ```
+
+> 📘 **n8n PostgreSQL Configuration**: This project is configured to use PostgreSQL for n8n instead of the default SQLite. See [N8N_POSTGRES_INDEX.md](N8N_POSTGRES_INDEX.md) for comprehensive documentation.
 
 #### Database Configuration
 ```bash
