@@ -107,11 +107,23 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
 - Git
 - Docker & Docker Compose
 
+**Note for Mac Users (Apple Silicon):**
+- Docker Desktop for Mac with Rosetta 2 emulation enabled
+- The project uses `platform: linux/amd64` for Python services to ensure compatibility with ifcopenshell wheels
+- First-time builds may take longer due to emulation
+
 ### Quick Start
 
 1. **Install prerequisites** (on Ubuntu/Debian):
    ```bash
    sudo apt install git docker-compose
+   ```
+
+   **On macOS:**
+   ```bash
+   # Install Docker Desktop from https://www.docker.com/products/docker-desktop
+   # Ensure Rosetta 2 is enabled in Docker Desktop settings:
+   # Settings > General > "Use Rosetta for x86_64/amd64 emulation on Apple Silicon"
    ```
 
 2. **Clone the repository**:
@@ -123,15 +135,43 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
 3. **Set up environment variables**:
    ```bash
    cp .env.example .env
-   # Edit .env with your settings (API keys, passwords, URLs)
+   # Edit .env with your settings
+   nano .env  # or use your preferred editor
+   ```
+   
+   **Important environment variables to update:**
+   - `IFC_PIPELINE_API_KEY`: Set a secure random string (e.g., generate a UUID)
+   - `POSTGRES_PASSWORD`: Set a secure database password
+   - For local development, keep the default localhost URLs
+   - For production, update URLs to your actual domain names
+
+4. **Create the external network (if using n8n with Remotely)**:
+   ```bash
+   # Only needed if you're integrating with Remotely
+   docker network create remotely-net
+   
+   # Otherwise, comment out the network references in docker-compose.yml under the n8n service
    ```
 
-4. **Build and start all services**:
+5. **Build and start all services**:
    ```bash
    docker compose up --build -d
    ```
+   
+   **Note:** First build may take 10-30 minutes depending on your system (longer on Apple Silicon due to emulation)
 
-5. **Access the services**:
+6. **Verify the installation**:
+   ```bash
+   # Check that all services are running
+   docker compose ps
+   
+   # Check health status
+   curl http://localhost:8000/health
+   ```
+   
+   **Expected on first run:** Queue services will show `"waiting (no jobs yet)"` - this is normal!
+
+7. **Access the services**:
    - **API Gateway**: http://localhost:8000
    - **API Documentation**: http://localhost:8000/docs
    - **n8n Workflows**: http://localhost:5678
@@ -139,7 +179,26 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    - **RQ Dashboard**: http://localhost:9181
    - **PgWeb (Database)**: http://localhost:8081
 
-6. **Install n8n community nodes**:
+8. **Authorize API access**:
+   - Open http://localhost:8000/docs (Swagger UI)
+   - Click the "Authorize" button (🔒 icon in top right)
+   - Enter your `IFC_PIPELINE_API_KEY` from the `.env` file
+   - Click "Authorize"
+   - You can now test all endpoints!
+
+9. **Test with a sample file**:
+   ```bash
+   # Sample IFC files are available in the shared/examples directory
+   # Upload a sample file via Swagger UI or curl:
+   
+   curl -X POST http://localhost:8000/upload/ifc \
+     -H "X-API-Key: your-api-key-here" \
+     -F "file=@shared/examples/Building-Architecture.ifc"
+   
+   # The file will be uploaded and you can use it in subsequent operations
+   ```
+
+10. **Install n8n community nodes** (optional):
    - Open n8n at http://localhost:5678
    - Go to **Settings** > **Community Nodes**
    - Search and install: `n8n-nodes-ifcpipeline`
@@ -152,9 +211,28 @@ Check system health:
 curl http://localhost:8000/health
 ```
 
+**Expected output:**
+```json
+{
+  "status": "healthy",
+  "services": {
+    "api-gateway": "healthy",
+    "redis": "healthy",
+    "ifcconvert_queue": "waiting (no jobs yet)",
+    "ifcclash_queue": "waiting (no jobs yet)",
+    ...
+  }
+}
+```
+
 View running services:
 ```bash
 docker compose ps
+```
+
+View logs for a specific service:
+```bash
+docker compose logs api-gateway -f
 ```
 
 ## Updating
@@ -186,13 +264,13 @@ Create a `.env` file in the project root with the following variables:
 ```bash
 IFC_PIPELINE_API_KEY=your-secret-api-key
 IFC_PIPELINE_ALLOWED_IP_RANGES=127.0.0.1/32,172.18.0.0/16
-IFC_PIPELINE_EXTERNAL_URL=https://your-domain.com
-IFC_PIPELINE_PREVIEW_EXTERNAL_URL=https://viewer.your-domain.com
+IFC_PIPELINE_EXTERNAL_URL=http://localhost:8000  # Use localhost for local dev
+IFC_PIPELINE_PREVIEW_EXTERNAL_URL=http://localhost:8001
 ```
 
 #### n8n Configuration
 ```bash
-N8N_WEBHOOK_URL=https://your-n8n-webhooks.com
+N8N_WEBHOOK_URL=http://localhost:5678  # Use localhost for local dev
 N8N_COMMUNITY_PACKAGES_ENABLED=true
 ```
 
@@ -209,6 +287,230 @@ REDIS_URL=redis://redis:6379/0
 ```
 
 > 💡 **Tip**: IP ranges in CIDR format can bypass API key authentication for trusted networks
+
+### Python Version Standardization
+
+**Important:** This project now uses **Python 3.11** across all services for consistency and performance.
+
+**Why Python 3.11?**
+- Better performance and memory efficiency
+- Compatibility with latest `ifcopenshell==0.8.0` wheels
+- Improved error messages and debugging
+- Long-term support and stability
+
+**All Dockerfiles use:** `FROM python:3.11-slim`
+
+### First Upload Tutorial
+
+Here's a complete walkthrough for your first IFC file processing:
+
+#### Step 1: Prepare Your Environment
+```bash
+# Ensure services are running
+docker compose ps
+
+# Check health status
+curl http://localhost:8000/health
+```
+
+#### Step 2: Authorize in Swagger UI
+1. Open http://localhost:8000/docs
+2. Click the 🔒 "Authorize" button in the top right
+3. Enter your API key from `.env` file (`IFC_PIPELINE_API_KEY`)
+4. Click "Authorize", then "Close"
+
+#### Step 3: Upload an IFC File
+
+**Using Swagger UI:**
+1. Navigate to `POST /upload/ifc` endpoint
+2. Click "Try it out"
+3. Click "Choose File" and select an IFC file (or use a sample from `shared/examples/`)
+4. Click "Execute"
+5. Note the response - your file is now uploaded to `/uploads`
+
+**Using curl:**
+```bash
+# Upload a file
+curl -X POST http://localhost:8000/upload/ifc \
+  -H "X-API-Key: your-api-key-here" \
+  -F "file=@shared/examples/Building-Architecture.ifc"
+
+# Response:
+# {
+#   "filename": "Building-Architecture.ifc",
+#   "size": 1234567,
+#   "message": "File uploaded successfully"
+# }
+```
+
+#### Step 4: Convert IFC to GLB (3D Model)
+
+**Using Swagger UI:**
+1. Navigate to `POST /ifcconvert` endpoint
+2. Click "Try it out"
+3. Enter the request body:
+```json
+{
+  "input_filename": "Building-Architecture.ifc",
+  "output_filename": "Building-Architecture.glb"
+}
+```
+4. Click "Execute"
+5. Note the `job_id` in the response
+
+**Using curl:**
+```bash
+# Start conversion job
+curl -X POST http://localhost:8000/ifcconvert \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_filename": "Building-Architecture.ifc",
+    "output_filename": "Building-Architecture.glb"
+  }'
+
+# Response:
+# {"job_id": "abc-123-xyz"}
+```
+
+#### Step 5: Check Job Status
+
+**Using Swagger UI:**
+1. Navigate to `GET /jobs/{job_id}/status` endpoint
+2. Click "Try it out"
+3. Enter your `job_id`
+4. Click "Execute"
+
+**Using curl:**
+```bash
+# Check status
+curl http://localhost:8000/jobs/abc-123-xyz/status \
+  -H "X-API-Key: your-api-key-here"
+
+# Response while processing:
+# {
+#   "job_id": "abc-123-xyz",
+#   "status": "started",
+#   "result": null
+# }
+
+# Response when complete:
+# {
+#   "job_id": "abc-123-xyz",
+#   "status": "finished",
+#   "result": {
+#     "output_file": "/output/converted/Building-Architecture.glb",
+#     "success": true
+#   },
+#   "execution_time_seconds": 12.5
+# }
+```
+
+#### Step 6: Download the Result
+
+**Using Swagger UI:**
+1. Navigate to `POST /create_download_link` endpoint
+2. Click "Try it out"
+3. Enter the file path from the job result:
+```json
+{
+  "file_path": "/output/converted/Building-Architecture.glb"
+}
+```
+4. Copy the `token` from the response
+5. Navigate to `GET /download/{token}` endpoint
+6. Click "Try it out", enter the token, and download
+
+**Using curl:**
+```bash
+# Create download link
+curl -X POST http://localhost:8000/create_download_link \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/output/converted/Building-Architecture.glb"}'
+
+# Response:
+# {
+#   "token": "def456",
+#   "expires_at": "2025-10-10T12:30:00",
+#   "download_url": "http://localhost:8000/download/def456"
+# }
+
+# Download the file
+curl http://localhost:8000/download/def456 \
+  -H "X-API-Key: your-api-key-here" \
+  --output Building-Architecture.glb
+```
+
+#### Step 7: View in 3D Viewer (Optional)
+
+1. Create a viewer link:
+```bash
+curl -X POST http://localhost:8000/create_download_link \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/uploads/Building-Architecture.ifc"}'
+```
+
+2. Open the viewer with the token:
+```
+http://localhost:8001/{token}
+```
+
+3. Your IFC model will load in the 3D viewer!
+
+#### Other Operations You Can Try
+
+**Export to CSV:**
+```bash
+curl -X POST http://localhost:8000/ifccsv \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ifc_file": "Building-Architecture.ifc",
+    "selector": ".IfcWall",
+    "output_format": "csv"
+  }'
+```
+
+**Clash Detection:**
+```bash
+curl -X POST http://localhost:8000/ifcclash \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file_a": "Building-Architecture.ifc",
+    "file_b": "Building-Hvac.ifc",
+    "clearance": 0.01
+  }'
+```
+
+**Validate with IDS:**
+```bash
+# First upload an IDS file
+curl -X POST http://localhost:8000/upload/ids \
+  -H "X-API-Key: your-api-key-here" \
+  -F "file=@your-specification.ids"
+
+# Then validate
+curl -X POST http://localhost:8000/ifctester \
+  -H "X-API-Key: your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ifc_file": "Building-Architecture.ifc",
+    "ids_file": "your-specification.ids"
+  }'
+```
+
+### Sample Files
+
+The repository includes sample IFC files in `shared/examples/`:
+- `Building-Architecture.ifc` - Architectural model
+- `Building-Hvac.ifc` - HVAC systems
+- `Building-Landscaping.ifc` - Site and landscaping
+- `Building-Structural.ifc` - Structural elements
+
+Use these for testing without uploading your own files!
 
 ## Usage
 
@@ -376,32 +678,188 @@ Monitor job queues at **http://localhost:9181**:
 - Failed jobs
 - Job history and results
 
-### Common Issues
+### Common Issues and Solutions
 
-#### Worker not processing jobs
+#### 🔴 Issue: "403 Forbidden" when accessing API
+
+**Cause:** Missing or incorrect API key
+
+**Solution:**
+1. Verify your `IFC_PIPELINE_API_KEY` in `.env` file
+2. In Swagger UI (http://localhost:8000/docs), click "Authorize" and enter the API key
+3. For curl requests, add header: `-H "X-API-Key: your-api-key-here"`
+
+#### 🔴 Issue: Queues showing "unhealthy (queue key not found)"
+
+**Cause:** This was the old behavior - queues now show "waiting (no jobs yet)" on first run
+
+**Solution:**
+- Update to latest version with improved health check messages
+- This is normal on first startup before any jobs are queued
+- Once you submit a job, the queue will initialize and show "healthy"
+
+#### 🔴 Issue: `ifcopenshell` installation fails or "No module named 'ifcopenshell'"
+
+**Cause:** ifcopenshell wheels not available for your platform or Python version mismatch
+
+**Solution:**
+1. Ensure you're using Python 3.11 (now standardized across all Dockerfiles)
+2. Verify `platform: linux/amd64` is set in docker-compose.yml for all Python services
+3. On Mac Apple Silicon: Enable Rosetta 2 in Docker Desktop settings
+4. Use pinned version: `ifcopenshell==0.8.0` (now in all requirements.txt)
+5. Rebuild images: `docker compose build --no-cache`
+
+#### 🔴 Issue: "network remotely-net not found" error
+
+**Cause:** External network for n8n-Remotely integration doesn't exist
+
+**Solution:**
+```bash
+# Option 1: Create the network
+docker network create remotely-net
+
+# Option 2: Comment out the network in docker-compose.yml
+# Remove or comment these lines under the n8n service:
+#   networks:
+#     - remotely-net
+# And remove the network definition at the bottom:
+#   remotely-net:
+#     name: remotely-net
+#     external: true
+```
+
+#### 🔴 Issue: Worker not processing jobs
+
+**Cause:** Worker crashed, out of memory, or not running
+
+**Solution:**
 ```bash
 # Check worker logs
 docker compose logs ifcconvert-worker -f
 
 # Restart specific worker
 docker compose restart ifcconvert-worker
+
+# Check worker status in RQ Dashboard
+# Visit http://localhost:9181
 ```
 
-#### Out of memory
+#### 🔴 Issue: Out of memory errors
+
+**Cause:** Large IFC files or insufficient Docker resources
+
+**Solution:**
 ```bash
 # Check resource usage
 docker stats
 
-# Increase memory limits in docker-compose.yml
+# Increase memory limits in docker-compose.yml:
+# For heavy workers (ifcclash, ifcdiff, ifcpatch):
+deploy:
+  resources:
+    limits:
+      memory: 16G  # Increase from 12G
 ```
 
-#### Redis connection issues
+#### 🔴 Issue: Redis connection issues
+
+**Cause:** Redis service not running or connection refused
+
+**Solution:**
 ```bash
 # Check Redis status
 docker compose logs redis
 
 # Restart Redis
 docker compose restart redis
+
+# Verify Redis is accessible
+docker compose exec redis redis-cli ping
+# Should return: PONG
+```
+
+#### 🔴 Issue: Slow build times on Mac Apple Silicon
+
+**Cause:** Platform emulation (amd64 on arm64)
+
+**Solution:**
+- First build is slow (10-30 minutes) - this is expected
+- Subsequent builds use Docker cache and are faster
+- Consider using prebuilt images if available
+- Ensure Rosetta 2 is enabled in Docker Desktop
+
+#### 🔴 Issue: Sample IFC files not found
+
+**Cause:** Example files not present or incorrect path
+
+**Solution:**
+```bash
+# Verify sample files exist
+ls -la shared/examples/
+
+# Sample files should include:
+# - Building-Architecture.ifc
+# - Building-Hvac.ifc
+# - Building-Landscaping.ifc
+# - Building-Structural.ifc
+
+# Access them via the /examples volume mount in containers
+```
+
+#### 🔴 Issue: "Version mismatch" or dependency conflicts
+
+**Cause:** Outdated dependencies or mixed Python/package versions
+
+**Solution:**
+1. All Dockerfiles now use Python 3.11-slim
+2. All requirements.txt files pin ifcopenshell==0.8.0
+3. FastAPI/Pydantic versions are aligned across services
+4. Rebuild with: `docker compose build --no-cache`
+
+### Error Lookup Table
+
+| Error Message | Component | Quick Fix |
+|--------------|-----------|----------|
+| `403 Forbidden` | API Gateway | Add API key in Swagger UI or request headers |
+| `queue key not found` | RQ Workers | Normal on first run - submit a job to initialize |
+| `ifcopenshell not found` | Worker | Use Python 3.11 + platform: linux/amd64 |
+| `network not found` | Docker | Create network or remove from docker-compose.yml |
+| `Redis connection refused` | Redis | Check Redis logs and restart service |
+| `Out of memory` | Worker | Increase memory limits in docker-compose.yml |
+| `Worker not responding` | RQ Worker | Check logs and restart worker |
+| `Build timeout` | Docker | Increase Docker build resources |
+
+### Security Notes
+
+#### 🔒 Redis Security (CVE-2025-49844)
+
+**Critical:** Redis versions prior to 7.2.11 have a critical vulnerability allowing remote code execution.
+
+**Status:** ✅ Fixed in this repository
+- `docker-compose.yml` now uses `redis:7.2.11-alpine`
+- Redis port 6379 is bound to localhost only (not exposed publicly)
+- Redis is only accessible within the Docker network
+
+**Important:** 
+- Keep Redis internal-only (do not expose port 6379 to public internet)
+- Regularly update Redis to latest patch versions
+- Monitor DigitalOcean or security advisories for Redis updates
+
+**Current configuration (safe):**
+```yaml
+redis:
+  image: "redis:7.2.11-alpine"  # Patched version
+  ports:
+    - "6379:6379"  # Localhost only - safe for development
+```
+
+**For production:**
+```yaml
+redis:
+  image: "redis:7.2.11-alpine"
+  # Remove ports entirely - internal access only
+  networks:
+    - default
 ```
 
 ### Logs
@@ -414,6 +872,11 @@ docker compose logs -f
 View logs for specific service:
 ```bash
 docker compose logs api-gateway -f
+```
+
+Filter logs by time:
+```bash
+docker compose logs --since 10m api-gateway
 ```
 
 ## Development

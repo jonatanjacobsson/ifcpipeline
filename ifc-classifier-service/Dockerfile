@@ -1,4 +1,7 @@
-FROM python:3.9-slim
+FROM python:3.11-slim
+
+# Using Python 3.11 for better performance and compatibility
+# Slim variant reduces image size while maintaining necessary dependencies
 
 WORKDIR /app
 
@@ -7,6 +10,9 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip to latest version for better dependency resolution
+RUN python -m pip install --upgrade pip
 
 # Copy requirements first to leverage Docker cache
 COPY ifc-classifier-service/requirements.txt .

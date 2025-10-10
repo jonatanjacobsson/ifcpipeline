@@ -1,7 +1,12 @@
-ifcclash==0.7.10
-ifcopenshell==0.7.10
-numpy
-scikit-learn
-typing_extensions
-pydantic
-rq 
+# IFC dependencies - pinned for stability
+ifcclash==0.8.0
+ifcopenshell==0.8.0
+
+# Data science and processing
+numpy>=2.0.0,<3.0.0
+scikit-learn>=1.5.0,<2.0.0
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
+typing_extensions>=4.12.0 

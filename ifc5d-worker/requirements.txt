@@ -1,4 +1,7 @@
-ifcopenshell
-ifc5d
-rq
-pydantic # Needed for IfcQtoRequest 
+# IFC dependencies - pinned for stability
+ifcopenshell==0.8.0
+ifc5d>=0.0.2
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0 
