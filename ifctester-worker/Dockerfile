@@ -1,6 +1,12 @@
-FROM python:3.9
+FROM python:3.11-slim
+
+# Using Python 3.11 for better performance and compatibility with latest ifcopenshell wheels
+# Slim variant reduces image size while maintaining necessary dependencies
 
 WORKDIR /app
+
+# Upgrade pip to latest version for better dependency resolution
+RUN python -m pip install --upgrade pip
 
 COPY shared /app/shared
 RUN pip install -e /app/shared
