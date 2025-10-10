@@ -1,6 +1,11 @@
-ifccsv
-ifcopenshell
-pandas
-openpyxl # Required for XLSX export/import
-rq
-pydantic # Needed for request models 
+# IFC dependencies - pinned for stability
+ifccsv>=0.0.1
+ifcopenshell==0.8.0
+
+# Data processing
+pandas>=2.2.0,<3.0.0
+openpyxl>=3.1.0,<4.0.0  # Required for XLSX export/import
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0 

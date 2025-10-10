@@ -1,3 +1,5 @@
-rq
-pydantic # Needed for IFC2JSONRequest
-# No ifcopenshell needed as it uses an external tool 
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
+
+# Note: No ifcopenshell needed as it uses an external .NET tool (ConvertIfc2Json) 

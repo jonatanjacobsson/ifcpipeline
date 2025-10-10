@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
+    platform: linux/amd64
     ports:
       - "8000:80"
     depends_on:
@@ -52,7 +53,7 @@ services:
           memory: 256M
 
   redis:
-    image: "redis:alpine"
+    image: "redis:7.2.11-alpine"
     ports:
       - "6379:6379"
     volumes:
@@ -83,6 +84,7 @@ services:
     build:
       context: .
       dockerfile: ifc5d-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -104,6 +106,7 @@ services:
     build:
       context: .
       dockerfile: ifcpatch-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -127,6 +130,7 @@ services:
     build:
       context: .
       dockerfile: ifcconvert-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -154,6 +158,7 @@ services:
     build:
       context: .
       dockerfile: ifcclash-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -182,6 +187,7 @@ services:
     build:
       context: .
       dockerfile: ifccsv-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -203,6 +209,7 @@ services:
     build:
       context: .
       dockerfile: ifctester-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -230,6 +237,7 @@ services:
     build:
       context: .
       dockerfile: ifcdiff-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -258,6 +266,7 @@ services:
     build:
       context: .
       dockerfile: ifc2json-worker/Dockerfile
+    platform: linux/amd64
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -279,6 +288,7 @@ services:
     build:
       context: .
       dockerfile: ifc-classifier-service/Dockerfile
+    platform: linux/amd64
     ports:
       - "8002:8000"  # Exposed for debugging, accessed internally via service name
     environment:

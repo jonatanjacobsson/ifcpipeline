@@ -1,5 +1,8 @@
-fastapi>=0.68.0,<0.69.0
-uvicorn>=0.15.0,<0.16.0
-catboost>=1.2.0
-pydantic>=1.8.0,<2.0.0
-python-multipart>=0.0.5,<0.1.0 
+# FastAPI and web framework
+fastapi>=0.115.0,<0.116.0
+uvicorn>=0.32.0,<0.33.0
+pydantic>=2.9.0,<3.0.0
+python-multipart>=0.0.5,<0.1.0
+
+# Machine learning
+catboost>=1.2.0,<2.0.0 

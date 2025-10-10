@@ -32,8 +32,8 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import ifcopenshell
 import ifcopenshell.api
+import ifcopenshell.guid
 from ifcopenshell.util import element as uel
-from ifcpatch import BasePatcher
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ SKIP_PSET_GENERATION = False              # Always generate PM psets
 PREDEFINED_TYPE = "OPERATION"             # Task type for changes
 
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     MergeTasksFromPrevious patcher using a per-revision approach.
     
@@ -103,7 +103,9 @@ class Patcher(BasePatcher):
         Args:
             revision_name: Optional name for this revision (e.g., "Week 1", "2025-10-09")
         """
-        super().__init__(file, logger)
+        # Store file and logger
+        self.file = file
+        self.logger = logger
         
         # Validate and store arguments
         self.prev_path = prev_path
@@ -244,6 +246,36 @@ class Patcher(BasePatcher):
         next_num = max_num + 1
         self.logger.info(f"Detected next PM number: {self.pm_code_prefix}{next_num}")
         return next_num
+    
+    def _get_or_create_owner_history(self) -> Optional[ifcopenshell.entity_instance]:
+        """Get existing OwnerHistory or create a minimal one if needed."""
+        owner_histories = self.file.by_type("IfcOwnerHistory")
+        if owner_histories:
+            return owner_histories[0]
+        
+        # Fallback: create minimal owner history for IFC2X3
+        self.logger.warning("No IfcOwnerHistory found, creating minimal one")
+        
+        person_orgs = self.file.by_type("IfcPersonAndOrganization")
+        application = self.file.by_type("IfcApplication")
+        
+        if not person_orgs:
+            person = self.file.create_entity("IfcPerson", None, None, None)
+            org = self.file.create_entity("IfcOrganization", None, "Unknown")
+            person_org = self.file.create_entity("IfcPersonAndOrganization", person, org)
+        else:
+            person_org = person_orgs[0]
+        
+        if not application:
+            app = self.file.create_entity("IfcApplication", 
+                                         person_org.TheOrganization if hasattr(person_org, 'TheOrganization') else org if not person_orgs else person_org,
+                                         "Unknown", "Unknown", "Unknown")
+        else:
+            app = application[0]
+        
+        owner_history = self.file.create_entity("IfcOwnerHistory",
+                                                person_org, app, None, None, None, None, None, 0)
+        return owner_history
     
     # =========================================================================
     # Helper Methods: Task Cloning
@@ -477,28 +509,33 @@ class Patcher(BasePatcher):
                 continue
             
             try:
-                # Create sequence
+                # Create sequence - schema-aware
                 sequence_type = getattr(seq, "SequenceType", "FINISH_START")
-                new_seq = ifcopenshell.api.run(
-                    "sequence.assign_sequence",
-                    self.file,
-                    relating_process=new_relating,
-                    related_process=new_related,
-                    sequence_type=sequence_type
+                new_seq = self._create_sequence_relationship(
+                    new_relating,
+                    new_related,
+                    sequence_type
                 )
                 
-                # Add lag time if present
-                if hasattr(seq, "TimeLag") and seq.TimeLag:
+                if not new_seq:
+                    continue
+                
+                # Add lag time if present (IFC4+ only, API handles this)
+                schema = self.file.schema
+                if schema != "IFC2X3" and hasattr(seq, "TimeLag") and seq.TimeLag:
                     lag_value = getattr(seq.TimeLag, "LagValue", None)
                     duration_type = getattr(seq.TimeLag, "DurationType", "WORKTIME")
                     if lag_value:
-                        ifcopenshell.api.run(
-                            "sequence.assign_lag_time",
-                            self.file,
-                            rel_sequence=new_seq,
-                            lag_value=str(lag_value),
-                            duration_type=duration_type
-                        )
+                        try:
+                            ifcopenshell.api.run(
+                                "sequence.assign_lag_time",
+                                self.file,
+                                rel_sequence=new_seq,
+                                lag_value=str(lag_value),
+                                duration_type=duration_type
+                            )
+                        except Exception as e:
+                            self.logger.warning(f"Failed to assign lag time: {str(e)}")
                 
                 recreated += 1
             except Exception as e:
@@ -512,6 +549,66 @@ class Patcher(BasePatcher):
             if seq.RelatingProcess == relating and seq.RelatedProcess == related:
                 return True
         return False
+    
+    def _create_sequence_relationship(
+        self,
+        relating_process: ifcopenshell.entity_instance,
+        related_process: ifcopenshell.entity_instance,
+        sequence_type: str = "FINISH_START"
+    ) -> Optional[ifcopenshell.entity_instance]:
+        """
+        Create a sequence relationship in a schema-aware way.
+        
+        For IFC4+: Uses ifcopenshell.api (TaskTime-aware)
+        For IFC2X3: Manually creates IfcRelSequence entity (avoids TaskTime requirement)
+        
+        Args:
+            relating_process: The predecessor task
+            related_process: The successor task
+            sequence_type: Type of sequence (default: FINISH_START)
+        
+        Returns:
+            Created IfcRelSequence entity or None on failure
+        """
+        schema = self.file.schema
+        
+        # IFC2X3: Manual entity creation to avoid TaskTime attribute error
+        if schema == "IFC2X3":
+            try:
+                owner_history = self._get_or_create_owner_history()
+                
+                rel_sequence = self.file.create_entity(
+                    "IfcRelSequence",
+                    ifcopenshell.guid.new(),        # GlobalId
+                    owner_history,                   # OwnerHistory
+                    None,                           # Name
+                    None,                           # Description
+                    relating_process,               # RelatingProcess
+                    related_process,                # RelatedProcess
+                    None,                           # TimeLag
+                    sequence_type                   # SequenceType
+                )
+                self.logger.debug(f"Created IFC2X3 sequence: {relating_process.Name} → {related_process.Name}")
+                return rel_sequence
+            except Exception as e:
+                self.logger.warning(f"Failed to manually create IFC2X3 sequence: {str(e)}")
+                return None
+        
+        # IFC4+: Use API (handles TaskTime internally)
+        else:
+            try:
+                rel_sequence = ifcopenshell.api.run(
+                    "sequence.assign_sequence",
+                    self.file,
+                    relating_process=relating_process,
+                    related_process=related_process,
+                    sequence_type=sequence_type
+                )
+                self.logger.debug(f"Created IFC4 sequence via API: {relating_process.Name} → {related_process.Name}")
+                return rel_sequence
+            except Exception as e:
+                self.logger.warning(f"Failed to create IFC4 sequence via API: {str(e)}")
+                return None
     
     # =========================================================================
     # Helper Methods: Add Tasks from Diff
@@ -732,14 +829,15 @@ class Patcher(BasePatcher):
             return
         
         try:
-            ifcopenshell.api.run(
-                "sequence.assign_sequence",
-                self.file,
-                relating_process=previous_task,
-                related_process=current_task,
-                sequence_type="FINISH_START"
+            rel_seq = self._create_sequence_relationship(
+                previous_task,
+                current_task,
+                "FINISH_START"
             )
-            self.logger.info(f"Created sequence: {previous_pm_code} → {current_task.Name}")
+            if rel_seq:
+                self.logger.info(f"Created sequence: {previous_pm_code} → {current_task.Name}")
+            else:
+                self.logger.warning(f"Failed to create sequence {previous_pm_code} → {current_task.Name}")
         except Exception as e:
             self.logger.warning(f"Failed to create sequence {previous_pm_code} → {current_task.Name}: {str(e)}")
     
