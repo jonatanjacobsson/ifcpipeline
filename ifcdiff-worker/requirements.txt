@@ -1,4 +1,7 @@
-ifcopenshell
-ifcdiff
-rq
-pydantic # Needed for IfcDiffRequest 
+# IFC dependencies - pinned for stability
+ifcopenshell==0.8.0
+ifcdiff>=0.0.1
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0 

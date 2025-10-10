@@ -1,5 +1,8 @@
 # ifcconvert-worker/Dockerfile
-FROM python:3.9
+FROM python:3.11-slim
+
+# Using Python 3.11 for better performance and compatibility with latest ifcopenshell wheels
+# Slim variant reduces image size while maintaining necessary dependencies
 
 # Install system dependencies and IfcConvert (similar to original service)
 RUN apt-get update && apt-get install -y \
@@ -17,6 +20,9 @@ RUN wget https://github.com/IfcOpenShell/IfcOpenShell/releases/download/ifcconve
     && rm ifcconvert-0.8.0-linux64.zip
 
 WORKDIR /app
+
+# Upgrade pip to latest version for better dependency resolution
+RUN python -m pip install --upgrade pip
 
 # Copy shared library and install it
 COPY shared /app/shared

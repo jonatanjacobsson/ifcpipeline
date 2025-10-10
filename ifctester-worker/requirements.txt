@@ -1,5 +1,10 @@
-pydantic
-ifcopenshell
-ifctester
-pystache
-rq
+# IFC dependencies - pinned for stability
+ifcopenshell==0.8.0
+ifctester>=0.0.1
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
+
+# Template engine
+pystache>=0.6.0,<0.7.0

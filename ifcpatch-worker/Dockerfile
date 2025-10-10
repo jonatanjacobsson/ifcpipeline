@@ -1,5 +1,8 @@
 # ifcpatch-worker/Dockerfile
-FROM python:3.10-slim AS base
+FROM python:3.11-slim AS base
+
+# Using Python 3.11 for better performance and compatibility with latest ifcopenshell wheels
+# Slim variant reduces image size while maintaining necessary dependencies
 
 WORKDIR /app
 
@@ -7,6 +10,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip to latest version for better dependency resolution
+RUN python -m pip install --upgrade pip
 
 # Copy shared library and install it
 COPY shared /app/shared

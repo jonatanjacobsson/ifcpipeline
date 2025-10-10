@@ -1,3 +1,6 @@
-ifcopenshell
-rq
-pydantic # Needed for IfcConvertRequest 
+# IFC dependencies - pinned for stability
+ifcopenshell==0.8.0
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0 

@@ -191,16 +191,16 @@ async def health_check():
     """Checks the health of the API Gateway, Redis, and Worker Queues."""
     health_status = {
         "api-gateway": "healthy",
-        "redis": "unhealthy", 
-        "ifcconvert_queue": "unhealthy",
-        "ifcclash_queue": "unhealthy",
-        "ifccsv_queue": "unhealthy",
-        "ifctester_queue": "unhealthy",
-        "ifcdiff_queue": "unhealthy",
-        "ifc5d_queue": "unhealthy",
-        "ifc2json_queue": "unhealthy",
-        "ifcpatch_queue": "unhealthy",
-        "default_queue": "unhealthy",
+        "redis": "waiting", 
+        "ifcconvert_queue": "waiting",
+        "ifcclash_queue": "waiting",
+        "ifccsv_queue": "waiting",
+        "ifctester_queue": "waiting",
+        "ifcdiff_queue": "waiting",
+        "ifc5d_queue": "waiting",
+        "ifc2json_queue": "waiting",
+        "ifcpatch_queue": "waiting",
+        "default_queue": "waiting",
     }
 
     # Check Redis health
@@ -249,19 +249,20 @@ async def health_check():
                     health_status[key] = "degraded (queue exists, no active worker)"
                     logger.warning(f"Queue '{queue_name}' exists but no worker is actively listening.")
             else:
-                health_status[key] = "unhealthy (queue key not found in Redis)"
-                logger.warning(f"Queue key '{queue_obj.key}' not found in Redis for queue '{queue_name}'.")
+                # Queue not yet initialized - this is normal on first run
+                health_status[key] = "waiting (no jobs yet)"
+                logger.info(f"Queue '{queue_name}' not yet initialized - this is normal on first startup.")
                 
     except Exception as e:
         logger.error(f"Error checking RQ queues/workers: {str(e)}")
-        # Mark all unchecked queues as unknown or error state
+        # Mark all unchecked queues as error state
         for key in all_queues.keys():
-            if health_status[key] == "unhealthy": # Only update if not already checked
+            if health_status[key] == "waiting": # Only update if not already checked
                  health_status[key] = f"error checking ({str(e)})"
 
     # Determine overall status
-    # Healthy only if API Gateway, Redis, and all queues are healthy
-    is_healthy = all(status == "healthy" for key, status in health_status.items() if key != "api-gateway")
+    # Healthy only if API Gateway, Redis, and all queues are healthy or waiting
+    is_healthy = all(status in ["healthy", "waiting (no jobs yet)"] for key, status in health_status.items() if key != "api-gateway")
     is_degraded = any("degraded" in status for status in health_status.values())
     
     if is_healthy and health_status["redis"] == "healthy": # Double check redis explicitly
