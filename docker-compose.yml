@@ -309,7 +309,6 @@ services:
       - "5678:5678"
     networks:
       - default
-      - remotely-net
     volumes:
       - ./n8n-data:/home/node/.n8n
       - ./shared/uploads:/uploads
@@ -321,7 +320,6 @@ services:
       - N8N_PROTOCOL=http
       - IFC_PIPELINE_URL=http://api-gateway
       - WEBHOOK_URL=${N8N_WEBHOOK_URL}
-      - REMOTELY_URL=http://remotely:5000
       - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
@@ -408,6 +406,3 @@ volumes:
 
 networks:
   default:
-  remotely-net:
-    name: remotely-net
-    external: true
