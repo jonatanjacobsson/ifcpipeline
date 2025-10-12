@@ -16,13 +16,13 @@ This directory contains custom IfcPatch recipes for the IFC Pipeline. Custom rec
 Every custom recipe must follow this structure:
 
 ```python
-from ifcpatch import BasePatcher
 import ifcopenshell
 import logging
 
-class Patcher(BasePatcher):
+class Patcher:
     def __init__(self, file: ifcopenshell.file, logger: logging.Logger, *args):
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         # Initialize your arguments here
     
     def patch(self) -> None:
@@ -37,10 +37,9 @@ class Patcher(BasePatcher):
 ### Required Components
 
 1. **Class Name**: Must be `Patcher`
-2. **Inheritance**: Must inherit from `BasePatcher`
-3. **__init__ method**: Initialize with `file`, `logger`, and optional `*args`
-4. **patch method**: Contains your transformation logic
-5. **get_output method**: Returns the modified IFC file
+2. **__init__ method**: Initialize with `file`, `logger`, and optional `*args`; store them as instance variables
+3. **patch method**: Contains your transformation logic
+4. **get_output method**: Returns the modified IFC file
 
 ### Best Practices
 

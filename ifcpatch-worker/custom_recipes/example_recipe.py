@@ -12,11 +12,10 @@ Date: 2025-01-01
 
 import logging
 import ifcopenshell
-from ifcpatch import BasePatcher
 
 logger = logging.getLogger(__name__)
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     Example custom patcher that demonstrates the recipe structure.
     
@@ -50,7 +49,8 @@ class Patcher(BasePatcher):
             element_type: Type of elements to process (default: "IfcWall")
             property_name: Name of property to add (default: "Processed")
         """
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         
         # Parse custom arguments with defaults
         self.element_type = element_type if element_type else "IfcWall"

@@ -800,9 +800,20 @@ patcher.patch()
 **Cause:** Trying to create a new file when one with the same name already exists.
 
 **Solution:** This should be automatically handled by the smart versioning feature. If you still see this error:
-1. Ensure you're using the latest version of DaluxUpload.py
+1. Ensure you're using the latest version of DaluxUpload.py (v1.1.0+)
 2. Check the logs to see if the file existence check is running
 3. Verify network connectivity to Dalux API
+4. If the API endpoint for checking files returns 404, the recipe will try multiple endpoints
+
+**Known Issue:** Some Dalux API versions may not support the file listing endpoints. The recipe now tries:
+- `/2.0/projects/.../file_areas/.../files`
+- `/2.0/projects/.../file_areas/.../folders/.../files`
+- `/1.0/projects/.../file_areas/.../files`
+
+**Workaround if all endpoints fail:**
+1. Delete the existing file in Dalux UI first
+2. Then upload the new version
+3. Or manually provide the file ID if you know it
 
 ### Error: 500 Internal Server Error during finalization
 

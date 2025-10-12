@@ -25,12 +25,11 @@ import re
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.util.selector
-from ifcpatch import BasePatcher
 
 logger = logging.getLogger(__name__)
 
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     Custom patcher for assigning colors to IFC elements using selector syntax.
     
@@ -85,7 +84,8 @@ class Patcher(BasePatcher):
             operation4: JSON operation string. Example: {"selectors": "IfcBeam + IfcColumn", "hex": "00FFFF + FFFF00"}
             operation5: JSON operation string. Example: {"selectors": "IfcWindow", "hex": "FF00FF"}
         """
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         
         self.operations = []
         self.style_cache = {}  # Cache styles by hex value to avoid duplicates
