@@ -34,13 +34,12 @@ import ifcopenshell.api.style
 import ifcopenshell.api.unit
 import ifcopenshell.api.context
 import ifcopenshell.util.representation
-from ifcpatch import BasePatcher
 from typing import List, Dict, Any, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     Custom patcher for generating ceiling grid beams from IfcCovering footprints.
     
@@ -98,7 +97,8 @@ class Patcher(BasePatcher):
             profile_thickness: Thickness of profiles in mm (default: "5.0")
             tolerance: Connection tolerance in mm (default: "50.0")
         """
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         
         # Parse arguments with defaults
         self.profile_height = float(profile_height) if profile_height else 40.0

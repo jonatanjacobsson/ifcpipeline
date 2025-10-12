@@ -25,12 +25,11 @@ import ifcopenshell
 import ifcopenshell.guid
 import ifcopenshell.util.element
 import ifcopenshell.util.selector
-from ifcpatch import BasePatcher
 
 logger = logging.getLogger(__name__)
 
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     Custom patcher for writing properties to IFC elements using selector syntax.
     
@@ -88,7 +87,8 @@ class Patcher(BasePatcher):
             operation4: JSON operation string. Example: {"selector": "IfcBeam", "property": "Qto_BeamBaseQuantities.Length", "data_type": "IfcReal", "value": 3500.5}
             operation5: JSON operation string. Example: {"selector": "IfcColumn", "property": "Pset_ColumnCommon.Reference", "data_type": "IfcIdentifier", "value": "C-01"}
         """
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         
         self.operations = []
         self.stats = {

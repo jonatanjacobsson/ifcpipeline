@@ -39,13 +39,12 @@ import ifcopenshell.util.representation
 import ifcopenshell.util.placement
 import ifcopenshell.util.selector
 import ifcopenshell.guid
-from ifcpatch import BasePatcher
 from typing import List, Dict, Any, Set, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     Custom patcher for generating ceiling grid beams from IfcCovering footprints.
     
@@ -111,7 +110,8 @@ class Patcher(BasePatcher):
             tolerance: Connection tolerance in mm (default: "10.0")
             output_path: Path for extracted beams file, empty for auto-generated (default: "")
         """
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         
         # Parse arguments with defaults
         self.extract_beams = extract_beams.lower() == "true" if extract_beams else False

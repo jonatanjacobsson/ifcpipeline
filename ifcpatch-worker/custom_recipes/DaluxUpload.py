@@ -21,12 +21,11 @@ from urllib.parse import quote
 from typing import Optional, Dict, Any
 import json
 import ifcopenshell
-from ifcpatch import BasePatcher
 
 logger = logging.getLogger(__name__)
 
 
-class Patcher(BasePatcher):
+class Patcher:
     """
     Custom patcher for uploading IFC files to Dalux Build API.
     
@@ -114,7 +113,8 @@ class Patcher(BasePatcher):
             file_type: File type (default: "model")
             chunk_size_mb: Chunk size in MB (default: "50")
         """
-        super().__init__(file, logger)
+        self.file = file
+        self.logger = logger
         
         # Required parameters
         if not project_id or not file_area_id or not folder_id or not api_key:
@@ -347,36 +347,77 @@ class Patcher(BasePatcher):
         Check if a file with the same name already exists in the folder.
         Returns the fileId if it exists, None otherwise.
         """
-        url = f"{self.base_url}/1.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files"
         headers = {
             "X-API-KEY": self.api_key,
             "Accept": "application/json"
         }
         
-        try:
-            self.logger.info(f"Checking if file '{self.file_name}' already exists in folder {self.folder_id}...")
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Search for file with matching name and folder
-            if "items" in data:
-                for item in data.get("items", []):
-                    file_data = item.get("data", {})
-                    if (file_data.get("fileName") == self.file_name and 
-                        file_data.get("folderId") == self.folder_id):
+        # Try multiple API endpoints to find existing files
+        # Based on Dalux Build API documentation (SwaggerHub)
+        endpoints_to_try = [
+            f"{self.base_url}/6.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",  # Current version
+            f"{self.base_url}/5.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",  # Fallback
+            f"{self.base_url}/2.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",  # Older version
+        ]
+        
+        for url in endpoints_to_try:
+            try:
+                self.logger.info(f"Trying to check files at: {url}")
+                response = requests.get(url, headers=headers, timeout=30)
+                
+                if response.status_code == 404:
+                    self.logger.debug(f"Endpoint not found, trying next: {url}")
+                    continue
+                    
+                response.raise_for_status()
+                data = response.json()
+                
+                # Log response structure for debugging
+                self.logger.info(f"API response keys: {data.keys() if isinstance(data, dict) else 'not a dict'}")
+                
+                # Search for file with matching name and folder (compare as strings to avoid type issues)
+                target_folder_id = str(self.folder_id)
+                files_to_check = []
+                
+                # Handle different response formats
+                if "items" in data:
+                    files_to_check = data.get("items", [])
+                    self.logger.info(f"Found {len(files_to_check)} files in 'items' response")
+                elif "data" in data and isinstance(data["data"], list):
+                    files_to_check = data["data"]
+                    self.logger.info(f"Found {len(files_to_check)} files in 'data' response")
+                elif isinstance(data, list):
+                    files_to_check = data
+                    self.logger.info(f"Found {len(files_to_check)} files in list response")
+                
+                for item in files_to_check:
+                    # Handle different structures
+                    file_data = item.get("data", item) if "data" in item else item
+                    file_name = file_data.get("fileName")
+                    folder_id = str(file_data.get("folderId", ""))
+                    
+                    self.logger.debug(f"Checking file: '{file_name}' in folder '{folder_id}' (target: '{self.file_name}' in '{target_folder_id}')")
+                    
+                    if file_name == self.file_name and folder_id == target_folder_id:
                         file_id = file_data.get("fileId")
                         self.logger.info(f"File already exists with ID: {file_id}. Will upload as new version.")
                         return file_id
-            
-            self.logger.info("File does not exist yet. Will create new file.")
-            return None
-            
-        except Exception as e:
-            self.logger.warning(f"Error checking for existing file: {e}")
-            self.logger.warning("Proceeding with new file upload (using folderId)")
-            return None
+                
+                # If we got here and processed files, endpoint worked but file not found
+                self.logger.info(f"Successfully checked files at {url}, but file does not exist yet.")
+                return None
+                
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 404:
+                    self.logger.debug(f"Endpoint returned 404, trying next: {url}")
+                    continue
+                else:
+                    self.logger.warning(f"HTTP error checking for existing file at {url}: {e}")
+            except Exception as e:
+                self.logger.warning(f"Error checking for existing file at {url}: {e}")
+        
+        self.logger.warning("Could not check for existing files at any endpoint. Proceeding with new file upload (using folderId)")
+        return None
     
     def _finalize_upload(self) -> Dict[str, Any]:
         """Finalize the upload in Dalux."""
@@ -435,6 +476,38 @@ class Patcher(BasePatcher):
             self.logger.error(f"HTTP Error during finalize: {e}")
             if hasattr(e.response, 'text'):
                 self.logger.error(f"Response body: {e.response.text}")
+            
+            # If we got a 400 error with "file already exists", try to find the file and upload as version
+            if e.response.status_code == 400 and "already exists" in e.response.text.lower():
+                self.logger.warning("Got 400 'file already exists' error. Attempting to find file ID and retry as version...")
+                try:
+                    # Force a fresh check for the existing file
+                    existing_file_id = self._check_existing_file()
+                    
+                    if existing_file_id:
+                        # Retry with fileId instead of folderId
+                        retry_body = {
+                            "fileId": existing_file_id,
+                            "fileName": self.file_name,
+                            "fileType": self.file_type
+                        }
+                        if self.properties:
+                            retry_body["properties"] = self.properties
+                        
+                        self.logger.info(f"Retry finalize body (with fileId): {json.dumps(retry_body, indent=2)}")
+                        retry_response = requests.post(url, headers=headers, json=retry_body, timeout=30)
+                        
+                        self.logger.info(f"Retry response status: {retry_response.status_code}")
+                        self.logger.info(f"Retry response body: {retry_response.text}")
+                        
+                        retry_response.raise_for_status()
+                        
+                        self.logger.info("Successfully uploaded as new version!")
+                        return retry_response.json()
+                    else:
+                        self.logger.error("Could not find existing file ID to retry as version")
+                except Exception as retry_error:
+                    self.logger.error(f"Retry with fileId also failed: {retry_error}")
             
             # If we got a 500 error and we had properties, try again without them
             if e.response.status_code == 500 and self.properties:
