@@ -2,20 +2,22 @@
 
 ## Overview
 
-The **MergeTasksFromPrevious** recipe preserves IfcTask history across IFC model versions by re-injecting tasks from previous models and appending new tasks from diff results. It automatically generates "PM" property sets on affected elements containing task history and descriptions.
+The **MergeTasksFromPrevious** recipe preserves IfcTask history across IFC model versions using a **per-revision approach**. Each model update creates **ONE task representing that entire revision**, with all changed elements assigned to it. Element-specific change details are stored in PM PropertySets.
 
-This recipe solves the problem of losing project management (PM) task history when updating IFC models. When you compare two model versions with IfcDiff, the recipe:
+This design supports weekly IFC workflows where **one task = one model update/review**. The recipe:
 1. Carries forward all existing tasks from the previous model
-2. Creates new tasks for changes identified in the diff
-3. Maintains chronological task sequences
-4. Generates property sets for easy viewing in IFC viewers
+2. Creates **ONE new task** for the entire revision based on diff results
+3. Assigns all changed elements to this single revision task
+4. Maintains chronological task sequences (PM1 → PM2 → PM3)
+5. Generates shared "PM" property sets for space efficiency
 
 ## Recipe Details
 
 - **Recipe Name**: MergeTasksFromPrevious
+- **Version**: 0.3.2
 - **Category**: Project Management / Change Tracking
 - **Author**: IFC Pipeline Team
-- **Date**: 2025-01-09
+- **Date**: 2025-10-14
 - **Status**: Production Ready
 
 ## How It Works
@@ -26,8 +28,8 @@ This recipe solves the problem of losing project management (PM) task history wh
 Previous Model (v2.ifc)          New Model (v3.ifc)
   ├─ IfcTask: PM1                  ├─ IfcWall (modified)
   ├─ IfcTask: PM2                  ├─ IfcDoor (new)
-  ├─ IfcTask: PM3                  └─ IfcWindow (unchanged)
-  └─ Relationships                         │
+  ├─ IfcTask: PM3                  ├─ IfcWindow (unchanged)
+  └─ Relationships                 └─ All elements indexed
           │                                 │
           ▼                                 ▼
     ┌─────────────────────────────────────────┐
@@ -40,10 +42,11 @@ Previous Model (v2.ifc)          New Model (v3.ifc)
             ├─ IfcTask: PM1 (from v2)
             ├─ IfcTask: PM2 (from v2)
             ├─ IfcTask: PM3 (from v2)
-            ├─ IfcTask: PM4 (new - wall modified)
-            ├─ IfcTask: PM5 (new - door added)
-            ├─ All relationships preserved
-            └─ PM Property Sets on elements
+            ├─ IfcTask: PM4 (REVISION TASK)
+            │   ├─ Assigned to: Wall, Door
+            │   └─ Description: "Revision PM4: 2 changes (1 added, 1 changed)"
+            ├─ Sequential relationships (PM1→PM2→PM3→PM4)
+            └─ Shared PM Property Sets on elements
 ```
 
 ### Process Steps
@@ -83,16 +86,36 @@ Prefix used for generating PM task codes. New tasks will be numbered sequentiall
 - `"BIP"` → BIP1, BIP2, BIP3...
 - `"Change"` → Change1, Change2, Change3...
 
-#### `description_template` (string, default: "{ifc_class} {name} - {type}")
-Template for generating task long descriptions from diff changes. Available placeholders:
-- `{ifc_class}`: The IFC class of the element (e.g., "IfcWall")
-- `{name}`: The element name (e.g., "Wall-123")
-- `{type}`: The change type ("added", "modified", or "deleted")
+#### `description_template` (string, default: "{type}")
+Template for generating element-specific change descriptions. Available placeholders:
+- `{type}`: The change type ("added", "changed", etc.)
 
 **Examples**:
-- `"{ifc_class} {name} - {type}"` → "IfcWall Wall-123 - modified"
-- `"Element {name} ({ifc_class}) was {type}"` → "Element Wall-123 (IfcWall) was modified"
-- `"{type}: {name}"` → "modified: Wall-123"
+- `"{type}"` → "added" or "changed geometry"
+- `"Element {type}"` → "Element added" or "Element changed geometry"
+- `"{type} change"` → "added change" or "changed geometry change"
+
+#### `revision_name` (string, optional)
+Optional name for this revision (e.g., "Week 1", "2025-10-09"). If provided, appears in the revision task description.
+
+**Examples**:
+- `"Week 1"` → "Revision PM4 (Week 1): 2 changes"
+- `"2025-10-09"` → "Revision PM4 (2025-10-09): 2 changes"
+- `None` → "Revision PM4: 2 changes"
+
+#### `ignored_properties` (list of strings, optional)
+List of property patterns to ignore when determining meaningful changes. Uses glob-style matching.
+
+**Default patterns** (if `None`):
+- `"*.id"` - All 'id' properties (often internal IDs)
+- `"*.Timestamp"` - All timestamp properties (auto-generated)
+- `"ePset_ModelInfo.*"` - All properties in ePset_ModelInfo (metadata)
+
+**Examples**:
+- `None` → Uses default ignored patterns
+- `[]` → Track all properties (disable filtering)
+- `["*.id", "*.Timestamp"]` → Ignore only ID and timestamp properties
+- `["ePset_ModelInfo.*", "Pset_Revit.*"]` → Ignore specific property sets
 
 ### Hardcoded Constants
 
@@ -104,6 +127,57 @@ These values are hardcoded in the recipe and cannot be changed via arguments:
 - **WORK_SCHEDULE_NAME**: `"PM History"` - Name of the work schedule
 - **SKIP_PSET_GENERATION**: `False` - Always generates PM property sets
 - **PREDEFINED_TYPE**: `"OPERATION"` - Task predefined type for change management
+
+## Property Filtering
+
+The recipe includes intelligent property filtering to ignore meaningless changes and focus on meaningful modifications. This prevents elements from being marked as "changed" when only timestamps, internal IDs, or metadata properties have been updated.
+
+### How Property Filtering Works
+
+1. **Meaningful Changes**: Elements are only assigned to revision tasks if they have:
+   - Geometry changes
+   - Material changes
+   - Spatial container changes (moved to different space/building/storey)
+   - Aggregation relationship changes
+   - **Meaningful property changes** (after filtering)
+
+2. **Ignored Properties**: The following property patterns are ignored by default:
+   - `*.id` - All 'id' properties (often internal IDs)
+   - `*.Timestamp` - All timestamp properties (auto-generated)
+   - `ePset_ModelInfo.*` - All properties in ePset_ModelInfo (metadata)
+
+3. **Glob-Style Matching**: Uses Python's `fnmatch` for pattern matching:
+   - `*.id` matches any property ending with "id"
+   - `ePset_ModelInfo.*` matches all properties in that property set
+   - `Pset_Revit.*` matches all Revit-specific properties
+
+### Benefits
+
+- **Cleaner Revision Tracking**: Only truly changed elements appear in revisions
+- **Reduced Noise**: Eliminates false positives from automatic metadata updates
+- **Better Performance**: Fewer elements to process and assign to tasks
+- **Configurable**: Can be customized per project needs
+
+### Example: Property Change Analysis
+
+```json
+{
+  "properties_changed": {
+    "dictionary_item_added": [
+      "root['ePset_ModelInfo']['Timestamp']",
+      "root['Pset_WallCommon']['FireRating']"
+    ],
+    "values_changed": {
+      "root['ePset_ModelInfo']['Author']": {
+        "old_value": "User1",
+        "new_value": "User2"
+      }
+    }
+  }
+}
+```
+
+**Result**: Only `FireRating` is considered meaningful (not `Timestamp` or `Author`), so the element gets assigned to the revision task.
 
 ## IfcDiff JSON Schema
 
@@ -191,33 +265,44 @@ Here's a snippet from an actual IfcDiff output:
 }
 ```
 
-This would result in:
-- **1,060 tasks** for added elements (PM1-PM1060)
-- **1,742 tasks** for changed elements (PM1061-PM2802)
-- **Total: 2,802 PM tasks** created
+**Note**: This example shows the old per-element approach. The current per-revision approach would create:
+- **1 task** (PM1) representing the entire revision
+- **All 2,802 changed elements** assigned to this single task
+- **Element-specific details** stored in PM PropertySets
 
 ## PropertySet Output
 
+The recipe generates **shared "PM" property sets** for space efficiency. Elements with identical revision history share one PropertySet, reducing file size from thousands of individual psets to ~50-200 unique psets.
+
+### Shared PropertySet Benefits
+
+- **Space Efficiency**: Reduces IFC file size significantly
+- **Performance**: Faster loading and processing
+- **Maintainability**: Easier to manage and update
+- **Consistency**: Identical revision histories share identical psets
+
+### PropertySet Structure
+
 For each element with task history, the recipe generates a property set named **"PM"** with the following properties:
 
-### Property: `Historik` (IfcText)
+### Property: `Revision History` (IfcText)
 Comma-separated list of all task names in chronological order.
 
 **Example**: `"PM1, PM2, PM3, PM4"`
 
-### Property: `Senaste` (IfcLabel)
+### Property: `Latest Change` (IfcLabel)
 The name of the most recent task.
 
 **Example**: `"PM4"`
 
 ### Individual Task Properties
-One property per task, where the property name is the task name (e.g., "PM1") and the value is the task's LongDescription.
+One property per task, where the property name is the task name (e.g., "PM1") and the value is the element-specific change description.
 
 **Example**:
-- **PM1**: "IfcWall Wall-External-01 - added"
-- **PM2**: "IfcWall Wall-External-01 - modified"
-- **PM3**: "IfcDoor Door-Entry-01 - added"
-- **PM4**: "IfcWindow Window-Living-01 - modified"
+- **PM1**: "added"
+- **PM2**: "changed geometry"
+- **PM3**: "added"
+- **PM4**: "changed properties"
 
 ### Viewing in IFC Tools
 
@@ -244,14 +329,16 @@ logger = logging.getLogger(__name__)
 # Open the new IFC model
 new_model = ifcopenshell.open("/path/to/building_v3.ifc")
 
-# Create the patcher
+# Create the patcher with new arguments
 patcher = Patcher(
     file=new_model,
     logger=logger,
     prev_path="/path/to/building_v2.ifc",
     diff_path="/path/to/diff_v2_to_v3.json",
     pm_code_prefix="PM",
-    description_template="{ifc_class} {name} - {type}"
+    description_template="{type}",
+    revision_name="Week 2",
+    ignored_properties=["*.id", "*.Timestamp", "ePset_ModelInfo.*"]
 )
 
 # Execute the patch
@@ -278,7 +365,9 @@ curl -X POST "http://localhost:8000/patch/execute" \
       "/data/building_v2.ifc",
       "/data/diff_v2_to_v3.json",
       "PM",
-      "{ifc_class} {name} - {type}"
+      "{type}",
+      "Week 2",
+      ["*.id", "*.Timestamp", "ePset_ModelInfo.*"]
     ],
     "use_custom": true
   }'
@@ -294,7 +383,9 @@ ifcpatch \
   /data/building_v2.ifc \
   /data/diff_v2_to_v3.json \
   PM \
-  "{ifc_class} {name} - {type}"
+  "{type}" \
+  "Week 2" \
+  "*.id,*.Timestamp,ePset_ModelInfo.*"
 ```
 
 ### Via n8n Workflow
@@ -312,7 +403,9 @@ In your n8n workflow:
        "{{$json.prev_model_path}}",
        "{{$json.diff_output_path}}",
        "PM",
-       "{ifc_class} {name} - {type}"
+       "{type}",
+       "{{$json.revision_name}}",
+       ["*.id", "*.Timestamp", "ePset_ModelInfo.*"]
      ]
      ```
 
@@ -545,14 +638,51 @@ Found a bug or have a feature request? Please document your use case and example
 
 ## Changelog
 
-### Version 1.0.1 (2025-10-09)
-- 🐛 **Fixed**: Diff JSON parsing to read from root-level keys instead of nested "changes" object
-- ✅ **Added**: Support for both "modified" and "changed" key names
-- ✅ **Improved**: Element information now extracted from IFC model instead of diff JSON
-- 📝 **Updated**: Documentation to reflect actual IfcDiff JSON schema
+### Version 0.3.2 (2025-10-14)
+- 🐛 **FIX**: Revision task descriptions now show actual meaningful change counts (not raw diff counts)
+- ✅ **Improved**: Task description accurately reflects elements with geometry/material/meaningful property changes
+- 📊 **Example**: "Revision V.4: 17 changes (5 added, 12 changed)" instead of "(5 added, 1071 changed)"
 
-### Version 1.0.0 (2025-01-09)
-- 🎉 Initial release
+### Version 0.3.1 (2025-10-14)
+- ✅ **ENHANCED**: Elements with ONLY ignored property changes are now completely skipped
+- 🚫 **Improved**: No task assignment for elements where only timestamps/IDs changed
+- 🧹 **Cleaner**: Revision tracking - only truly changed elements appear in revisions
+- 📝 **Added**: Logs show count of skipped elements with ignored-only changes
+
+### Version 0.3.0 (2025-10-14)
+- 🆕 **NEW**: Property filtering to ignore meaningless changes (timestamps, IDs, metadata)
+- ⚙️ **Configurable**: Ignored property patterns using glob-style matching (*.id, *.Timestamp, etc.)
+- 🎯 **Improved**: Elements only marked "changed properties" for meaningful property changes
+- 🔧 **Default**: Ignores *.id, *.Timestamp, ePset_ModelInfo.*
+- 🚫 **Option**: Pass empty list [] to track all properties (disable filtering)
+
+### Version 0.2.2 (2025-10-14)
+- 🐛 **CRITICAL FIX**: Validation now rejects generic "changed" fallback values
+- 🔧 **Self-healing**: Elements with corrupted PM data lose invalid task assignments
+- 📊 **Fixed**: Revision history sorting (natural/numeric sort: V.6, V.7...V.10 not V.10...V.6)
+- ✅ **Improved**: Only valid element-specific descriptions ("added", "changed properties") pass validation
+
+### Version 0.2.1 (2025-10-14)
+- ✅ **Added**: Task assignment validation to prevent incorrect assignments
+- 🎯 **Improved**: Elements now only get tasks for revisions where they were actually changed
+- 🔧 **Self-healing**: Behavior progressively cleans up incorrect historical data
+- 🛡️ **Enhanced**: Improved fallback logic for missing PM data
+
+### Version 0.2.0 (2025-10-14)
+- 🚀 **MAJOR**: Added shared property set optimization for space efficiency
+- 📦 **Optimized**: PM psets are now deduplicated - elements with identical revision history share one pset
+- 💾 **Reduced**: File size by creating ~50-200 unique psets instead of thousands
+- ✅ **Maintained**: All element-specific change information preserved
+
+### Version 0.1.0 (2025-10-14)
+- 🔄 **CHANGED**: From one-task-per-element to one-task-per-revision
+- 📋 **New**: Tasks represent model updates/revisions, not individual element changes
+- 📊 **Improved**: Element-specific details stored in PM PropertySet
+- 🔗 **Added**: Sequential task relationships (PM1 → PM2 → PM3)
+- 🏷️ **Optional**: Revision naming support
+
+### Version 0.0.1 (2025-01-09)
+- 🎉 **Initial release**
 - ✅ Task cloning from previous models
 - ✅ New task creation from diff results
 - ✅ PM PropertySet generation
@@ -560,7 +690,7 @@ Found a bug or have a feature request? Please document your use case and example
 
 ---
 
-**Version**: 1.0.1  
-**Last Updated**: 2025-10-09  
+**Version**: 0.3.2  
+**Last Updated**: 2025-10-14  
 **Maintained By**: IFC Pipeline Team
 
