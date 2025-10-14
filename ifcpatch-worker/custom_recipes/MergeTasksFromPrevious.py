@@ -9,10 +9,46 @@ PM PropertySets.
 This design supports weekly IFC workflows where one task = one model update/review.
 
 Recipe Name: MergeTasksFromPrevious
-Version: 0.1.0
+Version: 0.3.2
 Description: Merge task history from previous IFC model and add revision task from diff
 Author: IFC Pipeline Team
-Date: 2025-10-09
+Date: 2025-10-14
+
+Key Changes in v0.3.2:
+- FIX: Revision task descriptions now show actual meaningful change counts (not raw diff counts)
+- Task description accurately reflects elements with geometry/material/meaningful property changes
+- Example: "Revision V.4: 17 changes (5 added, 12 changed)" instead of "(5 added, 1071 changed)"
+
+Key Changes in v0.3.1:
+- ENHANCED: Elements with ONLY ignored property changes are now completely skipped
+- No task assignment for elements where only timestamps/IDs changed
+- Cleaner revision tracking - only truly changed elements appear in revisions
+- Logs show count of skipped elements with ignored-only changes
+
+Key Changes in v0.3.0:
+- NEW: Property filtering to ignore meaningless changes (timestamps, IDs, metadata)
+- Configurable ignored property patterns using glob-style matching (*.id, *.Timestamp, etc.)
+- Elements only marked "changed properties" for meaningful property changes
+- Default ignores: *.id, *.Timestamp, ePset_ModelInfo.*
+- Pass empty list [] to track all properties (disable filtering)
+
+Key Changes in v0.2.2:
+- CRITICAL FIX: Validation now rejects generic "changed" fallback values
+- True self-healing: Elements with corrupted PM data lose invalid task assignments
+- Fixed revision history sorting (natural/numeric sort: V.6, V.7...V.10 not V.10...V.6)
+- Only valid element-specific descriptions ("added", "changed properties") pass validation
+
+Key Changes in v2.2.0:
+- Added task assignment validation to prevent incorrect assignments
+- Elements now only get tasks for revisions where they were actually changed
+- Self-healing behavior progressively cleans up incorrect historical data
+- Improved fallback logic for missing PM data
+
+Key Changes in v2.1.0:
+- Added shared property set optimization for space efficiency
+- PM psets are now deduplicated - elements with identical revision history share one pset
+- Reduces file size by creating ~50-200 unique psets instead of thousands
+- Maintains all element-specific change information
 
 Key Changes in v2.0.0:
 - Changed from one-task-per-element to one-task-per-revision
@@ -23,8 +59,10 @@ Key Changes in v2.0.0:
 
 References:
 - IfcOpenShell Sequence API: https://docs.ifcopenshell.org/autoapi/ifcopenshell/api/sequence/index.html
+- IFC Property Sets: https://standards.buildingsmart.org/IFC/RELEASE/IFC4/ADD1/HTML/schema/ifckernel/lexical/ifcpropertyset.htm
 """
 
+import fnmatch
 import json
 import logging
 import re
@@ -45,6 +83,11 @@ ALL_TASKS_AS_MILESTONES = True            # All tasks are milestones
 WORK_SCHEDULE_NAME = "PM History"         # Default schedule name
 SKIP_PSET_GENERATION = False              # Always generate PM psets
 PREDEFINED_TYPE = "OPERATION"             # Task type for changes
+DEFAULT_IGNORED_PROPERTIES = [
+    "*.id",                          # All 'id' properties (often internal IDs)
+    "*.Timestamp",                   # All timestamp properties (auto-generated)
+    "ePset_ModelInfo.*",             # All properties in ePset_ModelInfo (metadata)
+]
 
 
 class Patcher:
@@ -59,11 +102,14 @@ class Patcher:
     - Creates ONE new task representing this entire revision
     - Assigns all changed elements to this single task
     - Creates sequential relationships between revision tasks (PM1 → PM2 → PM3)
-    - Generates "PM" PropertySet on each affected element with:
-      - History: "PM1, PM2, PM3"
-      - Latest: "PM3"
-      - PM1: "IfcWall Wall-123 - added"
-      - PM2: "IfcWall Wall-123 - modified (geometry)"
+    - Generates shared "PM" PropertySets for space efficiency:
+      - Elements with identical revision history share one PropertySet
+      - Reduces from thousands of psets to ~50-200 unique psets
+      - Properties include:
+        - Revision History: "PM1, PM2, PM3"
+        - Latest Change: "PM3"
+        - PM1: "added"
+        - PM2: "modified geometry"
     
     Parameters:
         file: The target IFC model (new model) - provided by ifcpatch framework
@@ -71,8 +117,11 @@ class Patcher:
         prev_path: Path to previous IFC model with existing tasks
         diff_path: Path to IfcDiff JSON output file
         pm_code_prefix: Prefix for PM codes (default: "PM")
-        description_template: Template for element descriptions (default: "{ifc_class} {name} - {type}")
+        description_template: Template for element descriptions (default: "{type}")
         revision_name: Optional name for this revision (e.g., "Week 1", "2025-10-09")
+        ignored_properties: List of property patterns to ignore (e.g., ["*.id", "*.Timestamp"])
+                          If None (default), uses DEFAULT_IGNORED_PROPERTIES
+                          Pass [] to track all properties (disable filtering)
     
     Example:
         patcher = Patcher(
@@ -81,7 +130,7 @@ class Patcher:
             "/path/to/prev.ifc",
             "/path/to/diff.json",
             "PM",
-            "{ifc_class} {name} - {type}",
+            "{type}",
             "Week 2"
         )
         patcher.patch()
@@ -95,13 +144,16 @@ class Patcher:
         prev_path: str,
         diff_path: str,
         pm_code_prefix: str = "PM",
-        description_template: str = "{ifc_class} {name} - {type}",
-        revision_name: Optional[str] = None
+        description_template: str = "{type}",
+        revision_name: Optional[str] = None,
+        ignored_properties: Optional[List[str]] = None
     ):
         """Initialize the patcher with required parameters.
         
         Args:
             revision_name: Optional name for this revision (e.g., "Week 1", "2025-10-09")
+            ignored_properties: Optional list of property patterns to ignore (e.g., ["*.id", "*.Timestamp"])
+                              If None, uses DEFAULT_IGNORED_PROPERTIES. Pass [] to track all properties.
         """
         # Store file and logger
         self.file = file
@@ -111,8 +163,14 @@ class Patcher:
         self.prev_path = prev_path
         self.diff_path = diff_path
         self.pm_code_prefix = pm_code_prefix if pm_code_prefix else "PM"
-        self.description_template = description_template if description_template else "{ifc_class} {name} - {type}"
+        self.description_template = description_template if description_template else "{type}"
         self.revision_name = revision_name
+        
+        # Property filtering configuration
+        if ignored_properties is None:
+            self.ignored_properties = DEFAULT_IGNORED_PROPERTIES
+        else:
+            self.ignored_properties = ignored_properties
         
         # Will be populated during patch
         self.prev_ifc: Optional[ifcopenshell.file] = None
@@ -122,11 +180,16 @@ class Patcher:
         self.work_schedule: Optional[ifcopenshell.entity_instance] = None
         self.pm_counter: int = 1
         self.element_change_details: Dict[ifcopenshell.entity_instance, str] = {}  # Element-specific descriptions
+        self.pset_cache: Dict[tuple, ifcopenshell.entity_instance] = {}  # Cache for shared property sets
         
         self.logger.info(
             f"Initialized MergeTasksFromPrevious: "
             f"prev='{prev_path}', diff='{diff_path}', prefix='{self.pm_code_prefix}'"
         )
+        if self.ignored_properties:
+            self.logger.info(f"Ignoring property patterns: {', '.join(self.ignored_properties)}")
+        else:
+            self.logger.info("Tracking all property changes (no filtering)")
     
     def patch(self) -> None:
         """
@@ -423,6 +486,59 @@ class Patcher:
     # Helper Methods: Relationship Recreation
     # =========================================================================
     
+    def _should_recreate_task_assignment(
+        self,
+        prev_element: ifcopenshell.entity_instance,
+        task_name: str
+    ) -> bool:
+        """
+        Determine if a task assignment should be recreated based on PM pset history.
+        
+        This validation prevents incorrect task assignments where elements get assigned
+        to tasks from revisions where they weren't actually changed.
+        
+        Args:
+            prev_element: Element from previous model
+            task_name: Name of the task (e.g., "V.10", "PM3")
+        
+        Returns:
+            True if element has valid PM data for this task (was actually changed in that revision)
+            False if element has no PM data or invalid/fallback data (shouldn't have this task)
+        """
+        try:
+            # Get element's PM pset from previous model
+            prev_pset = uel.get_pset(prev_element, "PM")
+            if not prev_pset:
+                # No PM pset at all - skip old task assignments for this element
+                # (Element might be new or from before PM tracking started)
+                return False
+            
+            # Check if element has a property for this specific task
+            if task_name not in prev_pset:
+                # Element doesn't have this task in its PM pset - incorrect assignment
+                return False
+            
+            # Check if the value is the generic fallback "changed"
+            # This indicates corrupted/invalid data from previous runs
+            task_value = prev_pset[task_name]
+            if task_value == "changed":
+                # This is the fallback value - not valid element-specific data
+                # Element likely shouldn't have this task assignment
+                self.logger.debug(
+                    f"Skipping task {task_name} for element {prev_element.GlobalId}: "
+                    f"has generic fallback value 'changed'"
+                )
+                return False
+            
+            # Element has valid, specific PM data for this task
+            # (e.g., "added", "changed properties", "changed geometry", etc.)
+            return True
+            
+        except Exception:
+            # If we can't validate, be conservative and skip
+            # Better to miss a valid assignment than perpetuate bad data
+            return False
+    
     def _recreate_all_relationships(self) -> None:
         """Recreate all task relationships from previous model."""
         self._recreate_process_assignments()
@@ -430,21 +546,28 @@ class Patcher:
     
     def _recreate_process_assignments(self) -> None:
         """
-        Recreate IfcRelAssignsToProcess relationships.
+        Recreate IfcRelAssignsToProcess relationships with validation.
+        
+        Only recreates task assignments where the element actually has PM pset data
+        for that task, preventing incorrect assignments where elements get tasks
+        from revisions where they weren't changed.
         
         References:
         - assign_process: https://docs.ifcopenshell.org/autoapi/ifcopenshell/api/sequence/index.html#ifcopenshell.api.sequence.assign_process
         """
         assignments = self.prev_ifc.by_type("IfcRelAssignsToProcess")
-        self.logger.info(f"Recreating {len(assignments)} process assignments")
+        self.logger.info(f"Recreating {len(assignments)} process assignments (with validation)")
         
         recreated = 0
+        skipped = 0
+        
         for assignment in assignments:
             prev_task = assignment.RelatingProcess
             if not prev_task or prev_task.id() not in self.task_mapping:
                 continue
             
             new_task = self.task_mapping[prev_task.id()]
+            task_name = prev_task.Name
             
             # Map related objects to new model
             for related_obj in assignment.RelatedObjects or []:
@@ -453,6 +576,12 @@ class Patcher:
                 
                 target_obj = self.guid_index.get(related_obj.GlobalId)
                 if not target_obj:
+                    continue
+                
+                # ✅ NEW: Validate task assignment before recreating
+                # Skip if element doesn't have PM data for this task (incorrect assignment)
+                if task_name and not self._should_recreate_task_assignment(related_obj, task_name):
+                    skipped += 1
                     continue
                 
                 # Check if relationship already exists
@@ -470,7 +599,10 @@ class Patcher:
                 except Exception as e:
                     self.logger.warning(f"Failed to assign process: {str(e)}")
         
-        self.logger.info(f"Recreated {recreated} process assignments")
+        self.logger.info(
+            f"Recreated {recreated} valid task assignments, "
+            f"skipped {skipped} invalid assignments (self-healing)"
+        )
     
     def _has_process_assignment(self, task: ifcopenshell.entity_instance, obj: ifcopenshell.entity_instance) -> bool:
         """Check if a process assignment already exists."""
@@ -662,35 +794,59 @@ class Patcher:
         
         # Collect all changed elements and their details
         all_elements = []
+        skipped_ignored_only = 0
+        actual_added_count = 0
+        actual_changed_count = 0
         
         # Process added elements
         for guid in added_list:
             element = self.guid_index.get(guid)
             if element:
                 all_elements.append(element)
+                actual_added_count += 1
                 self.element_change_details[element] = self._get_change_description(
                     element, "added", None
                 )
         
-        # Process changed elements
+        # Process changed elements (skip if only ignored properties changed)
         for guid, metadata in changed_dict.items():
             element = self.guid_index.get(guid)
             if element:
-                all_elements.append(element)
-                self.element_change_details[element] = self._get_change_description(
-                    element, "changed", metadata
-                )
+                # Check if element has any meaningful changes
+                if self._has_any_meaningful_changes(metadata):
+                    all_elements.append(element)
+                    actual_changed_count += 1
+                    self.element_change_details[element] = self._get_change_description(
+                        element, "changed", metadata
+                    )
+                else:
+                    # Only ignored properties changed - skip this element
+                    skipped_ignored_only += 1
+                    self.logger.debug(
+                        f"Skipping element {guid}: only ignored properties changed"
+                    )
+        
+        # Log skipped elements
+        if skipped_ignored_only > 0:
+            self.logger.info(
+                f"Skipped {skipped_ignored_only} elements with only ignored property changes "
+                f"(timestamps, IDs, metadata)"
+            )
         
         if not all_elements:
             self.logger.warning(
-                f"No elements found in target model from {total_changes} changes in diff"
+                f"No elements found in target model from {total_changes} changes in diff "
+                f"({skipped_ignored_only} skipped as ignored-only changes)"
             )
             return
         
-        self.logger.info(f"Found {len(all_elements)} elements in target model to assign to {pm_code}")
+        self.logger.info(
+            f"Found {len(all_elements)} elements with meaningful changes to assign to {pm_code} "
+            f"(processed {total_changes} total changes)"
+        )
         
-        # Create ONE task for this entire revision
-        task = self._create_revision_task(pm_code, len(all_elements), total_added, total_changed)
+        # Create ONE task for this entire revision (use actual counts, not raw diff counts)
+        task = self._create_revision_task(pm_code, len(all_elements), actual_added_count, actual_changed_count)
         
         # Assign all elements to this task
         assigned_count = 0
@@ -789,23 +945,218 @@ class Patcher:
         if diff_metadata:
             if diff_metadata.get("geometry_changed"):
                 change_details.append("geometry")
-            if diff_metadata.get("properties_changed"):
+            # Check for MEANINGFUL property changes only (filter out ignored patterns)
+            if self._has_meaningful_property_changes(diff_metadata):
                 change_details.append("properties")
             if diff_metadata.get("materials_changed"):
                 change_details.append("materials")
         
         # Build description using template
         description = self.description_template.format(
-            ifc_class=ifc_class,
-            name=name,
             type=change_type
         )
         
         # Append details if available
         if change_details:
-            description += f" ({', '.join(change_details)})"
+            description += f" {', '.join(change_details)}"
         
         return description
+    
+    def _parse_property_path(self, prop_path: str) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Parse IfcDiff property path to extract pset and property names.
+        
+        Args:
+            prop_path: Path like "root['ePset_ModelInfo']['Timestamp']"
+        
+        Returns:
+            Tuple of (pset_name, property_name) or (None, None) if can't parse
+        """
+        # Match pattern: root['PsetName']['PropertyName']
+        match = re.match(r"root\['([^']+)'\]\['([^']+)'\]", prop_path)
+        if match:
+            return match.group(1), match.group(2)
+        
+        # Alternative pattern: just ['PropertyName'] (less common)
+        match = re.match(r"root\['([^']+)'\]$", prop_path)
+        if match:
+            return None, match.group(1)
+        
+        return None, None
+    
+    def _should_ignore_property(self, pset_name: str, prop_name: str) -> bool:
+        """
+        Check if a property should be ignored based on configured patterns.
+        
+        Args:
+            pset_name: Name of the property set (e.g., 'ePset_ModelInfo')
+            prop_name: Name of the property (e.g., 'Timestamp')
+        
+        Returns:
+            True if property should be ignored, False otherwise
+        """
+        if not self.ignored_properties:
+            return False
+        
+        full_path = f"{pset_name}.{prop_name}"
+        
+        for pattern in self.ignored_properties:
+            # Check full path match (e.g., "ePset_ModelInfo.Timestamp")
+            if fnmatch.fnmatch(full_path, pattern):
+                return True
+            
+            # Check property-only match (e.g., "*.id")
+            if pattern.startswith("*.") and fnmatch.fnmatch(prop_name, pattern[2:]):
+                return True
+            
+            # Check pset-only match (e.g., "ePset_ModelInfo.*")
+            if pattern.endswith(".*") and fnmatch.fnmatch(pset_name, pattern[:-2]):
+                return True
+        
+        return False
+    
+    def _should_ignore_pset(self, pset_name: str) -> bool:
+        """
+        Check if an entire property set should be ignored based on configured patterns.
+        
+        Args:
+            pset_name: Name of the property set (e.g., 'ePset_ModelInfo')
+        
+        Returns:
+            True if property set should be ignored, False otherwise
+        """
+        if not self.ignored_properties:
+            return False
+        
+        for pattern in self.ignored_properties:
+            # Check pset-only match (e.g., "ePset_ModelInfo.*")
+            if pattern.endswith(".*") and fnmatch.fnmatch(pset_name, pattern[:-2]):
+                return True
+        
+        return False
+    
+    def _has_meaningful_property_changes(self, diff_metadata: dict) -> bool:
+        """
+        Check if element has meaningful property changes (excluding ignored patterns).
+        
+        Args:
+            diff_metadata: Change metadata from IfcDiff JSON
+        
+        Returns:
+            True if there are property changes that aren't in the ignored list
+        """
+        if not diff_metadata or not diff_metadata.get("properties_changed"):
+            return False
+        
+        properties_changed = diff_metadata.get("properties_changed", {})
+        meaningful_changes = 0
+        ignored_changes = 0
+        
+        # Check for added property sets/properties (dictionary_item_added)
+        added_items = properties_changed.get("dictionary_item_added", [])
+        for item_path in added_items:
+            pset_name, prop_name = self._parse_property_path(item_path)
+            
+            if pset_name:
+                # Check if entire pset was added or just a property
+                if prop_name:
+                    # Specific property added
+                    if self._should_ignore_property(pset_name, prop_name):
+                        ignored_changes += 1
+                        self.logger.debug(f"Ignoring added property: {pset_name}.{prop_name}")
+                    else:
+                        meaningful_changes += 1
+                else:
+                    # Entire pset added - check if pset itself should be ignored
+                    if self._should_ignore_pset(pset_name):
+                        ignored_changes += 1
+                        self.logger.debug(f"Ignoring added pset: {pset_name}")
+                    else:
+                        meaningful_changes += 1
+            else:
+                # Can't parse - assume meaningful to be safe
+                meaningful_changes += 1
+        
+        # Check for removed property sets/properties (dictionary_item_removed)
+        removed_items = properties_changed.get("dictionary_item_removed", [])
+        for item_path in removed_items:
+            pset_name, prop_name = self._parse_property_path(item_path)
+            
+            if pset_name:
+                if prop_name:
+                    if self._should_ignore_property(pset_name, prop_name):
+                        ignored_changes += 1
+                        self.logger.debug(f"Ignoring removed property: {pset_name}.{prop_name}")
+                    else:
+                        meaningful_changes += 1
+                else:
+                    if self._should_ignore_pset(pset_name):
+                        ignored_changes += 1
+                        self.logger.debug(f"Ignoring removed pset: {pset_name}")
+                    else:
+                        meaningful_changes += 1
+            else:
+                meaningful_changes += 1
+        
+        # Check for changed property values (values_changed)
+        values_changed = properties_changed.get("values_changed", {})
+        for prop_path in values_changed.keys():
+            pset_name, prop_name = self._parse_property_path(prop_path)
+            
+            if pset_name and prop_name:
+                if self._should_ignore_property(pset_name, prop_name):
+                    ignored_changes += 1
+                    self.logger.debug(f"Ignoring property change: {pset_name}.{prop_name}")
+                else:
+                    meaningful_changes += 1
+            else:
+                # Can't parse - assume meaningful to be safe
+                meaningful_changes += 1
+        
+        if ignored_changes > 0:
+            self.logger.debug(
+                f"Property changes: {meaningful_changes} meaningful, {ignored_changes} ignored"
+            )
+        
+        return meaningful_changes > 0
+    
+    def _has_any_meaningful_changes(self, diff_metadata: Optional[dict]) -> bool:
+        """
+        Check if element has ANY meaningful changes (geometry, materials, relationships, or meaningful properties).
+        
+        Args:
+            diff_metadata: Change metadata from IfcDiff JSON (None for added elements)
+        
+        Returns:
+            True if element has geometry changes, material changes, relationship changes, or meaningful property changes
+            False if only ignored properties changed (or no metadata)
+        """
+        if not diff_metadata:
+            # No metadata means element was added, which is meaningful
+            return True
+        
+        # Check for geometry changes
+        if diff_metadata.get("geometry_changed"):
+            return True
+        
+        # Check for material changes
+        if diff_metadata.get("materials_changed"):
+            return True
+        
+        # Check for spatial container changes (element moved to different space/building/storey)
+        if diff_metadata.get("container_changed"):
+            return True
+        
+        # Check for aggregation relationship changes (part-of relationships)
+        if diff_metadata.get("aggregate_changed"):
+            return True
+        
+        # Check for meaningful property changes (filtered)
+        if self._has_meaningful_property_changes(diff_metadata):
+            return True
+        
+        # Only ignored properties changed (or nothing changed)
+        return False
     
     def _create_sequence_to_previous_pm(
         self,
@@ -862,8 +1213,27 @@ class Patcher:
     # Helper Methods: PM Property Sets
     # =========================================================================
     
+    def _create_pset_signature(self, pset_data: Dict[str, str]) -> tuple:
+        """
+        Create a hashable signature from pset data for deduplication.
+        
+        Args:
+            pset_data: Dictionary of property names to values
+        
+        Returns:
+            Sorted tuple of (key, value) pairs for consistent hashing
+        """
+        return tuple(sorted(pset_data.items()))
+    
     def _rebuild_all_pm_psets(self) -> None:
-        """Rebuild PM property sets for all affected elements."""
+        """
+        Rebuild PM property sets using shared psets for space efficiency.
+        
+        Three-phase approach:
+        1. Collect pset signatures and group elements
+        2. Create unique shared psets
+        3. Assign shared psets to elements
+        """
         # Find all elements with task assignments
         elements_with_tasks: Set[ifcopenshell.entity_instance] = set()
         
@@ -873,30 +1243,196 @@ class Patcher:
         
         self.logger.info(f"Rebuilding PM psets for {len(elements_with_tasks)} elements")
         
-        rebuilt = 0
+        # Phase 1: Collect pset signatures and group elements
+        self.logger.info("Phase 1/3: Collecting pset signatures and grouping elements")
+        signature_to_elements: Dict[tuple, List[ifcopenshell.entity_instance]] = {}
+        signature_to_data: Dict[tuple, Dict[str, str]] = {}
+        
+        processed = 0
         for i, element in enumerate(elements_with_tasks):
             if (i + 1) % 100 == 0:
                 self.logger.info(f"Processing element {i + 1}/{len(elements_with_tasks)}")
             
             try:
-                self._build_pm_pset_for_element(element)
-                rebuilt += 1
+                pset_data = self._build_pm_pset_for_element(element)
+                if pset_data:
+                    signature = self._create_pset_signature(pset_data)
+                    signature_to_elements.setdefault(signature, []).append(element)
+                    signature_to_data[signature] = pset_data
+                    processed += 1
             except Exception as e:
-                self.logger.warning(f"Failed to build PM pset for element: {str(e)}")
+                self.logger.warning(f"Failed to build PM pset data for element: {str(e)}")
         
-        self.logger.info(f"Successfully rebuilt {rebuilt} PM property sets")
+        unique_psets = len(signature_to_elements)
+        self.logger.info(
+            f"Phase 1 complete: {processed} elements processed, "
+            f"{unique_psets} unique pset combinations found"
+        )
+        
+        # Calculate statistics
+        if signature_to_elements:
+            counts = [len(elems) for elems in signature_to_elements.values()]
+            avg_sharing = sum(counts) / len(counts)
+            min_sharing = min(counts)
+            max_sharing = max(counts)
+            self.logger.info(
+                f"Sharing statistics: avg={avg_sharing:.1f}, min={min_sharing}, max={max_sharing} elements per pset"
+            )
+        
+        # Phase 2: Create unique shared psets
+        self.logger.info(f"Phase 2/3: Creating {unique_psets} unique shared psets")
+        created = 0
+        for signature, pset_data in signature_to_data.items():
+            try:
+                shared_pset = self._create_shared_pset(pset_data)
+                self.pset_cache[signature] = shared_pset
+                created += 1
+            except Exception as e:
+                self.logger.warning(f"Failed to create shared pset: {str(e)}")
+        
+        self.logger.info(f"Phase 2 complete: Created {created} shared psets")
+        
+        # Phase 3: Clean up old psets and assign shared psets
+        self.logger.info("Phase 3/3: Cleaning up old psets and assigning shared psets")
+        self._cleanup_old_pm_psets(elements_with_tasks)
+        
+        assigned = 0
+        for signature, elements in signature_to_elements.items():
+            if signature in self.pset_cache:
+                try:
+                    self._assign_shared_pset(self.pset_cache[signature], elements)
+                    assigned += len(elements)
+                except Exception as e:
+                    self.logger.warning(f"Failed to assign shared pset to elements: {str(e)}")
+        
+        self.logger.info(
+            f"Phase 3 complete: Assigned shared psets to {assigned} elements\n"
+            f"Summary: {processed} elements, {unique_psets} unique psets, "
+            f"{assigned} assignments"
+        )
     
-    def _build_pm_pset_for_element(self, element: ifcopenshell.entity_instance) -> None:
-        """Build PM property set for a single element."""
+    def _create_shared_pset(self, pset_data: Dict[str, str]) -> ifcopenshell.entity_instance:
+        """
+        Create a shared IfcPropertySet with the given property data.
+        
+        Args:
+            pset_data: Dictionary of property names to values
+        
+        Returns:
+            The created IfcPropertySet entity
+        """
+        # Get OwnerHistory
+        owner_history = self._get_or_create_owner_history()
+        
+        # Create property values for each property
+        properties = []
+        for key, value in pset_data.items():
+            prop = self.file.create_entity(
+                "IfcPropertySingleValue",
+                Name=key,
+                NominalValue=self.file.create_entity("IfcText", value)
+            )
+            properties.append(prop)
+        
+        # Create PropertySet with all properties
+        pset = self.file.create_entity(
+            "IfcPropertySet",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            Name="PM",
+            HasProperties=properties
+        )
+        
+        return pset
+    
+    def _cleanup_old_pm_psets(self, elements: Set[ifcopenshell.entity_instance]) -> None:
+        """
+        Remove old individual PM psets from elements before assigning shared ones.
+        
+        Args:
+            elements: Set of elements to clean up
+        """
+        removed_rels = 0
+        removed_psets = 0
+        
+        # Find all IfcRelDefinesByProperties relationships with PM psets
+        for rel in list(self.file.by_type("IfcRelDefinesByProperties")):
+            relating_def = rel.RelatingPropertyDefinition
+            if not relating_def or not hasattr(relating_def, "Name"):
+                continue
+            
+            if relating_def.Name == "PM":
+                # Check if any of our elements are in this relationship
+                related = list(rel.RelatedObjects or [])
+                elements_to_remove = [obj for obj in related if obj in elements]
+                
+                if elements_to_remove:
+                    # Remove these elements from the relationship
+                    for elem in elements_to_remove:
+                        related.remove(elem)
+                    
+                    if related:
+                        # Still has other elements, just update the list
+                        rel.RelatedObjects = related
+                    else:
+                        # No more elements, delete the relationship and orphaned pset
+                        pset_to_remove = relating_def
+                        try:
+                            self.file.remove(rel)
+                            removed_rels += 1
+                            self.file.remove(pset_to_remove)
+                            removed_psets += 1
+                        except Exception as e:
+                            self.logger.warning(f"Failed to remove old PM pset: {str(e)}")
+        
+        if removed_rels > 0 or removed_psets > 0:
+            self.logger.info(f"Cleaned up {removed_rels} relationships and {removed_psets} old PM psets")
+    
+    def _assign_shared_pset(
+        self,
+        shared_pset: ifcopenshell.entity_instance,
+        elements: List[ifcopenshell.entity_instance]
+    ) -> None:
+        """
+        Assign a shared pset to multiple elements via IfcRelDefinesByProperties.
+        
+        Args:
+            shared_pset: The shared IfcPropertySet to assign
+            elements: List of elements to assign the pset to
+        """
+        if not elements:
+            return
+        
+        owner_history = self._get_or_create_owner_history()
+        
+        # Create the relationship
+        rel = self.file.create_entity(
+            "IfcRelDefinesByProperties",
+            GlobalId=ifcopenshell.guid.new(),
+            OwnerHistory=owner_history,
+            RelatingPropertyDefinition=shared_pset,
+            RelatedObjects=elements
+        )
+    
+    def _build_pm_pset_for_element(self, element: ifcopenshell.entity_instance) -> Optional[Dict[str, str]]:
+        """
+        Build PM property set data for a single element (without creating the pset).
+        
+        Args:
+            element: The element to build pset data for
+        
+        Returns:
+            Dictionary of property names to values, or None if no tasks found
+        """
         # Get all tasks for this element
         tasks = self._get_tasks_for_element(element)
         if not tasks:
-            return
+            return None
         
         # Order tasks chronologically
         ordered_tasks = self._order_tasks_chronologically(tasks)
         if not ordered_tasks:
-            return
+            return None
         
         # Get existing PM PropertySet from previous model if element exists there
         prev_pm_data = {}
@@ -912,58 +1448,45 @@ class Patcher:
         # Build property set data
         pset_data = {}
         
-        # Historik: comma-separated task names
+        # Revision History: comma-separated task names
         task_names = [t.Name for t in ordered_tasks if t.Name]
         if task_names:
-            pset_data["Historik"] = ", ".join(task_names)
+            pset_data["Revision History"] = ", ".join(task_names)
         
-        # Senaste: latest task name
+        # Latest Change: latest task name
         if task_names:
-            pset_data["Senaste"] = task_names[-1]
+            pset_data["Latest Change"] = task_names[-1]
         
         # Individual task properties: PMx = element-specific description
+        # Determine the latest task for this element
+        latest_task = ordered_tasks[-1] if ordered_tasks else None
+        
         for task in ordered_tasks:
             if task.Name:
-                # For current revision (in element_change_details), use new description
-                if element in self.element_change_details:
+                # For the LATEST/CURRENT task only, use new description if available
+                if task == latest_task and element in self.element_change_details:
                     description = self.element_change_details[element]
-                # For previous revisions, preserve description from previous model's PM pset
+                # For previous revisions, ALWAYS preserve description from previous model's PM pset
                 elif task.Name in prev_pm_data:
                     description = prev_pm_data[task.Name]
-                # Fallback: use task's LongDescription (revision summary)
+                # Fallback: This should rarely happen after task assignment validation fix
                 else:
-                    description = getattr(task, "LongDescription", None) or getattr(task, "Description", None) or ""
+                    # If no previous data and this is current task, try element_change_details
+                    if task == latest_task and element in self.element_change_details:
+                        description = self.element_change_details[element]
+                    else:
+                        # Data inconsistency: element has task but no PM data
+                        # This indicates incorrect task assignment that should be cleaned up
+                        # Use generic fallback instead of task-level summary
+                        self.logger.warning(
+                            f"Element {element.GlobalId} has task {task.Name} but no PM data - "
+                            f"possible data inconsistency"
+                        )
+                        description = "changed"  # Generic fallback
                 
                 pset_data[task.Name] = description
         
-        # Create/update property set using ifcopenshell.api
-        if pset_data:
-            # Check if PM pset already exists
-            existing_pset = uel.get_pset(element, "PM")
-            
-            if existing_pset:
-                # Update existing pset
-                ifcopenshell.api.run(
-                    "pset.edit_pset",
-                    self.file,
-                    pset=self.file.by_guid(existing_pset["id"]),
-                    properties=pset_data
-                )
-            else:
-                # Create new pset
-                pset = ifcopenshell.api.run(
-                    "pset.add_pset",
-                    self.file,
-                    product=element,
-                    name="PM"
-                )
-                # Add properties to the new pset
-                ifcopenshell.api.run(
-                    "pset.edit_pset",
-                    self.file,
-                    pset=pset,
-                    properties=pset_data
-                )
+        return pset_data if pset_data else None
     
     def _get_tasks_for_element(self, element: ifcopenshell.entity_instance) -> List[ifcopenshell.entity_instance]:
         """Get all tasks assigned to an element."""
@@ -1023,14 +1546,23 @@ class Patcher:
             
             return ordered
         
-        # Fallback: sort by task time or name
+        # Fallback: sort by task time or name (with natural/numeric sorting)
         def sort_key(task):
             task_time = getattr(task, "TaskTime", None)
             if task_time:
                 start = getattr(task_time, "ActualStart", None) or getattr(task_time, "ScheduleStart", None)
                 if start:
-                    return (0, str(start))
-            return (1, task.Name or "")
+                    return (0, 0, str(start))
+            
+            # Natural sort by extracting numeric part from task name
+            # E.g., "V.6", "V.10" -> sort by 6, 10 (not string "6", "10")
+            task_name = task.Name or ""
+            # Try to extract number from patterns like "V.6", "PM10", etc.
+            match = re.search(r'(\d+)', task_name)
+            if match:
+                number = int(match.group(1))
+                return (1, number, task_name)
+            return (1, 999999, task_name)  # Non-numeric names go last
         
         return sorted(tasks, key=sort_key)
 
