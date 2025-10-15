@@ -282,12 +282,40 @@ def run_ifcpatch(job_data: dict) -> dict:
             logger.info(f"IFC file loaded: schema={ifc_file.schema}")
         
         # Prepare ifcpatch arguments
+        arguments = request.arguments or []
+        
+        # Special handling for MergeProject/MergeProjects recipe
+        # This recipe expects arguments to be wrapped in a list because it unpacks with *args
+        # and then expects to iterate over a list of filepaths
+        if request.recipe in ["MergeProject", "MergeProjects"]:
+            # Check if arguments are strings (JSON stringified arrays from n8n)
+            if arguments and isinstance(arguments[0], str):
+                # Try to parse if it looks like a JSON array string
+                if arguments[0].startswith('[') and arguments[0].endswith(']'):
+                    try:
+                        import json
+                        arguments = [json.loads(arguments[0])]
+                        logger.info(f"Parsed JSON string arguments for {request.recipe}")
+                    except:
+                        # If parsing fails, wrap the arguments in a list
+                        arguments = [arguments]
+                        logger.info(f"Wrapped arguments in list for {request.recipe}")
+                else:
+                    # Not a JSON string, just wrap the list
+                    arguments = [arguments]
+                    logger.info(f"Wrapped arguments in list for {request.recipe}")
+        
         patch_args = {
             "input": input_path,
             "file": ifc_file,
             "recipe": request.recipe,
-            "arguments": request.arguments or []
+            "arguments": arguments
         }
+        
+        # Debug: Log the arguments being passed
+        logger.info(f"Recipe: {request.recipe}")
+        logger.info(f"Arguments count: {len(arguments) if arguments else 0}")
+        logger.info(f"Arguments: {arguments}")
         
         # If using custom recipe, load it
         if request.use_custom:

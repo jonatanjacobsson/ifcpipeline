@@ -9,10 +9,17 @@ Description: Assign colors to IFC elements using IfcOpenShell selector syntax
 Author: IFC Pipeline Team
 Date: 2025-01-08
 
+Transparency Support:
+    - Transparency is supported in both IFC2X3 and IFC4+ schemas
+    - Uses IfcSurfaceStyleRendering (which has Transparency attribute)
+    - Falls back to IfcSurfaceStyleShading when no transparency is needed
+
 Example Usage:
     op1 = '{"selectors": "IfcWall", "hex": "FF0000"}'
     op2 = '{"selectors": "IfcWall + IfcDoor", "hex": "#FF0000 + #00FF00"}'
     op3 = '{"selectors": "IfcSlab, [LoadBearing=TRUE]", "hex": "0000FF"}'
+    op4 = '{"selectors": "IfcWindow", "hex": "FF0000", "transparency": 0.5}'  # Works in IFC2X3 and IFC4+
+    op5 = '{"selectors": "IfcCurtainWall", "hex": "00FF00AA"}'  # 8-char hex with alpha
     
     patcher = Patcher(ifc_file, logger, operation1=op1, operation2=op2, operation3=op3)
     patcher.patch()
@@ -44,9 +51,10 @@ class Patcher:
         logger: Logger instance for output
         operation1-5: JSON strings for up to 5 operations (only non-empty operations are processed)
         
-    Each operation requires 2 fields:
+    Each operation requires these fields:
         - selectors: IfcOpenShell selector syntax string (can use filter groups with +)
         - hex: Hex color string (can use + separator for multiple colors)
+        - transparency: Optional float 0-1 (0=opaque, 1=fully transparent), can use + separator
         
     Selector Syntax (per IfcOpenShell documentation):
         - Filter groups separated by + (results unioned together)
@@ -56,11 +64,22 @@ class Patcher:
         - Single color: applies same color to all matched elements
         - Multiple colors with +: must match number of filter groups, colors assigned by position
         - Hex colors can optionally include # prefix (e.g., "#FF0000" or "FF0000")
+        - Supports 8-character hex (RRGGBBAA) where AA is alpha/transparency (00=transparent, FF=opaque)
+    
+    Transparency Handling:
+        - Optional "transparency" field: float from 0 (opaque) to 1 (fully transparent)
+        - Can use + separator for multiple transparencies (must match filter groups)
+        - If 8-char hex is used, alpha channel is extracted and combined with transparency field
+        - 8-char hex alpha: 00=transparent (1.0), FF=opaque (0.0) - converted to IFC transparency
+        - When transparency > 0, uses IfcSurfaceStyleRendering (available in IFC2X3 and IFC4+)
+        - When transparency = 0, uses IfcSurfaceStyleShading for better compatibility
     
     Example:
         op1 = '{"selectors": "IfcWall", "hex": "FF0000"}'
         op2 = '{"selectors": "IfcWall + IfcDoor", "hex": "#FF0000 + #00FF00"}'
         op3 = '{"selectors": "IfcSlab, [LoadBearing=TRUE]", "hex": "0000FF"}'
+        op4 = '{"selectors": "IfcWindow", "hex": "FF0000", "transparency": 0.5}'
+        op5 = '{"selectors": "IfcCurtainWall", "hex": "00FF00AA"}'  # 8-char hex with alpha
         patcher = Patcher(ifc_file, logger, operation1=op1, operation2=op2, operation3=op3)
         patcher.patch()
         output = patcher.get_output()
@@ -191,8 +210,8 @@ class Patcher:
     
     def _validate_hex_format(self, hex_str: str) -> bool:
         """
-        Validate that a string is a valid hex color (6 characters, valid hex digits).
-        Supports both "FF0000" and "#FF0000" formats.
+        Validate that a string is a valid hex color (6 or 8 characters, valid hex digits).
+        Supports both "FF0000" and "#FF0000" formats, and 8-char format with alpha.
         
         Args:
             hex_str: Hex color string (with or without # prefix)
@@ -203,8 +222,8 @@ class Patcher:
         # Remove # if present (supports both "FF0000" and "#FF0000")
         hex_str = hex_str.lstrip('#')
         
-        # Check length and valid hex characters
-        if len(hex_str) != 6:
+        # Check length (6 for RGB, 8 for RGBA) and valid hex characters
+        if len(hex_str) not in [6, 8]:
             return False
         
         try:
@@ -215,16 +234,17 @@ class Patcher:
     
     def _parse_hex_color(self, hex_str: str) -> tuple:
         """
-        Convert a hex color string to RGB tuple (normalized 0-1 for IFC).
-        Supports both "FF0000" and "#FF0000" formats.
+        Convert a hex color string to RGB(A) tuple (normalized 0-1 for IFC).
+        Supports 6-char (RGB) and 8-char (RGBA) formats, with or without # prefix.
         
         Args:
-            hex_str: Hex color string (e.g., "FF0000" or "#FF0000")
+            hex_str: Hex color string (e.g., "FF0000", "#FF0000", "FF0000AA")
             
         Returns:
-            Tuple of (r, g, b) as floats in range 0-1
+            Tuple of (r, g, b, a) as floats in range 0-1
+            If no alpha provided, a=1.0 (fully opaque for alpha, 0.0 for IFC transparency)
         """
-        # Remove # if present (supports both "FF0000" and "#FF0000")
+        # Remove # if present
         hex_str = hex_str.lstrip('#').upper()
         
         # Parse RGB values (0-255)
@@ -232,16 +252,30 @@ class Patcher:
         g = int(hex_str[2:4], 16)
         b = int(hex_str[4:6], 16)
         
-        # Normalize to 0-1 range for IFC
-        return (r / 255.0, g / 255.0, b / 255.0)
+        # Parse alpha if present (8-char hex)
+        # Alpha in hex: FF=opaque (1.0), 00=transparent (0.0)
+        # For IFC transparency: 0.0=opaque, 1.0=transparent
+        if len(hex_str) == 8:
+            a = int(hex_str[6:8], 16) / 255.0  # Alpha as 0-1
+            transparency = 1.0 - a  # Convert to IFC transparency
+        else:
+            transparency = 0.0  # Fully opaque
+        
+        # Normalize RGB to 0-1 range for IFC
+        return (r / 255.0, g / 255.0, b / 255.0, transparency)
     
-    def _get_or_create_style(self, hex_value: str):
+    def _get_or_create_style(self, hex_value: str, transparency: float = 0.0):
         """
-        Get existing style for a hex color or create a new one.
-        Supports both "FF0000" and "#FF0000" formats.
+        Get existing style for a hex color with transparency or create a new one.
+        Supports both "FF0000" and "#FF0000" formats, and 8-char format with alpha.
+        
+        Note: When transparency > 0, uses IfcSurfaceStyleRendering (has Transparency attribute).
+        When transparency = 0, uses IfcSurfaceStyleShading (simpler, better compatibility).
+        Both are supported in IFC2X3 and IFC4+.
         
         Args:
             hex_value: Hex color string (with or without # prefix)
+            transparency: Transparency value from 0 (opaque) to 1 (fully transparent)
             
         Returns:
             IfcSurfaceStyle entity
@@ -249,32 +283,62 @@ class Patcher:
         # Normalize hex value (remove # if present and convert to uppercase)
         hex_value = hex_value.lstrip('#').upper()
         
-        # Check cache
-        if hex_value in self.style_cache:
-            self.stats['styles_reused'] += 1
-            return self.style_cache[hex_value]
+        # Parse RGBA values (includes transparency from alpha channel if 8-char hex)
+        r, g, b, hex_transparency = self._parse_hex_color(hex_value)
         
-        # Parse RGB values
-        r, g, b = self._parse_hex_color(hex_value)
+        # Combine hex transparency with explicit transparency parameter
+        # If both are set, use the maximum (most transparent)
+        final_transparency = max(hex_transparency, transparency)
+        
+        # Create cache key including transparency
+        # Only use first 6 chars of hex for cache key, append transparency
+        hex_rgb = hex_value[:6]
+        cache_key = f"{hex_rgb}_T{final_transparency:.3f}"
+        
+        # Check cache
+        if cache_key in self.style_cache:
+            self.stats['styles_reused'] += 1
+            return self.style_cache[cache_key]
+        
+        # Create style name
+        style_name = f"Color_{hex_rgb}"
+        if final_transparency > 0.0:
+            style_name += f"_T{int(final_transparency * 100)}"
         
         # Create new style
-        style = ifcopenshell.api.run("style.add_style", self.file, name=f"Color_{hex_value}")
+        style = ifcopenshell.api.run("style.add_style", self.file, name=style_name)
         
-        # Add surface shading with color
+        # Prepare attributes for surface style
+        attributes = {
+            "SurfaceColour": {
+                "Name": None, 
+                "Red": r, 
+                "Green": g, 
+                "Blue": b
+            }
+        }
+        
+        # Choose the appropriate IFC class based on whether transparency is needed
+        # IfcSurfaceStyleRendering supports Transparency attribute (IFC2X3 and IFC4+)
+        # IfcSurfaceStyleShading does not have Transparency attribute
+        if final_transparency > 0.0:
+            # Use IfcSurfaceStyleRendering which supports transparency
+            attributes["Transparency"] = final_transparency
+            # Add default reflectance method for rendering
+            attributes["ReflectanceMethod"] = "FLAT"
+            ifc_class = "IfcSurfaceStyleRendering"
+        else:
+            # Use simpler IfcSurfaceStyleShading when no transparency needed
+            ifc_class = "IfcSurfaceStyleShading"
+        
+        # Add surface style with color and optional transparency
         ifcopenshell.api.run("style.add_surface_style", self.file, 
                             style=style, 
-                            ifc_class="IfcSurfaceStyleShading", 
-                            attributes={
-                                "SurfaceColour": {
-                                    "Name": None, 
-                                    "Red": r, 
-                                    "Green": g, 
-                                    "Blue": b
-                                }
-                            })
+                            ifc_class=ifc_class, 
+                            attributes=attributes)
         
         # Cache the style
-        self.style_cache[hex_value] = style
+        self.style_cache[cache_key] = style
         self.stats['styles_created'] += 1
         
         return style
@@ -326,7 +390,7 @@ class Patcher:
         Execute a single color assignment operation.
         
         Args:
-            operation: Operation dictionary with 'selectors' and 'hex'
+            operation: Operation dictionary with 'selectors', 'hex', and optional 'transparency'
             operation_idx: Index of the operation (for logging)
             
         Returns:
@@ -334,6 +398,7 @@ class Patcher:
         """
         selectors_str = operation['selectors']
         hex_value = operation['hex']
+        transparency_value = operation.get('transparency', '')  # Optional field
         
         result = {
             'success': False,
@@ -354,25 +419,52 @@ class Patcher:
             # Parse hex colors (split by + if present)
             hex_colors = [h.strip() for h in hex_value.split('+') if h.strip()]
             
-            # Validate hex colors match filter groups
+            # Parse transparency values (split by + if present)
+            transparency_list = []
+            if transparency_value:
+                if isinstance(transparency_value, (int, float)):
+                    # Single numeric value
+                    transparency_list = [float(transparency_value)]
+                elif isinstance(transparency_value, str):
+                    # String that might contain + separator
+                    transparency_strs = [t.strip() for t in transparency_value.split('+') if t.strip()]
+                    for t_str in transparency_strs:
+                        try:
+                            t_val = float(t_str)
+                            if not (0.0 <= t_val <= 1.0):
+                                raise ValueError(f"Transparency value {t_val} out of range [0, 1]")
+                            transparency_list.append(t_val)
+                        except ValueError as e:
+                            raise ValueError(f"Invalid transparency value '{t_str}': {str(e)}")
+            
+            # Validate counts match
             if len(hex_colors) > 1 and len(hex_colors) != len(filter_groups):
                 raise ValueError(f"Number of hex colors ({len(hex_colors)}) must match number of filter groups ({len(filter_groups)})")
             
-            # If single hex color, apply to all filter groups
+            if transparency_list and len(transparency_list) > 1 and len(transparency_list) != len(filter_groups):
+                raise ValueError(f"Number of transparency values ({len(transparency_list)}) must match number of filter groups ({len(filter_groups)})")
+            
+            # Expand single values to match filter groups
             if len(hex_colors) == 1:
                 hex_list = hex_colors * len(filter_groups)
             else:
                 hex_list = hex_colors
             
+            if len(transparency_list) == 0:
+                transparency_list = [0.0] * len(filter_groups)
+            elif len(transparency_list) == 1:
+                transparency_list = transparency_list * len(filter_groups)
+            
             self.logger.info(f"Processing {len(filter_groups)} filter group(s)")
             
-            # Process each filter group with its corresponding hex color
+            # Process each filter group with its corresponding hex color and transparency
             total_colored = 0
-            for group_idx, (filter_group, hex_color) in enumerate(zip(filter_groups, hex_list)):
-                self.logger.debug(f"Filter group {group_idx + 1}/{len(filter_groups)}: '{filter_group}' -> {hex_color}")
+            for group_idx, (filter_group, hex_color, transparency) in enumerate(zip(filter_groups, hex_list, transparency_list)):
+                trans_str = f", transparency={transparency}" if transparency > 0.0 else ""
+                self.logger.debug(f"Filter group {group_idx + 1}/{len(filter_groups)}: '{filter_group}' -> {hex_color}{trans_str}")
                 
-                # Get or create style for this hex color
-                style = self._get_or_create_style(hex_color)
+                # Get or create style for this hex color with transparency
+                style = self._get_or_create_style(hex_color, transparency)
                 
                 # Select elements using this filter group
                 elements = ifcopenshell.util.selector.filter_elements(self.file, filter_group)
@@ -393,7 +485,8 @@ class Patcher:
                     if self._assign_color_to_element(element, style):
                         colored_count += 1
                 
-                self.logger.info(f"Successfully colored {colored_count}/{len(elements)} elements with hex {hex_color}")
+                trans_log = f" with transparency {transparency}" if transparency > 0.0 else ""
+                self.logger.info(f"Successfully colored {colored_count}/{len(elements)} elements with hex {hex_color}{trans_log}")
                 total_colored += colored_count
                 result['filter_groups_processed'] += 1
             
