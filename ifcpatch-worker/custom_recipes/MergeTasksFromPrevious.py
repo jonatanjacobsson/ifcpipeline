@@ -9,10 +9,22 @@ PM PropertySets.
 This design supports weekly IFC workflows where one task = one model update/review.
 
 Recipe Name: MergeTasksFromPrevious
-Version: 0.3.2
+Version: 0.3.4
 Description: Merge task history from previous IFC model and add revision task from diff
 Author: IFC Pipeline Team
 Date: 2025-10-14
+
+Key Changes in v0.3.4:
+- FIX: Deleted elements now assigned to PREVIOUS task (where they were deleted FROM)
+- Deleted elements marked as "deleted" in previous revision's PM PropertySet
+- Supports archival of deleted elements by assigning them to last existing revision
+- Example: Elements deleted in V.2 get assigned to V.1 task with "deleted" description
+
+Key Changes in v0.3.3:
+- FEATURE: Dynamic deleted elements support for archival workflows
+- Deleted elements (when present in target file) processed dynamically
+- If ONLY deleted elements found, they get assigned to previous task
+- Enables archival of deleted elements with proper task assignments
 
 Key Changes in v0.3.2:
 - FIX: Revision task descriptions now show actual meaningful change counts (not raw diff counts)
@@ -77,7 +89,7 @@ logger = logging.getLogger(__name__)
 
 # Hardcoded constants as per specification
 # Support both "modified" and "changed" from different IfcDiff versions
-CREATE_TASKS_FOR = ["modified", "changed", "added"]  # Create tasks for modified/changed and added elements
+CREATE_TASKS_FOR = ["modified", "changed", "added", "deleted"]  # Create tasks for modified/changed, added, and deleted elements
 TASK_STATUS = "COMPLETED"                  # All tasks marked as completed
 ALL_TASKS_AS_MILESTONES = True            # All tasks are milestones
 WORK_SCHEDULE_NAME = "PM History"         # Default schedule name
@@ -794,9 +806,11 @@ class Patcher:
         
         # Collect all changed elements and their details
         all_elements = []
+        deleted_elements = []  # Track deleted separately - they don't get new task assignment
         skipped_ignored_only = 0
         actual_added_count = 0
         actual_changed_count = 0
+        actual_deleted_count = 0
         
         # Process added elements
         for guid in added_list:
@@ -826,6 +840,34 @@ class Patcher:
                         f"Skipping element {guid}: only ignored properties changed"
                     )
         
+        # Process deleted elements (if they exist in target file)
+        # In normal workflow, deleted GUIDs won't exist in target file
+        # In deleted-elements workflow (purged file), they WILL exist
+        # NOTE: Deleted elements are tracked separately and NOT assigned to the new revision task
+        # They keep their existing task assignments and just get PM PropertySet updated
+        deleted_found_in_target = 0
+        for guid in deleted_list:
+            element = self.guid_index.get(guid)
+            if element:
+                # Element exists in target file (purged deleted-elements file)
+                deleted_elements.append(element)
+                actual_deleted_count += 1
+                deleted_found_in_target += 1
+                self.element_change_details[element] = "deleted"
+        
+        # Log deleted elements processing
+        if total_deleted > 0:
+            if deleted_found_in_target > 0:
+                self.logger.info(
+                    f"Found {deleted_found_in_target} deleted elements in target file "
+                    f"(out of {total_deleted} in diff) - processing for PM history"
+                )
+            else:
+                self.logger.debug(
+                    f"No deleted elements found in target file "
+                    f"(out of {total_deleted} in diff) - normal workflow"
+                )
+        
         # Log skipped elements
         if skipped_ignored_only > 0:
             self.logger.info(
@@ -833,22 +875,96 @@ class Patcher:
                 f"(timestamps, IDs, metadata)"
             )
         
-        if not all_elements:
+        # Check if we have any elements to process (added/changed for task assignment, or deleted for PM update)
+        if not all_elements and not deleted_elements:
             self.logger.warning(
                 f"No elements found in target model from {total_changes} changes in diff "
                 f"({skipped_ignored_only} skipped as ignored-only changes)"
             )
             return
         
+        # Special case: If ONLY deleted elements (no added/changed), assign them to PREVIOUS task
+        # Deleted elements need to be assigned to the task where they were deleted from
+        if not all_elements and deleted_elements:
+            prev_pm_code = f"{self.pm_code_prefix}{self.pm_counter - 1}"
+            prev_task = self.name_to_task.get(prev_pm_code)
+            
+            if not prev_task:
+                self.logger.warning(
+                    f"Found {len(deleted_elements)} deleted elements but no previous task {prev_pm_code} exists. "
+                    f"Cannot assign deleted elements - they need a revision to be deleted FROM."
+                )
+                return
+            
+            self.logger.info(
+                f"Found {len(deleted_elements)} deleted elements (no added/changed). "
+                f"Assigning them to previous task {prev_pm_code} where they were deleted."
+            )
+            
+            # Assign deleted elements to the PREVIOUS task (where they were deleted FROM)
+            assigned_count = 0
+            for element in deleted_elements:
+                try:
+                    ifcopenshell.api.run(
+                        "sequence.assign_process",
+                        self.file,
+                        relating_process=prev_task,
+                        related_object=element
+                    )
+                    assigned_count += 1
+                except Exception as e:
+                    self.logger.warning(f"Failed to assign deleted element {element.GlobalId} to {prev_pm_code}: {str(e)}")
+            
+            self.logger.info(
+                f"Assigned {assigned_count} deleted elements to {prev_pm_code} with 'deleted' description"
+            )
+            
+            # Don't create a NEW task - deleted elements use existing previous task
+            # PM psets will be generated in step 7 to show these as "deleted" in prev_pm_code
+            return
+        
+        # Log what we're processing
         self.logger.info(
-            f"Found {len(all_elements)} elements with meaningful changes to assign to {pm_code} "
-            f"(processed {total_changes} total changes)"
+            f"Found {len(all_elements)} elements to assign to {pm_code} "
+            f"({actual_added_count} added, {actual_changed_count} changed)"
         )
         
-        # Create ONE task for this entire revision (use actual counts, not raw diff counts)
-        task = self._create_revision_task(pm_code, len(all_elements), actual_added_count, actual_changed_count)
+        # Handle deleted elements that appear alongside changed/added elements
+        # Assign them to the PREVIOUS task (where they were deleted FROM)
+        if deleted_elements:
+            prev_pm_code = f"{self.pm_code_prefix}{self.pm_counter - 1}"
+            prev_task = self.name_to_task.get(prev_pm_code)
+            
+            if prev_task:
+                self.logger.info(
+                    f"Also found {len(deleted_elements)} deleted elements - "
+                    f"assigning them to {prev_pm_code} (where they were deleted)"
+                )
+                
+                deleted_assigned = 0
+                for element in deleted_elements:
+                    try:
+                        ifcopenshell.api.run(
+                            "sequence.assign_process",
+                            self.file,
+                            relating_process=prev_task,
+                            related_object=element
+                        )
+                        deleted_assigned += 1
+                    except Exception as e:
+                        self.logger.warning(f"Failed to assign deleted element {element.GlobalId} to {prev_pm_code}: {str(e)}")
+                
+                self.logger.info(f"Assigned {deleted_assigned} deleted elements to {prev_pm_code}")
+            else:
+                self.logger.warning(
+                    f"Found {len(deleted_elements)} deleted elements but no previous task {prev_pm_code} exists"
+                )
         
-        # Assign all elements to this task
+        # Create ONE task for this entire revision (use actual counts, not raw diff counts)
+        # Task only tracks added/changed elements that get assigned to it
+        task = self._create_revision_task(pm_code, len(all_elements), actual_added_count, actual_changed_count, actual_deleted_count)
+        
+        # Assign non-deleted elements to this task
         assigned_count = 0
         for element in all_elements:
             try:
@@ -870,14 +986,20 @@ class Patcher:
         # Store task in mapping
         self.name_to_task[pm_code] = task
         
-        self.logger.info(f"Created revision task {pm_code} for {len(all_elements)} elements")
+        # Summary log
+        prev_pm_code = f"{self.pm_code_prefix}{self.pm_counter - 1}"
+        summary = f"Created revision task {pm_code}: {len(all_elements)} elements assigned to {pm_code}"
+        if deleted_elements:
+            summary += f", {len(deleted_elements)} deleted elements assigned to {prev_pm_code}"
+        self.logger.info(summary)
     
     def _create_revision_task(
         self,
         pm_code: str,
         element_count: int,
         added_count: int,
-        changed_count: int
+        changed_count: int,
+        deleted_count: int = 0
     ) -> ifcopenshell.entity_instance:
         """Create a single task representing this entire revision."""
         # Build task description
@@ -886,7 +1008,10 @@ class Patcher:
         else:
             description = f"Revision {pm_code}: {element_count} changes"
         
-        description += f" ({added_count} added, {changed_count} changed)"
+        description += f" ({added_count} added, {changed_count} changed"
+        if deleted_count > 0:
+            description += f", {deleted_count} deleted"
+        description += ")"
         
         # Create task - handle IFC2X3 vs IFC4+ schema differences
         # IFC2X3.IfcTask doesn't have Identification attribute
@@ -937,6 +1062,10 @@ class Patcher:
         diff_metadata: Optional[dict]
     ) -> str:
         """Generate element-specific change description."""
+        # Handle deleted elements
+        if change_type == "deleted":
+            return "deleted"
+        
         ifc_class = element.is_a() if hasattr(element, 'is_a') else "Unknown"
         name = getattr(element, 'Name', 'Unnamed') or 'Unnamed'
         
@@ -1442,6 +1571,9 @@ class Patcher:
                 prev_pset = uel.get_pset(prev_element, "PM")
                 if prev_pset:
                     prev_pm_data = dict(prev_pset)
+                    self.logger.debug(
+                        f"Restored {len(prev_pm_data)} PM properties for element {element.GlobalId}"
+                    )
             except:
                 pass  # Element not in previous model or no PM pset
         
@@ -1464,6 +1596,7 @@ class Patcher:
         for task in ordered_tasks:
             if task.Name:
                 # For the LATEST/CURRENT task only, use new description if available
+                # This includes "deleted" elements assigned to previous task
                 if task == latest_task and element in self.element_change_details:
                     description = self.element_change_details[element]
                 # For previous revisions, ALWAYS preserve description from previous model's PM pset

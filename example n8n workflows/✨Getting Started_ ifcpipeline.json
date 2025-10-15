@@ -1,0 +1,900 @@
+{
+  "name": "✨Getting Started: ifcpipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "hello",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "IDS",
+              "fieldType": "file"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -32,
+        64
+      ],
+      "id": "8012e68a-3665-4c73-85d1-e1199293af62",
+      "name": "On form submission",
+      "webhookId": "85b460cc-b6f9-4385-82e8-9fbc57940269"
+    },
+    {
+      "parameters": {
+        "content": "# Upload or download files\nTo shared volume in ifcpipeline",
+        "width": 496
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        -128
+      ],
+      "id": "72845877-ccea-451e-9b03-79c9309bcd09",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e320047b-7081-4327-939b-7477e7ce16a5",
+              "name": "DownloadUrl",
+              "value": "https://raw.githubusercontent.com/youshengCode/IfcSampleFiles/refs/heads/main/Ifc4_Revit_ARC.ifc",
+              "type": "string"
+            },
+            {
+              "id": "122f4cfa-666d-479c-b154-ae48078a19d1",
+              "name": "FileName",
+              "value": "Ifc4_Revit_ARC.ifc",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        160,
+        272
+      ],
+      "id": "35f4bcf1-e18c-4766-96d6-effdd2ab4a45",
+      "name": "DownloadURL"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        272
+      ],
+      "id": "de4af83e-8050-455c-921e-1e1501d03bd3",
+      "name": "Download from URL",
+      "notesInFlow": false,
+      "notes": "This "
+    },
+    {
+      "parameters": {
+        "operation": "downloadFromUrl",
+        "url": "={{ $json.DownloadUrl }}",
+        "outputFilename": "={{ $json.FileName }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        352,
+        272
+      ],
+      "id": "01248bc3-97cf-4605-b290-21f04b27c005",
+      "name": "Download from URL into ifcpipeline",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "fileType": "ids",
+        "binaryPropertyName": "IDS"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        352,
+        64
+      ],
+      "id": "96d4507a-37d4-41fd-8a36-52af2101b27f",
+      "name": "Upload file to ifcpipeline",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# IfcTester",
+        "height": 80,
+        "width": 512,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        512
+      ],
+      "id": "eafb04ed-8f59-46ca-a2cd-e04e3f0275e8",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "ifcFilename": "={{ $json.file_path }}",
+        "idsFilename": "/uploads/Vasakronan - Arkitektur.ids",
+        "outputFilename": "/output/ids/test.html",
+        "reportType": "html"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcTester",
+      "typeVersion": 1,
+      "position": [
+        352,
+        656
+      ],
+      "id": "96bdc540-e18d-47e7-892f-2aa26c561764",
+      "name": "IFC Tester",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "serve-ids",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        848
+      ],
+      "id": "be4b15fd-77cc-4348-a8af-178034a6fba3",
+      "name": "Webhook",
+      "webhookId": "06d0274f-0f83-4a62-97a8-8b0b134dd64d"
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        400,
+        848
+      ],
+      "id": "3a8d7f61-c450-4427-ad18-183edafbf9c7",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/output/ids/test.html",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        176,
+        848
+      ],
+      "id": "e49a1438-84d2-4426-aaef-9c715063b6a1",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        752,
+        656
+      ],
+      "id": "05d5ac15-2704-439d-b305-33606f5bec8b",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $json.result.output_path }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        544,
+        656
+      ],
+      "id": "caddc138-4f62-4696-8a6a-8b3a1865591a",
+      "name": "Read Results"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.data }}"
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.3,
+      "position": [
+        960,
+        656
+      ],
+      "id": "1f82f197-7707-4133-af0d-30bc349a5c09",
+      "name": "Serve HTML",
+      "webhookId": "10c36a4d-11ca-4f6e-a079-cf0f722a21bb"
+    },
+    {
+      "parameters": {
+        "formTitle": "test your file",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "IFC",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".ifc"
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -32,
+        656
+      ],
+      "id": "1be88347-12ff-4f78-b6be-f598a9657118",
+      "name": "On IfcTester form submission",
+      "webhookId": "153c6d80-a626-4cbe-b091-8322a653bb63"
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "binaryPropertyName": "IFC"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        160,
+        656
+      ],
+      "id": "64176edc-3338-4b96-a4b3-74069fc059db",
+      "name": "Upload new IFC to ifcpipeline",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "# IfcPatch",
+        "height": 80,
+        "width": 512,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        1232
+      ],
+      "id": "b7f93749-e024-4514-b662-ffc7a6a56732",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "inputFile": "={{ $json.file_path }}",
+        "outputFile": "={{ $json.file_path }}",
+        "recipeName": "SetColorBySelector",
+        "argumentsUi": {
+          "argumentValues": [
+            {
+              "value": "{\"selectors\": \"IfcWall\", \"hex\": \"FF0000\"}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPatch",
+      "typeVersion": 1,
+      "position": [
+        368,
+        1360
+      ],
+      "id": "5b771219-e1da-4051-b843-eec9bacf9d1b",
+      "name": "IFC Patch",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "Color the walls red",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "IFC",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".ifc"
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -32,
+        1360
+      ],
+      "id": "67025eea-0bea-4100-9a95-2a6ee8d37e51",
+      "name": "On IfcPatch form submission",
+      "webhookId": "790a04d5-54df-485f-8d61-6ec7d3453f72"
+    },
+    {
+      "parameters": {
+        "operation": "createViewerLink",
+        "filePath": "={{ $json.result.output_path }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        576,
+        1360
+      ],
+      "id": "9387d245-eee1-4076-90ec-0288069562e5",
+      "name": "File Operations",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "redirect",
+        "redirectUrl": "={{ $json.preview_url }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        1360
+      ],
+      "id": "4e3b860e-8a0a-4873-a2fe-26abc4ccd2aa",
+      "name": "Redirect to viewer",
+      "webhookId": "10c36a4d-11ca-4f6e-a079-cf0f722a21bb"
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "binaryPropertyName": "IFC"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        160,
+        1360
+      ],
+      "id": "3e472cf1-ce36-44c1-a969-9d0195e4a7be",
+      "name": "Upload IFC to get a new color",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        160,
+        1600
+      ],
+      "id": "fed4b9eb-17cf-4d80-8280-36bc59b2126d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        368,
+        1600
+      ],
+      "id": "43b52e7c-4981-40ec-869c-e36577dcaf0c",
+      "name": "Download from CDE"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        752,
+        1600
+      ],
+      "id": "61404fdf-670f-444a-98f7-6c8fc849c180",
+      "name": "Upload back to CDE"
+    },
+    {
+      "parameters": {
+        "triggerOn": "file",
+        "path": "/examples/Building-Architecture_RED_WALLS.ifc",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [
+        160,
+        1808
+      ],
+      "id": "951609dd-c18a-4c9b-ad26-305eb45ca1e2",
+      "name": "Local File Trigger"
+    },
+    {
+      "parameters": {
+        "oldFile": "=/examples/Building-Architecture.ifc",
+        "newFile": "=/examples/Building-Architecture_RED_WALLS_APPROVED.ifc",
+        "outputFile": "=/examples/Building-Architecture_diff.json",
+        "relationshipsUi": [
+          "property",
+          "aggregate",
+          "attributes",
+          "classification",
+          "container",
+          "geometry",
+          "type"
+        ],
+        "isShallow": false,
+        "timeout": 600
+      },
+      "type": "CUSTOM.ifcDiff",
+      "typeVersion": 1,
+      "position": [
+        560,
+        2000
+      ],
+      "id": "b4e585ab-2223-41e0-b508-943b8d2dccfb",
+      "name": "IFC Diff",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputFile": "/examples/Building-Architecture_RED_WALLS.ifc",
+        "outputFile": "/examples/Building-Architecture_RED_WALLS_APPROVED.ifc",
+        "recipeName": "SetPropertyBySelector",
+        "argumentsUi": {
+          "argumentValues": [
+            {
+              "value": "  {\"selector\": \"IfcWall\", \"property\": \"Pset_WallCommon.Status\", \"data_type\": \"IfcText\", \"value\": \"Approved\"}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPatch",
+      "typeVersion": 1,
+      "position": [
+        368,
+        1808
+      ],
+      "id": "5cad1874-150b-46e9-accd-2768f7ca2646",
+      "name": "IFC Patch Populate",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputFile": "/examples/Building-Architecture.ifc",
+        "outputFile": "/examples/Building-Architecture_RED_WALLS.ifc",
+        "recipeName": "SetColorBySelector",
+        "argumentsUi": {
+          "argumentValues": [
+            {
+              "value": "{\"selectors\": \"IfcWall\", \"hex\": \"FF0000\"}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPatch",
+      "typeVersion": 1,
+      "position": [
+        560,
+        1600
+      ],
+      "id": "23dc99b7-7433-4dcd-b2fb-2e8eb3fffc03",
+      "name": "IFC Patch Colorizer",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "createViewerLink",
+        "filePath": "={{ $json.result.output_path }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        560,
+        1808
+      ],
+      "id": "4001a12a-dba2-4772-9690-38321ab0496e",
+      "name": "Get a viewer link",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputFile": "=/examples/Building-Architecture_RED_WALLS_APPROVED.ifc",
+        "outputFile": "=/examples/Building-Architecture_RED_WALLS_APPROVED_EMBEDDED_HISTORY.ifc",
+        "recipeName": "MergeTasksFromPrevious",
+        "argumentsUi": {
+          "argumentValues": [
+            {
+              "value": "=/examples/Building-Architecture.ifc"
+            },
+            {
+              "value": "={{ $json.result.output_path }}"
+            },
+            {
+              "value": "V."
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPatch",
+      "typeVersion": 1,
+      "position": [
+        768,
+        2000
+      ],
+      "id": "ad96a644-37e7-49c1-9eea-7bf72b162152",
+      "name": "IFC Patch Embedd history",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "createViewerLink",
+        "filePath": "={{ $json.result.output_path }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        976,
+        2000
+      ],
+      "id": "db074f6f-e79f-4149-b82f-dc76d40bc8fb",
+      "name": "Get a viewer link1",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Local File Trigger": [
+      {
+        "json": {
+          "event": "change",
+          "path": "/examples/Building-Architecture_RED_WALLS.ifc"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Upload file to ifcpipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DownloadURL": {
+      "main": [
+        [
+          {
+            "node": "Download from URL into ifcpipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download from URL": {
+      "main": [
+        [
+          {
+            "node": "DownloadURL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Tester": {
+      "main": [
+        [
+          {
+            "node": "Read Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Serve HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Results": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On IfcTester form submission": {
+      "main": [
+        [
+          {
+            "node": "Upload new IFC to ifcpipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload new IFC to ifcpipeline": {
+      "main": [
+        [
+          {
+            "node": "IFC Tester",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On IfcPatch form submission": {
+      "main": [
+        [
+          {
+            "node": "Upload IFC to get a new color",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Patch": {
+      "main": [
+        [
+          {
+            "node": "File Operations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Operations": {
+      "main": [
+        [
+          {
+            "node": "Redirect to viewer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload IFC to get a new color": {
+      "main": [
+        [
+          {
+            "node": "IFC Patch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download from CDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download from CDE": {
+      "main": [
+        [
+          {
+            "node": "IFC Patch Colorizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Local File Trigger": {
+      "main": [
+        [
+          {
+            "node": "IFC Patch Populate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Diff": {
+      "main": [
+        [
+          {
+            "node": "IFC Patch Embedd history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Patch Populate": {
+      "main": [
+        [
+          {
+            "node": "Get a viewer link",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IFC Diff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Patch Colorizer": {
+      "main": [
+        [
+          {
+            "node": "Upload back to CDE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Patch Embedd history": {
+      "main": [
+        [
+          {
+            "node": "Get a viewer link1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "eec43c25-2faf-45d4-b913-eef4f08d1fa8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2bc2b7bb02fac2fbbf07c51279519777c17e9e0285254ec1ef6eb3d56b1f8e0f"
+  },
+  "id": "LOxLtNxz4DcTMVdR",
+  "tags": []
+}
