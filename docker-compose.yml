@@ -151,8 +151,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '8'
+          memory: 8G
 
   ifcclash-worker:
     build:
@@ -260,7 +260,8 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: '12G'
+          memory: '16G'
+    memswap_limit: '24G'
 
   ifc2json-worker:
     build:

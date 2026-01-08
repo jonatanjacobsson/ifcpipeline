@@ -141,7 +141,7 @@
     {
       "parameters": {
         "ifcFilename": "={{ $json.file_path }}",
-        "idsFilename": "/uploads/Vasakronan - Arkitektur.ids",
+        "idsFilename": "/examples/IDS-example.ids",
         "outputFilename": "/output/ids/test.html",
         "reportType": "html"
       },

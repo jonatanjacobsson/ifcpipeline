@@ -1,5 +1,5 @@
 # IFC dependencies - pinned for stability
-ifcopenshell==0.8.0
+ifcopenshell==0.8.3
 
 # Queue and data validation
 rq>=2.0.0,<3.0.0

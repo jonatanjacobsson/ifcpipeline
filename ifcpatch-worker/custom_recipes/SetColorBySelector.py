@@ -466,14 +466,25 @@ class Patcher:
                 # Get or create style for this hex color with transparency
                 style = self._get_or_create_style(hex_color, transparency)
                 
+                # IfcOpenShell selector requires an element type prefix for property filters to work.
+                # Property-only selectors like "BIP.SystemName=value" return 0 elements.
+                # We automatically prepend "IfcElement," if the selector doesn't contain an IFC class name.
+                selector = filter_group.strip()
+                import re
+                has_ifc_class = re.search(r'\bIfc[A-Z]\w*\b', selector)
+                if '.' in selector and '=' in selector and not has_ifc_class:
+                    # This is a property filter without element type - prepend IfcElement
+                    selector = f"IfcElement, {selector}"
+                    self.logger.debug(f"Auto-prefixed selector: '{filter_group}' -> '{selector}'")
+                
                 # Select elements using this filter group
-                elements = ifcopenshell.util.selector.filter_elements(self.file, filter_group)
+                elements = ifcopenshell.util.selector.filter_elements(self.file, selector)
                 
                 if len(elements) == 0:
-                    self.logger.warning(f"No elements matched filter group: '{filter_group}'")
+                    self.logger.warning(f"No elements matched filter group: '{selector}' (original: '{filter_group}')")
                     continue
                 
-                self.logger.info(f"Found {len(elements)} element(s) matching filter group '{filter_group}'")
+                self.logger.info(f"Found {len(elements)} element(s) matching filter group '{selector}'")
                 
                 # Assign color to each element
                 colored_count = 0
