@@ -1,0 +1,537 @@
+/* =============================================================================
+   IFC PIPELINE - FLOOR PLAN &amp; CEILING PLAN STYLES
+   =============================================================================
+   Based on BH90 principles with adaptations for coordinated MEP views
+   
+   Key Features:
+   - Relative line widths for different system types
+   - Distinct styling for ceiling vs floor level MEP
+   - Layer-based classification
+   - Support for status (existing/new/demolition)
+   ============================================================================= */
+
+/* ===========================
+   1. CSS Variables &amp; Base Scale
+   =========================== */
+:root {
+  /* Base stroke width - adjust this to scale all lines proportionally */
+  --stroke-base: 1.5px;
+
+  /* Text rotation variable */
+  --text-rotation: 25deg;
+
+  /* ===== SYSTEM COLORS ===== */
+  --col-architecture: #B0B0B0;
+  --col-structural: #111111;
+  --col-electrical: #FF6600;
+  --col-mechanical: #00CC66;
+  --col-plumbing: #0099CC;
+  --col-spaces: rgba(150, 150, 150, 0.3);
+  
+  /* Status colors */
+  --col-existing: #666666;
+  --col-demolition: #CC0000;
+  --col-reference: #888888;
+
+  /* Text colors */
+  --col-text-fill: #000000;
+  --col-text-stroke: #000000;
+
+  /* ===== RELATIVE LINE WIDTHS (BH90-inspired) ===== */
+  /* Floor-level elements */
+  --w-spillwater: calc(var(--stroke-base) * 2.0);  /* Spillwater pipes: thickest */
+  --w-pipe: calc(var(--stroke-base) * 1.0);        /* Regular pipes */
+  --w-duct: calc(var(--stroke-base) * 1.0);        /* HVAC ducts */
+  --w-cable: calc(var(--stroke-base) * 1.0);       /* Cable trays */
+  --w-appliance: calc(var(--stroke-base) * 1.0);   /* Equipment/appliances */
+  --w-fitting: calc(var(--stroke-base) * 0.8);     /* Fittings/connections */
+  
+  /* Ceiling-level elements - slightly thinner and dashed */
+  --w-ceiling-spillwater: calc(var(--stroke-base) * 1.5);
+  --w-ceiling-pipe: calc(var(--stroke-base) * 0.8);
+  --w-ceiling-duct: calc(var(--stroke-base) * 0.8);
+  --w-ceiling-cable: calc(var(--stroke-base) * 0.8);
+  --w-ceiling-appliance: calc(var(--stroke-base) * 0.8);
+  
+  /* Special elements */
+  --w-existing: calc(var(--stroke-base) * 0.5);    /* Existing elements */
+  --w-reference: calc(var(--stroke-base) * 0.5);   /* Reference lines */
+  --w-insulation: calc(var(--stroke-base) * 0.4);  /* Insulation indication */
+  
+  /* Architecture/Structure */
+  --w-wall: calc(var(--stroke-base) * 0.6);
+  --w-wall-underlay: calc(var(--stroke-base) * 0.3);
+  --w-structural: calc(var(--stroke-base) * 0.4);
+}
+
+/* ===========================
+   2. SVG Base Rendering
+   =========================== */
+svg {
+  shape-rendering: geometricPrecision;
+  text-rendering: optimizeLegibility;
+}
+
+g, path, line, polyline, polygon, circle, rect {
+  vector-effect: non-scaling-stroke;
+}
+
+/* ===========================
+   3. Layer Base Styles
+   =========================== */
+
+/* Architecture Layer (underlay in coordinated views) */
+.architecture-layer path,
+.architecture-layer line,
+.architecture-layer polyline {
+  stroke: var(--col-architecture);
+  stroke-width: var(--w-wall);
+  fill: var(--col-architecture);
+}
+
+.architecture-layer.underlay path,
+.architecture-layer.underlay line,
+.architecture-layer.underlay polyline {
+  stroke: #CCCCCC;
+  stroke-width: var(--w-wall-underlay);
+  fill: var(--col-architecture);
+  opacity: 0.4;
+}
+
+/* Hide IfcDoor elements for bug on multiple storeys */
+.architecture-layer .IfcDoor:not(.cut) {
+  display: none !important;
+}
+
+/* No fill for IfcDoor and IfcSymbol elements */
+.architecture-layer .IfcDoor path,
+.architecture-layer .IfcSymbol path,
+.architecture-layer .IfcSymbol polyline,
+.architecture-layer .IfcSymbol polygon,
+.architecture-layer .IfcSymbol circle,
+.architecture-layer .IfcSymbol rect {
+  fill: none !important;
+}
+
+/* ===========================
+   4. MEP LAYERS - FLOOR LEVEL
+   =========================== */
+
+/* PLUMBING - Floor Level */
+.plumbing-layer path,
+.plumbing-layer line,
+.plumbing-layer polyline {
+  stroke: var(--col-plumbing);
+  stroke-width: var(--w-pipe);
+  fill: var(--col-plumbing);
+}
+
+.plumbing-layer .IfcPipeSegment,
+.plumbing-layer .IfcFlowSegment {
+  stroke-width: var(--w-pipe);
+  fill: var(--col-plumbing);
+}
+
+/* Spillwater - thicker according to BH90 */
+.plumbing-layer .spillwater,
+.plumbing-layer .IfcPipeSegment.spill,
+.plumbing-layer .IfcFlowSegment.spill {
+  stroke-width: var(--w-spillwater);
+}
+
+.plumbing-layer .IfcPipeFitting,
+.plumbing-layer .IfcFlowFitting {
+  stroke-width: var(--w-fitting);
+  fill: var(--col-plumbing);
+}
+
+.plumbing-layer .IfcFlowTerminal,
+.plumbing-layer .IfcFlowController,
+.plumbing-layer .IfcFlowTreatmentDevice,
+.plumbing-layer .IfcValve {
+  stroke-width: var(--w-appliance);
+  fill: var(--col-plumbing);
+}
+
+.plumbing-layer .IfcTank,
+.plumbing-layer .IfcFlowMeter,
+.plumbing-layer .IfcPump,
+.plumbing-layer .IfcEnergyConversionDevice,
+.plumbing-layer .IfcFlowStorageDevice {
+  stroke-width: var(--w-appliance);
+  fill: var(--col-plumbing);
+}
+
+/* MECHANICAL - Floor Level */
+.mechanical-layer path,
+.mechanical-layer line,
+.mechanical-layer polyline {
+  stroke: var(--col-mechanical);
+  stroke-width: var(--w-duct);
+  fill: var(--col-mechanical);
+}
+
+.mechanical-layer .IfcDuctSegment,
+.mechanical-layer .IfcFlowSegment {
+  stroke-width: var(--w-duct);
+  fill: var(--col-mechanical);
+}
+
+.mechanical-layer .IfcDuctFitting,
+.mechanical-layer .IfcFlowFitting {
+  stroke-width: var(--w-fitting);
+  fill: var(--col-mechanical);
+}
+
+.mechanical-layer .IfcAirTerminal,
+.mechanical-layer .IfcFlowTerminal {
+  stroke-width: var(--w-appliance);
+  fill: var(--col-mechanical);
+}
+
+.mechanical-layer .IfcDamper,
+.mechanical-layer .IfcDuctSilencer,
+.mechanical-layer .IfcFlowController {
+  stroke-width: var(--w-appliance);
+  fill: var(--col-mechanical);
+}
+
+.mechanical-layer .IfcFan,
+.mechanical-layer .IfcCoil,
+.mechanical-layer .IfcFilter,
+.mechanical-layer .IfcHeatExchanger,
+.mechanical-layer .IfcAirToAirHeatRecovery,
+.mechanical-layer .IfcUnitaryEquipment,
+.mechanical-layer .IfcEnergyConversionDevice {
+  stroke-width: var(--w-appliance);
+  fill: var(--col-mechanical);
+}
+
+/* ELECTRICAL - Floor Level */
+.electrical-layer path,
+.electrical-layer line,
+.electrical-layer polyline {
+  stroke: var(--col-electrical);
+  stroke-width: var(--w-cable);
+  fill: var(--col-electrical);
+}
+
+.electrical-layer .IfcCableCarrierSegment,
+.electrical-layer .IfcFlowSegment {
+  stroke-width: var(--w-cable);
+  fill: var(--col-electrical);
+}
+
+.electrical-layer .IfcCableCarrierFitting,
+.electrical-layer .IfcFlowFitting {
+  stroke-width: var(--w-fitting);
+  fill: var(--col-electrical);
+}
+
+.electrical-layer .IfcElectricAppliance,
+.electrical-layer .IfcLightFixture,
+.electrical-layer .IfcElectricDistributionPoint,
+.electrical-layer .IfcFlowTerminal {
+  stroke-width: var(--w-appliance);
+  fill: var(--col-electrical);
+}
+
+/* ===========================
+   5. MEP CEILING LAYERS - DISTINCT STYLING
+   =========================== */
+
+/* Ceiling layers use:
+   - Thinner stroke widths
+   - Dashed lines (stroke-dasharray)
+   - Slightly reduced opacity
+*/
+
+/* PLUMBING CEILING */
+.plumbing-ceiling-layer path,
+.plumbing-ceiling-layer line,
+.plumbing-ceiling-layer polyline,
+.plumbing-layer.ceiling-level path,
+.plumbing-layer.ceiling-level line,
+.plumbing-layer.ceiling-level polyline {
+  stroke: var(--col-plumbing);
+  stroke-width: var(--w-ceiling-pipe);
+  stroke-dasharray: 6 4;
+  fill: var(--col-plumbing);
+  opacity: 0.85;
+}
+
+.plumbing-ceiling-layer .IfcPipeSegment,
+.plumbing-ceiling-layer .IfcFlowSegment {
+  stroke-width: var(--w-ceiling-pipe);
+  fill: var(--col-plumbing);
+}
+
+.plumbing-ceiling-layer .spillwater,
+.plumbing-ceiling-layer .IfcPipeSegment.spill,
+.plumbing-ceiling-layer .IfcFlowSegment.spill {
+  stroke-width: var(--w-ceiling-spillwater);
+  fill: var(--col-spillwater);
+}
+
+.plumbing-ceiling-layer .IfcPipeFitting,
+.plumbing-ceiling-layer .IfcFlowFitting,
+.plumbing-ceiling-layer .IfcFlowTerminal,
+.plumbing-ceiling-layer .IfcFlowController,
+.plumbing-ceiling-layer .IfcTank,
+.plumbing-ceiling-layer .IfcPump {
+  stroke-width: var(--w-ceiling-appliance);
+  fill: var(--col-plumbing);
+}
+
+/* MECHANICAL CEILING */
+.mechanical-ceiling-layer path,
+.mechanical-ceiling-layer line,
+.mechanical-ceiling-layer polyline,
+.mechanical-layer.ceiling-level path,
+.mechanical-layer.ceiling-level line,
+.mechanical-layer.ceiling-level polyline {
+  stroke: var(--col-mechanical);
+  stroke-width: var(--w-ceiling-duct);
+  stroke-dasharray: 6 4;
+  fill: var(--col-mechanical);
+  opacity: 0.85;
+}
+
+.mechanical-ceiling-layer .IfcDuctSegment,
+.mechanical-ceiling-layer .IfcFlowSegment {
+  stroke-width: var(--w-ceiling-duct);
+  fill: var(--col-mechanical);
+}
+
+.mechanical-ceiling-layer .IfcDuctFitting,
+.mechanical-ceiling-layer .IfcFlowFitting,
+.mechanical-ceiling-layer .IfcAirTerminal,
+.mechanical-ceiling-layer .IfcFlowTerminal,
+.mechanical-ceiling-layer .IfcDamper,
+.mechanical-ceiling-layer .IfcFan {
+  stroke-width: var(--w-ceiling-appliance);
+  fill: none;
+}
+
+/* ELECTRICAL CEILING */
+.electrical-ceiling-layer path,
+.electrical-ceiling-layer line,
+.electrical-ceiling-layer polyline,
+.electrical-layer.ceiling-level path,
+.electrical-layer.ceiling-level line,
+.electrical-layer.ceiling-level polyline {
+  stroke: var(--col-electrical);
+  stroke-width: var(--w-ceiling-cable);
+  stroke-dasharray: 6 4;
+  fill: var(--col-electrical);
+  opacity: 0.85;
+}
+
+.electrical-ceiling-layer .IfcCableCarrierSegment,
+.electrical-ceiling-layer .IfcFlowSegment {
+  stroke-width: var(--w-ceiling-cable);
+  fill: var(--col-ceiling-cable);
+}
+
+.electrical-ceiling-layer .IfcCableCarrierFitting,
+.electrical-ceiling-layer .IfcFlowFitting,
+.electrical-ceiling-layer .IfcElectricAppliance,
+.electrical-ceiling-layer .IfcLightFixture {
+  stroke-width: var(--w-ceiling-appliance);
+  fill: none;
+}
+
+/* ===========================
+   6. Height Level Modifiers
+   =========================== */
+
+/* Alternative approach using class modifiers */
+.above-ceiling {
+  stroke-dasharray: 6 4;
+  opacity: 0.85;
+}
+
+.at-floor {
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+.below-floor {
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+
+/* ===========================
+   7. Status Modifiers
+   =========================== */
+
+.is-existing,
+.existing {
+  stroke: var(--col-existing);
+  stroke-width: var(--w-existing);
+  opacity: 0.7;
+}
+
+.is-new,
+.new {
+  opacity: 1;
+}
+
+.is-demolition,
+.demolition {
+  stroke: var(--col-demolition);
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+
+/* ===========================
+   8. Spaces &amp; Text
+   =========================== */
+
+.spaces-layer path,
+.spaces-layer polygon {
+  fill: rgba(200, 200, 200, 0.05);
+  stroke: var(--col-spaces);
+  stroke-width: 0.2px;
+  opacity: 1.0;
+}
+
+/* Text styling */
+text {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 4pt;
+  font-weight: 700;
+  fill: var(--col-text-fill);
+  stroke: var(--col-text-stroke);
+  stroke-width: 0.5px;
+  paint-order: stroke fill;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transform: rotate(var(--text-rotation));
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+text tspan:first-child {
+  font-size: 4pt;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+
+text tspan:nth-child(2) {
+  font-size: 4pt;
+  font-weight: 400;
+  letter-spacing: 1px;
+}
+
+text tspan:nth-child(3) {
+  font-size: 4pt;
+  font-weight: 400;
+  letter-spacing: 0.8px;
+}
+
+.label {
+  font-size: 4pt;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.label.secondary {
+  font-weight: 400;
+  font-size: 3.5pt;
+  letter-spacing: 0.25px;
+}
+
+.label.small {
+  font-weight: 400;
+  font-size: 3pt;
+  letter-spacing: 0.2px;
+}
+
+/* ===========================
+   9. Reference Lines &amp; Annotations
+   =========================== */
+
+.ref,
+.leader,
+.dimension {
+  stroke: var(--col-reference);
+  stroke-width: var(--w-reference);
+  fill: none;
+}
+
+.centerline {
+  stroke-dasharray: 2 2;
+}
+
+.insulation {
+  stroke: var(--col-reference);
+  stroke-width: var(--w-insulation);
+  stroke-dasharray: 3 2;
+  fill: none;
+}
+
+/* ===========================
+   10. Interactive States (optional)
+   =========================== */
+
+.is-highlight {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 0, 0.9));
+}
+
+.is-muted {
+  opacity: 0.35;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  opacity: 0.8;
+}
+
+/* ===========================
+   11. Print Optimization
+   =========================== */
+
+@media print {
+  svg {
+    shape-rendering: crispEdges;
+  }
+  
+  /* Ensure consistent print output */
+  .architecture-layer.underlay {
+    opacity: 0.3 !important;
+  }
+}
+
+/* ===========================
+   12. Coordinated View Overrides
+   =========================== */
+
+/* When all layers are shown together, ensure proper visual hierarchy */
+.coordinated-view .architecture-layer {
+  opacity: 1;
+}
+
+.coordinated-view .structural-layer {
+  opacity: 0.7;
+}
+
+.coordinated-view .plumbing-layer,
+.coordinated-view .mechanical-layer,
+.coordinated-view .electrical-layer {
+  opacity: 0.85;
+}
+
+.coordinated-view .plumbing-ceiling-layer,
+.coordinated-view .mechanical-ceiling-layer,
+.coordinated-view .electrical-ceiling-layer {
+  opacity: 0.7;
+}
+
+.coordinated-view .spaces-layer {
+  opacity: 1.0;
+}
+

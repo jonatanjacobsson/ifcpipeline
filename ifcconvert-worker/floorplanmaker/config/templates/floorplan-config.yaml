@@ -1,0 +1,708 @@
+# =============================================================================
+# IFC Floor Plan View Template Configuration - ENHANCED
+# =============================================================================
+# This configuration defines view templates for generating floor plans from 
+# multiple IFC models with configurable section heights per discipline
+#
+# Usage: ./generate-from-config.py floorplan-config.yaml
+# =============================================================================
+
+project:
+  name: "A1_2b Project"
+  code: "A1"
+  output_dir: "/output/converted/floorplans"
+  scale: "1:50"
+  coordinate_scale: 20  # meters → millimeters (1:50 scale)
+
+# =============================================================================
+# IFC Models - With section height configuration per discipline
+# =============================================================================
+models:
+  architecture:
+    file: "/uploads/A1_2b_BIM_XXX_0001_00.v24.0.ifc"
+    description: "Architecture Model"
+    code: "A1"
+    elements:
+      - IfcBuildingElementProxy
+      - IfcCovering
+      - IfcCurtainWall
+      - IfcDoor
+      - IfcMember
+      - IfcOpeningElement
+      - IfcRailing
+      - IfcSlab
+      - IfcStair
+      - IfcWall
+      - IfcWindow
+      - IfcColumn
+      - IfcBeam
+    section_heights:
+      default_offset: 1.2      # meters above storey elevation
+      floor_level: 1.2         # Floor-level elements (walls, doors, windows)
+      ceiling_level: 2.8       # Ceiling-level elements (beams overhead)
+      view_direction: "down"   # Normal plan view
+    css:
+      stroke: "#222222"
+      stroke_width: "0.5px"
+      fill: "#444444"
+      opacity: 1.0
+  
+  spaces:
+    file: "/uploads/A1_2b_BIM_XXX_0003_00.ifc"
+    description: "Space Definitions"
+    code: "A1_0003"
+    elements:
+      - IfcSpace
+    section_heights:
+      default_offset: 1.2
+      floor_level: 1.2
+      view_direction: "down"
+    options:
+      - "--print-space-names"
+    css:
+      fill: "rgba(200, 200, 200, 0.1)"
+      stroke: "rgba(150, 150, 150, 0.3)"
+      text_fill: "white"
+      text_stroke: "black"
+      text_stroke_width: "0.5px"
+  
+  structural:
+    file: "/uploads/S2_2B_BIM_XXX_0001_00.v12.0.ifc"
+    description: "Structural Model"
+    code: "S2"
+    elements:
+      - IfcAnnotation
+      - IfcBeam
+      - IfcBuildingElementProxy
+      - IfcColumn
+      - IfcCovering
+      - IfcMember
+      - IfcSlab
+      - IfcStair
+      - IfcWall
+    section_heights:
+      default_offset: 1.2      # Floor-level structural (columns, slabs)
+      floor_level: 1.2
+      ceiling_level: 2.8       # Ceiling beams
+      view_direction: "down"
+    css:
+      stroke: "#0066CC"
+      stroke_width: "0.5px"
+      fill: "#3399FF"
+      opacity: 0.8
+  
+  electrical:
+    file: "/uploads/E1_2b_BIM_XXX_600_00.v183.0.ifc"
+    description: "Electrical Model (E1)"
+    code: "E1"
+    # IFC2X3 element classes
+    elements:
+      - IfcBuildingElementProxy
+      - IfcCableCarrierFitting
+      - IfcCableCarrierSegment
+      - IfcDistributionElement
+      - IfcDoor
+      - IfcElectricAppliance
+      - IfcLightFixture
+      - IfcOpeningElement
+      - IfcPipeSegment
+      - IfcWall
+      - IfcFlowSegment
+      - IfcFlowFitting
+      - IfcFlowTerminal
+      - IfcElectricDistributionPoint
+      - IfcFlowController
+      - IfcFlowTreatmentDevice
+      - IfcEnergyConversionDevice
+      - IfcFlowStorageDevice
+    section_heights:
+      default_offset: 2.8      # Most electrical at ceiling (lights, cable trays)
+      floor_level: 1.2         # Floor-level (outlets, panels at 1.2m)
+      ceiling_level: 2.8       # Ceiling-level (lights, cable trays at 2.8m)
+      view_direction: "down"   # Normal view (can be "up" for RCP)
+    css:
+      stroke: "#FF6600"
+      stroke_width: "0.5px"
+      fill: "#FF9933"
+      opacity: 0.9
+  
+  mechanical:
+    file: "/uploads/M1_2b_BIM_XXX_5700_00.v12.0.ifc"
+    description: "Mechanical/HVAC Model (M1)"
+    code: "M1"
+    # IFC2X3 element classes
+    elements:
+      - IfcActuator
+      - IfcAirTerminal
+      - IfcAirToAirHeatRecovery
+      - IfcBuildingElementPart
+      - IfcBuildingElementProxy
+      - IfcCovering
+      - IfcDiscreteAccessory
+      - IfcDistributionElement
+      - IfcDuctFitting
+      - IfcDuctSegment
+      - IfcDuctSilencer
+      - IfcUnitaryEquipment
+      - IfcFlowSegment
+      - IfcFlowFitting
+      - IfcFlowTerminal
+      - IfcFlowController
+      - IfcFlowTreatmentDevice
+      - IfcEnergyConversionDevice
+      - IfcFlowStorageDevice
+      - IfcBoiler
+      - IfcChiller
+      - IfcCoil
+      - IfcCompressor
+      - IfcCoolingTower
+      - IfcDamper
+      - IfcFan
+      - IfcFilter
+      - IfcHeatExchanger
+      - IfcHumidifier
+    section_heights:
+      default_offset: 2.8      # Most HVAC at ceiling level
+      floor_level: 1.2         # Floor-level equipment
+      ceiling_level: 2.8       # Ductwork at ceiling
+      view_direction: "down"   # Can be "up" for underside view
+    css:
+      stroke: "#00CC66"
+      stroke_width: "0.5px"
+      fill: "#33FF99"
+      opacity: 0.9
+  
+  plumbing:
+    file: "/uploads/P1_2b_BIM_XXX_5000_00.v12.0.ifc"
+    description: "Plumbing/Fire Protection Model (P1)"
+    code: "P1"
+    # IFC2X3 element classes
+    elements:
+      - IfcActuator
+      - IfcAirToAirHeatRecovery
+      - IfcBuildingElementProxy
+      - IfcCovering
+      - IfcDistributionElement
+      - IfcElementAssembly
+      - IfcFlowMeter
+      - IfcPipeFitting
+      - IfcPipeSegment
+      - IfcTank
+      - IfcFlowSegment
+      - IfcFlowFitting
+      - IfcFlowTerminal
+      - IfcFlowController
+      - IfcFlowTreatmentDevice
+      - IfcEnergyConversionDevice
+      - IfcFlowStorageDevice
+    section_heights:
+      default_offset: 1.5      # Mid-level for typical plumbing
+      floor_level: 1.0         # Floor-level drains
+      ceiling_level: 2.5       # Ceiling-level pipes
+      view_direction: "down"
+    css:
+      stroke: "#0099CC"
+      stroke_width: "0.5px"
+      fill: "#33CCFF"
+      opacity: 0.9
+
+  # ---------------------------------------------------------------------------
+  # Ceiling Plan Model Definitions - Looking down at ceiling level
+  # ---------------------------------------------------------------------------
+  electrical_ceiling:
+    file: "/uploads/E1_2b_BIM_XXX_600_00.v183.0.ifc"
+    description: "Electrical Ceiling Plan Model (E1 - Ceiling Level)"
+    code: "E1_CEIL"
+    # Ceiling-level electrical elements only
+    elements:
+      - IfcBuildingElementProxy
+      - IfcCableCarrierFitting
+      - IfcCableCarrierSegment
+      - IfcDistributionElement
+      - IfcElectricAppliance
+      - IfcLightFixture
+      - IfcFlowSegment
+      - IfcFlowFitting
+      - IfcFlowTerminal
+      - IfcElectricDistributionPoint
+      - IfcFlowController
+      - IfcFlowTreatmentDevice
+      - IfcEnergyConversionDevice
+      - IfcFlowStorageDevice
+    section_heights:
+      # Mid-ceiling heights: Halfway between floor (1.2m) and ceiling (next_storey-0.1)
+      # This captures ceiling-mounted elements better than cutting at the very top
+      # Sea Level: (1.2 + 1.8) / 2 = 1.5m
+      # Mezzanine: (6.6 + 8.8) / 2 = 7.7m  
+      default_offset: "ceiling_mid_range"      # Mid-point between floor and ceiling
+      floor_level: "ceiling_mid_range"         # Mid-ceiling height
+      ceiling_level: "ceiling_mid_range"       # Mid-ceiling height
+    css:
+      stroke: "#FF6600"
+      stroke_width: "0.8px"    # Thicker lines for ceiling plans
+      fill: "none"             # No fill for ceiling plans
+      opacity: 1.0
+
+  mechanical_ceiling:
+    file: "/uploads/M1_2b_BIM_XXX_5700_00.v12.0.ifc"
+    description: "Mechanical Ceiling Plan Model (M1 - Ceiling Level)"
+    code: "M1_CEIL"
+    # Ceiling-level HVAC elements only
+    elements:
+      - IfcAirTerminal
+      - IfcDuctFitting
+      - IfcDuctSegment
+      - IfcDuctSilencer
+      - IfcUnitaryEquipment
+      - IfcFlowSegment
+      - IfcFlowFitting
+      - IfcFlowTerminal
+      - IfcFlowController
+      - IfcFlowTreatmentDevice
+      - IfcEnergyConversionDevice
+      - IfcFlowStorageDevice
+      - IfcDamper
+      - IfcFan
+      - IfcFilter
+    section_heights:
+      default_offset: "ceiling_mid_range"      # Mid-point between floor and ceiling
+      floor_level: "ceiling_mid_range"         # Mid-ceiling height
+      ceiling_level: "ceiling_mid_range"       # Mid-ceiling height
+    css:
+      stroke: "#00CC66"
+      stroke_width: "0.8px"    # Thicker lines for ceiling plans
+      fill: "none"             # No fill for ceiling plans
+      opacity: 1.0
+
+  plumbing_ceiling:
+    file: "/uploads/P1_2b_BIM_XXX_5000_00.v12.0.ifc"
+    description: "Plumbing Ceiling Plan Model (P1 - Ceiling Level)"
+    code: "P1_CEIL"
+    # Ceiling-level plumbing elements only
+    elements:
+      - IfcPipeFitting
+      - IfcPipeSegment
+      - IfcFlowSegment
+      - IfcFlowFitting
+      - IfcFlowTerminal
+      - IfcFlowController
+      - IfcFlowTreatmentDevice
+      - IfcEnergyConversionDevice
+      - IfcFlowStorageDevice
+    section_heights:
+      default_offset: "ceiling_mid_range"      # Mid-point between floor and ceiling
+      floor_level: "ceiling_mid_range"         # Mid-ceiling height
+      ceiling_level: "ceiling_mid_range"       # Mid-ceiling height
+    css:
+      stroke: "#0099CC"
+      stroke_width: "0.8px"    # Thicker lines for ceiling plans
+      fill: "none"             # No fill for ceiling plans
+      opacity: 1.0
+
+# =============================================================================
+# Building Storeys - Define section heights for each floor
+# =============================================================================
+storeys:
+  - name: "000 Sea Level"
+    elevation: 0.00
+    
+  - name: "010 Quay Level +1.90m"
+    elevation: 1.90
+    
+  - name: "020 Mezzanine +5.40m"
+    elevation: 5.40
+    
+  - name: "030 Slussen Level +8.90m"
+    elevation: 8.90
+  
+  - name: "040 First Floor +14.23m"
+    elevation: 14.23
+  
+  - name: "050 Second Floor +19.56m"
+    elevation: 19.56
+  
+  - name: "060 Third Floor +24,89m"
+    elevation: 24.89
+  
+  - name: "070 Roof +29.50m"
+    elevation: 29.50
+
+# =============================================================================
+# View Templates - Define different floor plan types
+# =============================================================================
+view_templates:
+  
+  # ---------------------------------------------------------------------------
+  # 1. Architectural Floor Plans (with spaces)
+  # ---------------------------------------------------------------------------
+  architectural:
+    name: "Architectural Floor Plans"
+    description: "Complete architectural plans with spaces"
+    output_prefix: "arch"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 1.0
+        section_offset_type: "floor_level"  # Use floor_level from model config
+      
+      - model: "spaces"
+        opacity: 1.0
+        section_offset_type: "floor_level"
+    
+    css:
+      text_fill: "white"
+      text_stroke: "black"
+      text_stroke_width: "0.5px"
+      wall_stroke: "#222222"
+      door_fill: "none"
+  
+  # ---------------------------------------------------------------------------
+  # 2. Individual MEP Floor Plans (with architectural underlay)
+  # ---------------------------------------------------------------------------
+  electrical:
+    name: "Electrical Floor Plans"
+    description: "Electrical systems with architectural context"
+    output_prefix: "electrical"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.3
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#CCCCCC"
+          fill: "#EEEEEE"
+      
+      - model: "electrical"
+        opacity: 1.0
+        section_offset_type: "ceiling_level"  # Electrical at ceiling!
+    
+    css:
+      underlay_opacity: "0.3"
+      electrical_stroke: "#FF6600"
+      electrical_fill: "#FF9933"
+  
+  mechanical:
+    name: "Mechanical Floor Plans"
+    description: "HVAC systems with architectural context"
+    output_prefix: "mechanical"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.3
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#CCCCCC"
+          fill: "#EEEEEE"
+      
+      - model: "mechanical"
+        opacity: 1.0
+        section_offset_type: "ceiling_level"  # HVAC at ceiling!
+    
+    css:
+      underlay_opacity: "0.3"
+      mechanical_stroke: "#00CC66"
+      mechanical_fill: "#33FF99"
+  
+  plumbing:
+    name: "Plumbing Floor Plans"
+    description: "Plumbing systems with architectural context"
+    output_prefix: "plumbing"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.3
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#CCCCCC"
+          fill: "#EEEEEE"
+      
+      - model: "plumbing"
+        opacity: 1.0
+        section_offset_type: "default_offset"  # Mid-level
+    
+    css:
+      underlay_opacity: "0.3"
+      plumbing_stroke: "#0099CC"
+      plumbing_fill: "#33CCFF"
+  
+  structural:
+    name: "Structural Floor Plans"
+    description: "Structural elements with architectural context"
+    output_prefix: "structural"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.3
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#CCCCCC"
+          fill: "#EEEEEE"
+      
+      - model: "structural"
+        opacity: 1.0
+        section_offset_type: "floor_level"
+    
+    css:
+      underlay_opacity: "0.3"
+      structural_stroke: "#0066CC"
+      structural_fill: "#3399FF"
+  
+  # ---------------------------------------------------------------------------
+  # 3. CEILING PLANS - Looking down at ceiling level systems
+  # ---------------------------------------------------------------------------
+  electrical_ceiling:
+    name: "Electrical Ceiling Plans"
+    description: "Electrical ceiling systems (looking down at ceiling level)"
+    output_prefix: "electrical_ceiling"
+    code: "E1_CEIL"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.2
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#DDDDDD"
+          fill: "#F5F5F5"
+          stroke_width: "0.2px"
+      
+      - model: "electrical_ceiling"  # Use dedicated ceiling model
+        opacity: 1.0
+        section_offset_type: "ceiling_level"  # Ceiling-level electrical
+        css_override:
+          stroke: "#FF6600"
+          fill: "none"
+          stroke_width: "0.8px"
+    
+    css:
+      underlay_opacity: "0.2"
+      electrical_stroke: "#FF6600"
+      electrical_fill: "none"
+      ceiling_note: "Ceiling Plan - 10cm below next storey"
+
+  mechanical_ceiling:
+    name: "Mechanical Ceiling Plans"
+    description: "HVAC ceiling systems (looking down at ceiling level)"
+    output_prefix: "mechanical_ceiling"
+    code: "M1_CEIL"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.2
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#DDDDDD"
+          fill: "#F5F5F5"
+          stroke_width: "0.2px"
+      
+      - model: "mechanical_ceiling"  # Use dedicated ceiling model
+        opacity: 1.0
+        section_offset_type: "ceiling_level"  # Ceiling-level HVAC
+        css_override:
+          stroke: "#00CC66"
+          fill: "none"
+          stroke_width: "0.8px"
+    
+    css:
+      underlay_opacity: "0.2"
+      mechanical_stroke: "#00CC66"
+      mechanical_fill: "none"
+      ceiling_note: "Ceiling Plan - 10cm below next storey"
+
+  plumbing_ceiling:
+    name: "Plumbing Ceiling Plans"
+    description: "Plumbing ceiling systems (looking down at ceiling level)"
+    output_prefix: "plumbing_ceiling"
+    code: "P1_CEIL"
+    enabled: true
+    
+    layers:
+      - model: "architecture"
+        opacity: 0.2
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#DDDDDD"
+          fill: "#F5F5F5"
+          stroke_width: "0.2px"
+      
+      - model: "plumbing_ceiling"  # Use dedicated ceiling model
+        opacity: 1.0
+        section_offset_type: "ceiling_level"  # Ceiling-level plumbing
+        css_override:
+          stroke: "#0099CC"
+          fill: "none"
+          stroke_width: "0.8px"
+    
+    css:
+      underlay_opacity: "0.2"
+      plumbing_stroke: "#0099CC"
+      plumbing_fill: "none"
+      ceiling_note: "Ceiling Plan - 10cm below next storey"
+
+  # ---------------------------------------------------------------------------
+  # 4. COORDINATED MULTI-DISCIPLINE VIEW - All systems in one drawing
+  # ---------------------------------------------------------------------------
+  coordinated_all:
+    name: "Coordinated Floor Plans - All Disciplines"
+    description: "Architecture + Structural + Floor MEP + Ceiling MEP + Spaces (9 layers)"
+    output_prefix: "coord_all"
+    enabled: true
+    
+    layers:
+      # Layer 1: Architecture underlay (light gray)
+      - model: "architecture"
+        opacity: 1
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#CCCCCC"
+          fill: "#EEEEEE"
+          stroke_width: "0.3px"
+      
+      # Layer 2: Structural (blue, semi-transparent)
+      - model: "structural"
+        opacity: 0.7
+        section_offset_type: "floor_level"
+        css_override:
+          stroke: "#0066CC"
+          fill: "none"
+          stroke_width: "0.4px"
+      
+      # Layer 3: Plumbing Floor Level (cyan, floor-level)
+      - model: "plumbing"
+        opacity: 0.85
+        section_offset_type: "floor_level"  # 1.2m (floor-level MEP)
+        css_override:
+          stroke: "#0099CC"
+          fill: "none"
+          stroke_width: "0.6px"
+      
+      # Layer 4: Mechanical Floor Level (green, floor-level)
+      - model: "mechanical"
+        opacity: 0.85
+        section_offset_type: "floor_level"  # 1.2m (floor-level MEP)
+        css_override:
+          stroke: "#00CC66"
+          fill: "none"
+          stroke_width: "0.6px"
+      
+      # Layer 5: Electrical Floor Level (orange, floor-level)
+      - model: "electrical"
+        opacity: 0.85
+        section_offset_type: "floor_level"  # 1.2m (floor-level MEP)
+        css_override:
+          stroke: "#FF6600"
+          fill: "none"
+          stroke_width: "0.6px"
+      
+      # Layer 6: Plumbing Ceiling (cyan, ceiling range)
+      - model: "plumbing_ceiling"
+        opacity: 0.7
+        section_offset_type: "ceiling_level"  # From ceiling down to 1.2m
+        css_override:
+          stroke: "#0099CC"
+          fill: "none"
+          stroke_width: "0.4px"
+          stroke_dasharray: "2,2"  # Dashed for ceiling systems
+      
+      # Layer 7: Mechanical Ceiling (green, ceiling range)
+      - model: "mechanical_ceiling"
+        opacity: 0.7
+        section_offset_type: "ceiling_level"  # From ceiling down to 1.2m
+        css_override:
+          stroke: "#00CC66"
+          fill: "none"
+          stroke_width: "0.4px"
+          stroke_dasharray: "2,2"  # Dashed for ceiling systems
+      
+      # Layer 8: Electrical Ceiling (orange, ceiling range)
+      - model: "electrical_ceiling"
+        opacity: 0.7
+        section_offset_type: "ceiling_level"  # From ceiling down to 1.2m
+        css_override:
+          stroke: "#FF6600"
+          fill: "none"
+          stroke_width: "0.4px"
+          stroke_dasharray: "2,2"  # Dashed for ceiling systems
+      
+      # Layer 9: Spaces (text labels on top)
+      - model: "spaces"
+        opacity: 1.0
+        section_offset_type: "floor_level"
+        css_override:
+          fill: "rgba(200, 200, 200, 0.05)"
+          stroke: "rgba(150, 150, 150, 0.2)"
+    
+    css:
+      # Custom CSS for coordinated view
+      architectural_opacity: "0.4"
+      structural_stroke: "#0066CC"
+      plumbing_stroke: "#0099CC"
+      mechanical_stroke: "#00CC66"
+      electrical_stroke: "#FF6600"
+      mep_stroke_width: "0.6px"
+      text_fill: "white"
+      text_stroke: "black"
+      text_stroke_width: "0.5px"
+
+# =============================================================================
+# CSS Styling - Global style definitions
+# =============================================================================
+css_templates:
+  underlay:
+    description: "Light background layers"
+    stroke: "#cccccc"
+    stroke_width: "0.2px"
+    fill: "none"
+    opacity: 0.4
+  
+  main_layer:
+    description: "Primary content layers"
+    stroke_width: "0.5px"
+    fill_opacity: 0.3
+  
+  reference:
+    description: "Reference information (spaces, grids)"
+    opacity: 0.5
+  
+  text_architectural:
+    font_family: "Arial, Helvetica, sans-serif"
+    font_size: "16pt"
+    fill: "white"
+    stroke: "black"
+    stroke_width: "0.5px"
+    paint_order: "stroke fill"
+    text_transform: "uppercase"
+  
+  text_mep:
+    font_family: "Arial, Helvetica, sans-serif"
+    font_size: "12pt"
+    fill: "#333333"
+    stroke: "none"
+
+# =============================================================================
+# Export Options
+# =============================================================================
+export:
+  format: "svg"
+  coordinate_system: "raw_meters_scaled_20x"  # For 1:50 scale
+  canvas_size: 2048  # Target width in pixels for larger dimension
+  generate_all_storeys: true
+  parallel_generation: true
+  max_workers: 8
+  
+# =============================================================================
+# Processing Options
+# =============================================================================
+processing:
+  docker_container: "ifcpipeline-ifcconvert-worker-1"
+  ifcconvert_path: "/usr/local/bin/IfcConvert"
+  ifcconvert_threads: 8  # -j 8
+  verbose: true
+  cleanup_intermediates: false  # Keep intermediate files for debugging
+  temp_dir: "/output/converted/temp"

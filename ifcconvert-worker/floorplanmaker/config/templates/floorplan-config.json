@@ -1,0 +1,310 @@
+{
+  "project": {
+    "name": "2b BIM Project",
+    "code": "XXX",
+    "scale": "1:50",
+    "output_dir": "/output/converted"
+  },
+  
+  "models": {
+    "architecture": {
+      "file": "/uploads/A1_2b_BIM_XXX_0001_00.v24.0.ifc",
+      "description": "Architecture Model",
+      "elements": [
+        "IfcWall",
+        "IfcDoor",
+        "IfcWindow",
+        "IfcStair",
+        "IfcRailing",
+        "IfcColumn",
+        "IfcBeam",
+        "IfcSlab",
+        "IfcRoof"
+      ]
+    },
+    
+    "spaces": {
+      "file": "/uploads/A1_2b_BIM_XXX_0003_00.ifc",
+      "description": "Space Definitions",
+      "elements": [
+        "IfcSpace"
+      ],
+      "print_names": true,
+      "print_areas": true
+    },
+    
+    "structural": {
+      "file": "/uploads/S2_2B_BIM_XXX_0001_00.v12.0.ifc",
+      "description": "Structural Model",
+      "elements": [
+        "IfcColumn",
+        "IfcBeam",
+        "IfcFooting",
+        "IfcPile",
+        "IfcSlab",
+        "IfcWall",
+        "IfcReinforcingBar",
+        "IfcTendon"
+      ]
+    },
+    
+    "electrical": {
+      "file": "/uploads/E1_2b_BIM_XXX_600_00.v183.0.ifc",
+      "description": "Electrical Model (E1)",
+      "elements": [
+        "IfcCableCarrierFitting",
+        "IfcCableCarrierSegment",
+        "IfcCableSegment",
+        "IfcElectricDistributionBoard",
+        "IfcElectricFlowStorageDevice",
+        "IfcLightFixture",
+        "IfcOutlet",
+        "IfcSwitchingDevice",
+        "IfcTransformer",
+        "IfcJunctionBox"
+      ]
+    },
+    
+    "plumbing": {
+      "file": "/uploads/P1_2b_BIM_XXX_5000_00.v12.0.ifc",
+      "description": "Plumbing Model (P1)",
+      "elements": [
+        "IfcPipeSegment",
+        "IfcPipeFitting",
+        "IfcValve",
+        "IfcFlowTerminal",
+        "IfcSanitaryTerminal",
+        "IfcWasteTerminal",
+        "IfcFireSuppressionTerminal",
+        "IfcPump"
+      ]
+    },
+    
+    "mechanical": {
+      "file": "/uploads/M1_2b_BIM_XXX_5700_00.v12.0.ifc",
+      "description": "Mechanical/HVAC Model (M1)",
+      "elements": [
+        "IfcDuctSegment",
+        "IfcDuctFitting",
+        "IfcAirTerminal",
+        "IfcAirToAirHeatRecovery",
+        "IfcBoiler",
+        "IfcChiller",
+        "IfcCoil",
+        "IfcCompressor",
+        "IfcCoolingTower",
+        "IfcDamper",
+        "IfcFan",
+        "IfcFilter",
+        "IfcHeatExchanger",
+        "IfcHumidifier",
+        "IfcUnitaryEquipment"
+      ]
+    }
+  },
+  
+  "view_templates": {
+    "architectural": {
+      "name": "Architectural Floor Plans",
+      "description": "Complete architectural plans with spaces",
+      "layers": [
+        {
+          "model": "architecture",
+          "opacity": 1.0,
+          "stroke_color": "#222222",
+          "fill_color": "#444444"
+        },
+        {
+          "model": "spaces",
+          "opacity": 1.0,
+          "stroke_color": "#888888",
+          "fill_color": "rgba(200, 200, 200, 0.1)"
+        }
+      ],
+      "output_prefix": "arch",
+      "css": {
+        "text_fill": "white",
+        "text_stroke": "black",
+        "text_stroke_width": "0.5px",
+        "wall_stroke": "#222222",
+        "door_fill": "none"
+      }
+    },
+    
+    "structural": {
+      "name": "Structural Floor Plans",
+      "description": "Structural elements with architectural context",
+      "layers": [
+        {
+          "model": "architecture",
+          "opacity": 0.3,
+          "stroke_color": "#CCCCCC",
+          "fill_color": "#EEEEEE",
+          "comment": "Architectural underlay"
+        },
+        {
+          "model": "structural",
+          "opacity": 1.0,
+          "stroke_color": "#0066CC",
+          "fill_color": "#3399FF"
+        }
+      ],
+      "output_prefix": "struct",
+      "css": {
+        "underlay_opacity": "0.3",
+        "structural_stroke": "#0066CC",
+        "structural_fill": "#3399FF"
+      }
+    },
+    
+    "electrical": {
+      "name": "Electrical Floor Plans",
+      "description": "Electrical systems with architectural context",
+      "layers": [
+        {
+          "model": "architecture",
+          "opacity": 0.2,
+          "stroke_color": "#DDDDDD",
+          "fill_color": "#F5F5F5",
+          "comment": "Architectural underlay"
+        },
+        {
+          "model": "structural",
+          "opacity": 0.15,
+          "stroke_color": "#E0E0E0",
+          "fill_color": "#F0F0F0",
+          "comment": "Structural underlay"
+        },
+        {
+          "model": "electrical",
+          "opacity": 1.0,
+          "stroke_color": "#FF6600",
+          "fill_color": "#FF9933"
+        }
+      ],
+      "output_prefix": "elec",
+      "css": {
+        "underlay_opacity": "0.2",
+        "electrical_stroke": "#FF6600",
+        "electrical_fill": "#FF9933",
+        "cable_stroke": "#CC5500"
+      }
+    },
+    
+    "plumbing": {
+      "name": "Plumbing Floor Plans",
+      "description": "Plumbing systems with architectural context",
+      "layers": [
+        {
+          "model": "architecture",
+          "opacity": 0.2,
+          "stroke_color": "#DDDDDD",
+          "fill_color": "#F5F5F5",
+          "comment": "Architectural underlay"
+        },
+        {
+          "model": "structural",
+          "opacity": 0.15,
+          "stroke_color": "#E0E0E0",
+          "fill_color": "#F0F0F0",
+          "comment": "Structural underlay"
+        },
+        {
+          "model": "plumbing",
+          "opacity": 1.0,
+          "stroke_color": "#0099CC",
+          "fill_color": "#33CCFF"
+        }
+      ],
+      "output_prefix": "plumb",
+      "css": {
+        "underlay_opacity": "0.2",
+        "plumbing_stroke": "#0099CC",
+        "plumbing_fill": "#33CCFF",
+        "pipe_stroke": "#0077AA"
+      }
+    },
+    
+    "mechanical": {
+      "name": "Mechanical/HVAC Floor Plans",
+      "description": "HVAC systems with architectural context",
+      "layers": [
+        {
+          "model": "architecture",
+          "opacity": 0.2,
+          "stroke_color": "#DDDDDD",
+          "fill_color": "#F5F5F5",
+          "comment": "Architectural underlay"
+        },
+        {
+          "model": "structural",
+          "opacity": 0.15,
+          "stroke_color": "#E0E0E0",
+          "fill_color": "#F0F0F0",
+          "comment": "Structural underlay"
+        },
+        {
+          "model": "mechanical",
+          "opacity": 1.0,
+          "stroke_color": "#00CC66",
+          "fill_color": "#33FF99"
+        }
+      ],
+      "output_prefix": "mech",
+      "css": {
+        "underlay_opacity": "0.2",
+        "mechanical_stroke": "#00CC66",
+        "mechanical_fill": "#33FF99",
+        "duct_stroke": "#00AA55"
+      }
+    },
+    
+    "coordinated": {
+      "name": "Coordinated Floor Plans",
+      "description": "All systems coordinated view",
+      "layers": [
+        {
+          "model": "architecture",
+          "opacity": 0.4,
+          "stroke_color": "#CCCCCC",
+          "fill_color": "#EEEEEE"
+        },
+        {
+          "model": "structural",
+          "opacity": 0.3,
+          "stroke_color": "#9999CC",
+          "fill_color": "#CCCCFF"
+        },
+        {
+          "model": "mechanical",
+          "opacity": 0.8,
+          "stroke_color": "#00CC66",
+          "fill_color": "none"
+        },
+        {
+          "model": "electrical",
+          "opacity": 0.8,
+          "stroke_color": "#FF6600",
+          "fill_color": "none"
+        },
+        {
+          "model": "plumbing",
+          "opacity": 0.8,
+          "stroke_color": "#0099CC",
+          "fill_color": "none"
+        }
+      ],
+      "output_prefix": "coord",
+      "css": {
+        "architectural_opacity": "0.4",
+        "mep_stroke_width": "1.5px"
+      }
+    }
+  },
+  
+  "storeys": "auto",
+  "_storey_comment": "Use 'auto' to detect from models, or specify list like ['000 Sea Level', '010 Quay Level +1.90m', ...]",
+  
+  "section_offset": 1.2,
+  "_section_offset_comment": "Offset in meters above storey elevation for section cuts"
+}

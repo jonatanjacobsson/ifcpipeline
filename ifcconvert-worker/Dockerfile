@@ -13,11 +13,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /
 
 # Download and set up IfcConvert
-RUN wget https://github.com/IfcOpenShell/IfcOpenShell/releases/download/ifcconvert-0.8.0/ifcconvert-0.8.0-linux64.zip \
-    && unzip ifcconvert-0.8.0-linux64.zip \
+RUN wget https://github.com/IfcOpenShell/IfcOpenShell/releases/download/ifcconvert-0.8.3/ifcconvert-0.8.3-linux64.zip \
+    && unzip ifcconvert-0.8.3-linux64.zip \
     && mv IfcConvert /usr/local/bin/ \
     && chmod +x /usr/local/bin/IfcConvert \
-    && rm ifcconvert-0.8.0-linux64.zip
+    && rm ifcconvert-0.8.3-linux64.zip
 
 WORKDIR /app
 

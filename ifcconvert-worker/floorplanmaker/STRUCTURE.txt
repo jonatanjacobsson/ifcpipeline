@@ -1,0 +1,110 @@
+floorplanmaker/
+│
+├── README.md                        ⭐ Main documentation
+├── QUICK_REFERENCE.md               📋 Quick command reference
+├── REORGANIZATION_SUMMARY.md        📝 Reorganization details
+├── STRUCTURE.txt                    📊 This file
+│
+├── config/                          ⚙️  Configuration files
+│   ├── templates/
+│   │   ├── floorplan-config.yaml    → Main config (YAML)
+│   │   └── floorplan-config.json    → Alternative config (JSON)
+│   └── styles/
+│       └── floorplan-styles.css     → CSS styling
+│
+├── scripts/                         🔧 Executable scripts
+│   ├── generation/                  🏗️  Core generation (11 scripts)
+│   │   ├── generate-coordinated-floorplan.sh       ⭐ Single coordinated plan
+│   │   ├── generate-all-coordinated.sh             ⭐ Batch coordinated plans
+│   │   ├── generate-all-levels-complete.sh         ⭐ All levels from config
+│   │   ├── generate-all-floorplans.py              → View template generator
+│   │   ├── generate-floorplans-from-config.py      → Config-driven generator
+│   │   ├── generate-floorplans-from-config.sh      → Shell wrapper
+│   │   ├── generate-all-levels.sh                  → All architectural levels
+│   │   ├── generate-mep-floorplan.sh               → MEP plans
+│   │   ├── generate-multi-layer-floorplan.sh       → Multi-layer plans
+│   │   ├── generate-all-mep-batch.sh               → MEP batch processing
+│   │   └── generate-all-mep-structural.sh          → MEP + structural batch
+│   │
+│   ├── testing/                     🧪 Test & validation (5 scripts)
+│   │   ├── test-svg-focused.sh                     ⭐ Main test suite
+│   │   ├── test-svg-export.sh                      → Basic export test
+│   │   ├── test-svg-export-advanced.sh             → Advanced tests
+│   │   ├── test-svg-comprehensive.sh               → Comprehensive tests
+│   │   └── diagnose-alignment.sh                   → Alignment diagnostics
+│   │
+│   ├── processing/                  🎨 Post-processing (9 scripts)
+│   │   ├── svg-floorplan-complete.sh               ⭐ Complete workflow
+│   │   ├── svg-floorplan-simple.sh                 → Simple floor plan
+│   │   ├── svg-floorplan-multi-height.sh           → Multi-height plans
+│   │   ├── svg-export-working.sh                   → Working export
+│   │   ├── svg-export-WORKING.sh                   → Alternative export
+│   │   ├── combine-and-scale-svgs.py               → Combine SVG layers
+│   │   ├── svg-style-rooms.py                      → Room styling
+│   │   ├── svg-style-rooms.sh                      → Room styling (shell)
+│   │   └── svg-split-storeys.py                    → Split multi-storey
+│   │
+│   └── utilities/                   🛠️  Helper tools (5 scripts)
+│       ├── calculate-bounds.py                     ⭐ Calculate bounds
+│       ├── config_parser.py                        ⭐ Config parser
+│       ├── detect-all-storeys.sh                   → Detect storeys
+│       ├── detect-mep-storeys.py                   → Detect MEP storeys
+│       └── list-storeys.sh                         → List all storeys
+│
+├── docs/                            📚 Documentation
+│   ├── guides/                      📖 User guides (11 files)
+│   │   ├── FLOORPLAN_GENERATOR_README.md           → Generator guide
+│   │   ├── FLOORPLAN_CSS_GUIDE.md                  → CSS guide
+│   │   ├── FLOORPLAN_EXPORT.md                     → Export guide
+│   │   ├── SVG_EXPORT_GUIDE.md                     → SVG workflow
+│   │   ├── SVG_EXPORT_STATUS.md                    → Export status
+│   │   ├── SVG_EXPORT_SUCCESS.md                   → Success stories
+│   │   ├── CSS_DOCUMENTATION_INDEX.md              → CSS index
+│   │   ├── CSS_MIGRATION_GUIDE.md                  → CSS migration
+│   │   ├── CSS_STYLING_EXAMPLES.md                 → CSS examples
+│   │   ├── CSS_UPGRADE_README.md                   → CSS upgrade
+│   │   └── TEST_SCRIPTS.md                         → Testing docs
+│   │
+│   └── implementation/              🔬 Technical docs (2 files)
+│       ├── ALIGNMENT_SOLUTION.md                   → Alignment technical
+│       └── IMPLEMENTATION_PLAN_ADVANCED_FLOORPLANS.md → Advanced features
+│
+└── logs/                            📋 Generation logs (4 files)
+    ├── floor-plans-all.log
+    ├── floor-plans-final.log
+    ├── floor-plans-aligned.log
+    └── floor-plans-generation.log
+
+
+LEGEND:
+⭐ = Most frequently used
+→ = Alternative or supporting
+🏗️  = Generation scripts
+🧪 = Testing scripts
+🎨 = Processing scripts
+🛠️  = Utility scripts
+⚙️  = Configuration
+📚 = Documentation
+📋 = Logs
+
+
+QUICK STATS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Files:          53
+Shell Scripts:        22
+Python Scripts:        8
+Documentation:        16
+Configuration:         3
+Log Files:             4
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Size:          588 KB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+GETTING STARTED:
+1. Read: README.md
+2. Configure: config/templates/floorplan-config.yaml
+3. Generate: scripts/generation/generate-coordinated-floorplan.sh
+4. Test: scripts/testing/test-svg-focused.sh
+5. Check: QUICK_REFERENCE.md for commands
+
