@@ -9,8 +9,100 @@ import os
 import sys
 import importlib
 import inspect
+import types
+from typing import Any
+
+# Fix circular import in ifcopenshell 0.8.4.post1
+# Workaround for circular import between shape_builder and shape modules
+# Issue: shape_builder -> element -> representation -> shape -> shape_builder (VectorType)
+def _fix_circular_import():
+    """Fix circular import between shape_builder and shape modules.
+    
+    Strategy:
+    1. Create a mock shape_builder module with VectorType defined
+    2. Import shape.py which will use the mock VectorType and store a reference to it
+    3. Use importlib to load the real shape_builder module (shape is already loaded, so no circular import)
+    4. The real module stays in sys.modules with all attributes including ShapeBuilder
+    """
+    # Always check and fix - don't rely on sys.modules check as something might clear it
+    # Check if we already have a properly initialized shape_builder
+    if 'ifcopenshell.util.shape_builder' in sys.modules:
+        sb = sys.modules['ifcopenshell.util.shape_builder']
+        # If it has both VectorType and ShapeBuilder, we're good
+        if hasattr(sb, 'VectorType') and hasattr(sb, 'ShapeBuilder'):
+            return
+    
+    # Need to apply the fix
+    if True:  # Always apply fix
+        # Step 1: Create temporary mock module with VectorType defined
+        # This allows shape.py to import VectorType during initialization
+        mock_shape_builder = types.ModuleType('ifcopenshell.util.shape_builder')
+        mock_shape_builder.VectorType = Any
+        sys.modules['ifcopenshell.util.shape_builder'] = mock_shape_builder
+        
+        # Step 2: Import ifcopenshell base module
+        import ifcopenshell
+        
+        # Step 3: Import shape which will use the mock VectorType
+        # This breaks the circular dependency because shape gets VectorType from mock
+        # shape.py stores a direct reference to the VectorType object (Any)
+        import ifcopenshell.util.shape
+        
+        # Step 4: Remove mock and use direct import to load real shape_builder module
+        # Since shape.py is already loaded and cached, it won't trigger the circular import
+        # shape.py's reference to VectorType is a direct reference to the Any object, so it still works
+        del sys.modules['ifcopenshell.util.shape_builder']
+        
+        # Use direct import statement - this works because shape.py is already cached
+        # and won't try to re-import VectorType
+        # Wrap in try-except to catch any import errors
+        try:
+            import ifcopenshell.util.shape_builder
+        except ImportError as e:
+            # If import fails, re-create mock and raise error
+            mock_shape_builder = types.ModuleType('ifcopenshell.util.shape_builder')
+            mock_shape_builder.VectorType = Any
+            sys.modules['ifcopenshell.util.shape_builder'] = mock_shape_builder
+            raise RuntimeError(f"Failed to import ifcopenshell.util.shape_builder: {e}") from e
+        except Exception as e:
+            # Catch any other exceptions
+            mock_shape_builder = types.ModuleType('ifcopenshell.util.shape_builder')
+            mock_shape_builder.VectorType = Any
+            sys.modules['ifcopenshell.util.shape_builder'] = mock_shape_builder
+            raise RuntimeError(f"Unexpected error importing ifcopenshell.util.shape_builder: {e}") from e
+        
+        # Step 5: Verify the real module is in sys.modules and has required attributes
+        if 'ifcopenshell.util.shape_builder' not in sys.modules:
+            raise RuntimeError("ifcopenshell.util.shape_builder not in sys.modules after import")
+        
+        real_shape_builder = sys.modules['ifcopenshell.util.shape_builder']
+        if not hasattr(real_shape_builder, 'VectorType'):
+            real_shape_builder.VectorType = Any
+        if not hasattr(real_shape_builder, 'ShapeBuilder'):
+            raise RuntimeError("ifcopenshell.util.shape_builder loaded but ShapeBuilder not available")
+
+# Apply the fix before importing ifcopenshell
+_fix_circular_import()
+
+# Import ifcopenshell at module level so it's available throughout the module
+# Note: ifcopenshell is imported inside _fix_circular_import, but we need it at module level
 import ifcopenshell
+
+# Import ifcpatch after the fix is applied
 import ifcpatch
+
+# Verify shape_builder is still available after ifcpatch import
+# If not, it means the fix didn't work or was cleared - re-apply it
+if 'ifcopenshell.util.shape_builder' not in sys.modules:
+    # Re-apply fix if ifcpatch import cleared it or fix didn't work initially
+    _fix_circular_import()
+    
+# Final verification - log warning instead of raising error
+# The fix will be re-applied when needed (e.g., when OffsetObjectPlacements is imported)
+if 'ifcopenshell.util.shape_builder' not in sys.modules:
+    # Don't raise error here - the fix will be applied lazily when needed
+    # This allows tasks.py to load even if the fix didn't work initially
+    pass
 from pathlib import Path
 from typing import List, Dict, Any, get_type_hints, get_origin, get_args
 from shared.classes import IfcPatchRequest, IfcPatchListRecipesRequest
@@ -240,6 +332,120 @@ def load_custom_recipe(recipe_name: str):
         logger.error(f"Error loading custom recipe '{recipe_name}': {str(e)}")
         raise
 
+def filter_arguments_for_recipe(recipe_name: str, arguments: List[Any], use_custom: bool = False) -> List[Any]:
+    """
+    Filter arguments to match what the recipe actually expects.
+    
+    Uses introspection to determine the recipe's __init__ signature and filters
+    arguments to only include positional parameters (excluding 'file' and 'logger').
+    
+    Args:
+        recipe_name: Name of the recipe
+        arguments: List of arguments to filter
+        use_custom: Whether this is a custom recipe
+    
+    Returns:
+        Filtered list of arguments matching the recipe's signature
+    """
+    if not arguments:
+        return []
+    
+    try:
+        # Load the recipe module
+        if use_custom:
+            recipe_module = importlib.import_module(recipe_name)
+        else:
+            recipe_module = importlib.import_module(f"ifcpatch.recipes.{recipe_name}")
+        
+        if not hasattr(recipe_module, 'Patcher'):
+            logger.warning(f"Recipe '{recipe_name}' has no Patcher class, passing arguments as-is")
+            return arguments
+        
+        patcher_class = recipe_module.Patcher
+        
+        # Get the __init__ method signature
+        init_method = patcher_class.__init__
+        signature = inspect.signature(init_method)
+        
+        # Count positional parameters (excluding 'self', 'file', 'logger', 'src')
+        # For ExtractElements, we want to allow both query and assume_asset_uniqueness_by_name
+        # even though they have defaults, because they can be passed positionally
+        if recipe_name == 'ExtractElements':
+            # ExtractElements signature: (self, file, logger, query="IfcWall", assume_asset_uniqueness_by_name=True)
+            # We allow up to 2 arguments: query and assume_asset_uniqueness_by_name
+            if len(arguments) > 2:
+                filtered_args = arguments[:2]  # Only pass first 2 args (query, assume_asset_uniqueness_by_name)
+                logger.warning(
+                    f"ExtractElements: Received {len(arguments)} arguments, but only accepts 2 "
+                    f"(query, assume_asset_uniqueness_by_name). Filtering to first 2 arguments."
+                )
+            else:
+                filtered_args = arguments  # Pass all arguments (0, 1, or 2 are all valid)
+                if len(filtered_args) == 2:
+                    logger.debug(
+                        f"ExtractElements: Passing both query and assume_asset_uniqueness_by_name parameters"
+                    )
+        else:
+            # Count all positional parameters (excluding 'self', 'file', 'logger', 'src')
+            all_params = []
+            required_params = []
+            for param_name, param in signature.parameters.items():
+                if param_name in ['self', 'file', 'logger', 'src']:
+                    continue
+                # Only count positional parameters (not keyword-only)
+                if param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.POSITIONAL_ONLY):
+                    all_params.append(param_name)
+                    if param.default == inspect.Parameter.empty:
+                        required_params.append(param_name)
+            
+            # For custom recipes, pass all provided arguments up to the number of parameters
+            # This allows optional parameters to be passed positionally
+            if use_custom:
+                max_params = len(all_params)
+                if len(arguments) > max_params:
+                    filtered_args = arguments[:max_params]
+                    logger.warning(
+                        f"Custom recipe '{recipe_name}' accepts {max_params} parameter(s) "
+                        f"({', '.join(all_params)}), but {len(arguments)} argument(s) were provided. "
+                        f"Filtering to first {max_params} argument(s)."
+                    )
+                else:
+                    filtered_args = arguments
+                    if len(filtered_args) > 0:
+                        logger.debug(
+                            f"Custom recipe '{recipe_name}': Passing {len(filtered_args)} argument(s) "
+                            f"to parameters: {', '.join(all_params[:len(filtered_args)])}"
+                        )
+            else:
+                # For built-in recipes, pass arguments for all positional parameters (including optional ones)
+                # This is important for recipes like OffsetObjectPlacements where all params have defaults
+                # but users still need to provide them
+                max_params = len(all_params)
+                filtered_args = arguments[:max_params]
+                
+                # Log filtering for non-ExtractElements recipes
+                if len(arguments) > max_params:
+                    logger.warning(
+                        f"Recipe '{recipe_name}' accepts {max_params} parameter(s) "
+                        f"({', '.join(all_params)}), but {len(arguments)} argument(s) were provided. "
+                        f"Filtering to first {max_params} argument(s)."
+                    )
+                    logger.debug(f"Filtered arguments: {filtered_args} (removed: {arguments[max_params:]})")
+                elif len(filtered_args) > 0:
+                    logger.debug(
+                        f"Recipe '{recipe_name}': Passing {len(filtered_args)} argument(s) "
+                        f"to parameters: {', '.join(all_params[:len(filtered_args)])}"
+                    )
+        
+        return filtered_args
+        
+    except Exception as e:
+        logger.warning(
+            f"Could not introspect recipe '{recipe_name}' signature: {str(e)}. "
+            f"Passing arguments as-is without filtering."
+        )
+        return arguments
+
 def run_ifcpatch(job_data: dict) -> dict:
     """
     Execute an IfcPatch recipe on an IFC file.
@@ -305,6 +511,26 @@ def run_ifcpatch(job_data: dict) -> dict:
                     arguments = [arguments]
                     logger.info(f"Wrapped arguments in list for {request.recipe}")
         
+        # Apply circular import fix before filtering (filtering needs to import the recipe)
+        # This ensures the introspection in filter_arguments_for_recipe works
+        if 'ifcopenshell.util.shape_builder' not in sys.modules or \
+           not hasattr(sys.modules.get('ifcopenshell.util.shape_builder', None), 'ShapeBuilder'):
+            logger.debug("Applying circular import fix before argument filtering")
+            _fix_circular_import()
+        
+        # Filter arguments to match what the recipe actually expects
+        # This prevents passing too many arguments that would cause TypeError
+        if not request.use_custom:
+            original_arg_count = len(arguments) if arguments else 0
+            arguments = filter_arguments_for_recipe(request.recipe, arguments, use_custom=False)
+            if original_arg_count != len(arguments):
+                logger.info(
+                    f"Filtered arguments for recipe '{request.recipe}': "
+                    f"{original_arg_count} -> {len(arguments) if arguments else 0} argument(s)"
+                )
+        
+        # Build patch_args for ifcpatch.execute()
+        # With ifcpatch 0.8.4, we can include "input" for all recipes - it's optional
         patch_args = {
             "input": input_path,
             "file": ifc_file,
@@ -326,10 +552,13 @@ def run_ifcpatch(job_data: dict) -> dict:
             # This allows custom recipes to know the real filename
             ifc_file._input_file_path = input_path
             
+            # Filter arguments for custom recipe as well
+            custom_args = filter_arguments_for_recipe(request.recipe, arguments, use_custom=True)
+            
             # Instantiate and execute custom patcher
-            # Pass arguments if any
-            if request.arguments:
-                patcher_instance = custom_patcher(ifc_file, logger, *request.arguments)
+            # Pass filtered arguments if any
+            if custom_args:
+                patcher_instance = custom_patcher(ifc_file, logger, *custom_args)
             else:
                 patcher_instance = custom_patcher(ifc_file, logger)
             
@@ -338,7 +567,50 @@ def run_ifcpatch(job_data: dict) -> dict:
             
         else:
             logger.info(f"Executing built-in recipe: {request.recipe}")
+            # Ensure circular import fix is applied before executing recipe
+            # This is needed because recipe imports happen when ifcpatch.execute() is called
+            # Some recipes (like OffsetObjectPlacements) require shape_builder which has a circular import issue
+            needs_fix = False
+            if 'ifcopenshell.util.shape_builder' not in sys.modules:
+                needs_fix = True
+                logger.debug("shape_builder not in sys.modules, applying fix")
+            else:
+                sb_module = sys.modules.get('ifcopenshell.util.shape_builder')
+                if sb_module is None or not hasattr(sb_module, 'ShapeBuilder'):
+                    needs_fix = True
+                    logger.debug("shape_builder missing ShapeBuilder attribute, applying fix")
+            
+            if needs_fix:
+                logger.info("Applying circular import fix before recipe execution")
+                try:
+                    _fix_circular_import()
+                    # Verify fix worked
+                    if 'ifcopenshell.util.shape_builder' in sys.modules:
+                        sb = sys.modules['ifcopenshell.util.shape_builder']
+                        if hasattr(sb, 'ShapeBuilder'):
+                            logger.debug("Circular import fix applied successfully")
+                            
+                            # Pre-import the recipe module to ensure it uses the fixed shape_builder
+                            # This prevents the circular import when ifcpatch.execute() imports it
+                            try:
+                                recipe_module_name = f"ifcpatch.recipes.{request.recipe}"
+                                if recipe_module_name not in sys.modules:
+                                    logger.debug(f"Pre-importing recipe module: {recipe_module_name}")
+                                    importlib.import_module(recipe_module_name)
+                                    logger.debug(f"Successfully pre-imported {recipe_module_name}")
+                            except Exception as pre_import_error:
+                                logger.warning(f"Failed to pre-import recipe module (will try normal import): {pre_import_error}")
+                        else:
+                            logger.warning("Fix applied but ShapeBuilder not available")
+                    else:
+                        logger.warning("Fix applied but shape_builder not in sys.modules")
+                except Exception as e:
+                    logger.error(f"Failed to apply circular import fix: {e}", exc_info=True)
+                    # Continue anyway - might work for recipes that don't need shape_builder
+            
             # Execute built-in recipe using ifcpatch.execute()
+            # With ifcpatch 0.8.4 and ifcopenshell 0.8.4, this works correctly for all recipes
+            # including ExtractElements with assume_asset_uniqueness_by_name parameter
             output = ifcpatch.execute(patch_args)
         
         # Write output
