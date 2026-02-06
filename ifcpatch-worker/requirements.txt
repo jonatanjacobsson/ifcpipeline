@@ -3,9 +3,9 @@ rq>=2.0.0,<3.0.0
 pydantic>=2.9.0,<3.0.0
 requests>=2.32.0,<3.0.0
 
-# IFC dependencies - pinned for stability
-ifcopenshell==0.8.0
-ifcpatch==0.8.0
+# IFC dependencies
+ifcopenshell==0.8.4
+ifcpatch==0.8.4
 
 # Additional utilities
 typing-extensions>=4.12.0

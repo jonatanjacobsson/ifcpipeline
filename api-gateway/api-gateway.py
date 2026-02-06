@@ -52,6 +52,10 @@ download_links: Dict[str, DownloadLink] = {}
 redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
 redis_conn = Redis.from_url(redis_url)
 
+# Job result TTL - how long to keep job results in Redis (in seconds)
+# Set to 24 hours to allow enough time for polling job status
+JOB_RESULT_TTL = 86400  # 24 hours
+
 # Create RQ queues
 default_queue = Queue('default', connection=redis_conn)
 ifcconvert_queue = Queue('ifcconvert', connection=redis_conn)
@@ -329,7 +333,8 @@ async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)
         job = ifcconvert_queue.enqueue(
             "tasks.run_ifcconvert",  # Points directly to function in /app/tasks.py for ifcconvert-worker
             request.dict(),
-            job_timeout="1h"  # Adjust timeout as needed
+            job_timeout="1h",  # Adjust timeout as needed
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifcconvert job with ID: {job.id}")
@@ -354,7 +359,8 @@ async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
         job = ifccsv_queue.enqueue(
             "tasks.run_ifc_to_csv_conversion", # Points to function in /app/tasks.py for ifccsv-worker
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifccsv export job with ID: {job.id}")
@@ -379,7 +385,8 @@ async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verif
         job = ifccsv_queue.enqueue(
             "tasks.run_csv_to_ifc_import", # Points to function in /app/tasks.py for ifccsv-worker
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifccsv import job with ID: {job.id}")
@@ -404,7 +411,8 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
         job = ifcclash_queue.enqueue(
             "tasks.run_ifcclash_detection",  # Points directly to function in /app/tasks.py
             request.dict(),
-            job_timeout="2h"  # Clash detection can be time-consuming
+            job_timeout="2h",  # Clash detection can be time-consuming
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifcclash job with ID: {job.id}")
@@ -429,7 +437,8 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
         job = ifctester_queue.enqueue(
             "tasks.run_ifctester_validation", # Correct path relative to /app
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL
         )
 
         logger.info(f"Enqueued ifctester job with ID: {job.id}")
@@ -454,7 +463,8 @@ async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
         job = ifcdiff_queue.enqueue(
             "tasks.run_ifcdiff",  # Points to function in /app/tasks.py for ifcdiff-worker
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifcdiff job with ID: {job.id}")
@@ -479,7 +489,8 @@ async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
         job = ifc2json_queue.enqueue(
             "tasks.run_ifc_to_json_conversion", # Points to function in /app/tasks.py for ifc2json-worker
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifc2json job with ID: {job.id}")
@@ -519,7 +530,8 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
         job = ifc5d_queue.enqueue(
             "tasks.run_qto_calculation", # Points to function in /app/tasks.py for ifc5d-worker
             request.dict(),
-            job_timeout="1h"
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued calculate-qtos job with ID: {job.id}")
@@ -743,7 +755,8 @@ async def execute_patch(request: IfcPatchRequest, _: str = Depends(verify_access
         job = ifcpatch_queue.enqueue(
             "tasks.run_ifcpatch",
             request.dict(),
-            job_timeout="2h"  # Patches can be time-consuming
+            job_timeout="2h",  # Patches can be time-consuming
+            result_ttl=JOB_RESULT_TTL
         )
         
         logger.info(f"Enqueued ifcpatch job with ID: {job.id}")

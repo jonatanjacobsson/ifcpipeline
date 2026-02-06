@@ -56,8 +56,28 @@ services:
     image: "redis:7.2.11-alpine"
     ports:
       - "6379:6379"
-    volumes:
-      - redis-data:/data
+    tmpfs:
+      - /data
+    command: >
+      sh -c "
+      sysctl vm.overcommit_memory=1 || true &&
+      redis-server
+      --save \"\"
+      --appendonly no
+      --stop-writes-on-bgsave-error no
+      --loglevel notice
+      --maxmemory 200mb
+      --maxmemory-policy allkeys-lru
+      "
+    cap_add:
+      - SYS_ADMIN
+    stop_signal: SIGTERM
+    stop_grace_period: 3s
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
     deploy:
       resources:
@@ -66,13 +86,33 @@ services:
           memory: 256M
 
   rq-dashboard:
-    image: eoranged/rq-dashboard
+    image: hannes221/rq-dashboard-fast:latest
     ports:
-      - "9181:9181"
+      - "9181:8000"
     environment:
-      - RQ_DASHBOARD_REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://redis:6379/
+      - FASTAPI_PORT=8000
+    command: ["python3", "app.py"]
+    volumes:
+      - ./rq-dashboard-custom/css/main.css:/app/rq_dashboard_fast/static/css/main.css:ro
     depends_on:
       - redis
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  dozzle:
+    image: amir20/dozzle:latest
+    ports:
+      - "9182:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DOZZLE_LEVEL=info
+      - DOZZLE_TAILSIZE=300
     restart: unless-stopped
     deploy:
       resources:
@@ -120,11 +160,11 @@ services:
       - redis
     restart: unless-stopped
     deploy:
-      replicas: 2
+      replicas: 6
       resources:
         limits:
           cpus: '1.0'
-          memory: 8G
+          memory: 4G
 
   ifcconvert-worker:
     build:
@@ -325,6 +365,8 @@ services:
       - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
+      - NODES_EXCLUDE="[]"
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples
       # PostgreSQL SSL settings
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - PGSSLMODE=disable
