@@ -4,6 +4,8 @@ from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
+import socket
 import os
 import json
 import asyncio
@@ -189,6 +191,29 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
 async def get_aiohttp_session():
     timeout = ClientTimeout(total=3600) # Set a reasonable timeout for downloads
     return aiohttp.ClientSession(timeout=timeout)
+
+def validate_url_for_ssrf(url: str) -> None:
+    """Validate URL to prevent SSRF attacks."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Only HTTP(S) URLs allowed")
+
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(status_code=400, detail="URL must have a valid host")
+
+    # Resolve and check all IPs are public/global
+    try:
+        for info in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if not ip.is_global:
+                raise HTTPException(status_code=400, detail="URL points to restricted network")
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Cannot resolve hostname")
 
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -670,13 +695,14 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
     Returns:
         dict: A message indicating success or failure, and the path to the downloaded file.
     """
+    validate_url_for_ssrf(str(request.url))
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
         async with await get_aiohttp_session() as session:
-            async with session.get(request.url, headers=headers, allow_redirects=True) as response:
+            async with session.get(request.url, headers=headers, allow_redirects=False) as response:
                 if response.status != 200:
                     raise HTTPException(
                         status_code=response.status,
@@ -713,6 +739,9 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
                 # Use the provided output_filename if it exists, otherwise use the original filename
                 if request.output_filename:
                     filename = request.output_filename
+                
+                # Sanitize filename to prevent path traversal
+                filename = os.path.basename(filename)
                 
                 # Always save to the uploads directory
                 file_path = os.path.join("/uploads", filename)
