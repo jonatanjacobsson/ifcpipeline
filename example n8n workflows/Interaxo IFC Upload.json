@@ -1,0 +1,239 @@
+{
+  "name": "Interaxo IFC Upload",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "file_path",
+              "type": "string"
+            },
+            {
+              "name": "target_folder_id",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "a1000001-0001-4001-8001-000000000001",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst filePath = input.file_path;\nconst targetFolderId = input.target_folder_id;\n\nconst clientId = 'YOUR_CLIENT_ID';\nconst clientSecret = 'YOUR_CLIENT_SECRET';\nconst community = 'YOUR_COMMUNITY';\nconst room = 'YOUR_ROOM';\nconst apiBase = 'https://api.interaxo.se';\n\nconst fileName = filePath.split('/').pop();\nconst namn = fileName.replace(/\\.ifc$/i, '');\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.uploads) staticData.uploads = {};\nconst prev = staticData.uploads[filePath];\n\nif (prev && (Date.now() - new Date(prev.last_upload).getTime()) < 30000) {\n  return [{ json: { skip: true, reason: 'Uploaded less than 30s ago', file_name: fileName } }];\n}\n\nconst tokenBody = [\n  'grant_type=client_credentials',\n  'client_id=' + encodeURIComponent(clientId),\n  'client_secret=' + encodeURIComponent(clientSecret),\n  'audience=' + encodeURIComponent('https://api.interaxo.com/v1/')\n].join('&');\n\nconst tokenRes = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://login.collaboration-sso.com/oauth/token',\n  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },\n  body: tokenBody,\n  json: true\n});\nconst token = tokenRes.access_token;\n\nconst entries = await this.helpers.httpRequest({\n  method: 'GET',\n  url: `${apiBase}/v1/${community}/rooms/${room}/content/${targetFolderId}/children?limit=500`,\n  headers: {\n    'Authorization': `Bearer ${token}`,\n    'X-Requested-With': 'XMLHttpRequest'\n  },\n  json: true\n});\n\nconst matchingEntry = (Array.isArray(entries) ? entries : []).find(e => {\n  const namnField = (e.fields || []).find(f => f.name === 'NAMN');\n  return namnField && namnField.value === namn;\n});\n\nif (!matchingEntry) {\n  return [{ json: { skip: true, reason: 'No matching entry for NAMN: ' + namn, file_name: fileName } }];\n}\n\nlet existingFileId = prev?.interaxo_file_id || null;\nlet action = 'create';\n\nif (matchingEntry.child_count > 0 || existingFileId) {\n  if (!existingFileId) {\n    const children = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `${apiBase}/v1/${community}/rooms/${room}/content/${matchingEntry.id}/children`,\n      headers: {\n        'Authorization': `Bearer ${token}`,\n        'X-Requested-With': 'XMLHttpRequest'\n      },\n      json: true\n    });\n    const existing = (Array.isArray(children) ? children : []).find(c => c.type === 'file');\n    if (existing) existingFileId = existing.id;\n  }\n  if (existingFileId) action = 'update';\n}\n\nlet uploadUrl;\nif (action === 'update') {\n  uploadUrl = `${apiBase}/v1/${community}/rooms/${room}/files/${existingFileId}/versions`;\n} else {\n  uploadUrl = `${apiBase}/v1/${community}/rooms/${room}/content/${matchingEntry.id}/children`;\n}\n\nreturn [{ json: {\n  skip: false,\n  token,\n  entry_id: matchingEntry.id,\n  file_id: existingFileId,\n  action,\n  upload_url: uploadUrl,\n  file_path: filePath,\n  file_name: fileName,\n  namn\n} }];\n"
+      },
+      "id": "a1000001-0001-4001-8001-000000000002",
+      "name": "Prepare Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000001-0001-4001-8001-000000000003",
+      "name": "Should Upload?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('Prepare Upload').item.json.file_path }}",
+        "options": {}
+      },
+      "id": "a1000001-0001-4001-8001-000000000004",
+      "name": "Read IFC File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Upload').item.json.upload_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Prepare Upload').item.json.token }}"
+            },
+            {
+              "name": "X-Requested-With",
+              "value": "XMLHttpRequest"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000001-0001-4001-8001-000000000005",
+      "name": "Upload to Interaxo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst prepData = $('Prepare Upload').item.json;\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.uploads) staticData.uploads = {};\n\nstaticData.uploads[prepData.file_path] = {\n  interaxo_file_id: input.id || prepData.file_id,\n  entry_id: prepData.entry_id,\n  last_upload: new Date().toISOString()\n};\n\nreturn [{ json: {\n  success: true,\n  fileName: prepData.file_name,\n  namn: prepData.namn,\n  action: prepData.action,\n  entryId: prepData.entry_id,\n  fileId: input.id || prepData.file_id,\n  version: input.version || null\n} }];\n"
+      },
+      "id": "a1000001-0001-4001-8001-000000000006",
+      "name": "Save Upload State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1000001-0001-4001-8001-000000000007",
+      "name": "Skipped",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        660,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "# Interaxo IFC Upload\nShared sub-workflow called by per-discipline trigger workflows.\n\n**Flow:** Dedup (30s cooldown) → Get OAuth token → Find matching entry by NAMN → Upload file (create or new version) → Save state\n\n**Inputs:** `file_path`, `target_folder_id`",
+        "width": 520,
+        "height": 140
+      },
+      "id": "a1000001-0001-4001-8001-000000000008",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Prepare Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Upload": {
+      "main": [
+        [
+          {
+            "node": "Should Upload?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Upload?": {
+      "main": [
+        [
+          {
+            "node": "Read IFC File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read IFC File": {
+      "main": [
+        [
+          {
+            "node": "Upload to Interaxo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Interaxo": {
+      "main": [
+        [
+          {
+            "node": "Save Upload State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
