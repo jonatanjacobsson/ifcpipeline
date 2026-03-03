@@ -10,14 +10,10 @@ services:
     ports:
       - "8000:80"
     depends_on:
-      - ifcconvert-worker
-      - ifcclash-worker
       - ifccsv-worker
       - ifctester-worker
       - ifcdiff-worker
-      - ifc5d-worker
       - ifcpatch-worker
-      - ifc-classifier
       - redis
       - ifc-viewer
     environment:
@@ -34,12 +30,13 @@ services:
       - ./shared/output:/output
       - ./shared/examples:/examples
       - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
+      - interaxo:/interaxo
     restart: unless-stopped
     deploy:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M
+          memory: 384M
 
   ifc-viewer:
     build:
@@ -97,6 +94,10 @@ services:
     command: ["python3", "app.py"]
     volumes:
       - ./rq-dashboard-custom/css/main.css:/app/rq_dashboard_fast/static/css/main.css:ro
+      - ./rq-dashboard-custom/templates/job.html:/app/rq_dashboard_fast/templates/job.html:ro
+      - ./rq-dashboard-custom/rq_dashboard_fast.py:/app/rq_dashboard_fast/rq_dashboard_fast.py:ro
+      - ./rq-dashboard-custom/utils/jobs.py:/app/rq_dashboard_fast/utils/jobs.py:ro
+      - ./shared/uploads:/uploads:ro
     depends_on:
       - redis
     restart: unless-stopped
@@ -156,6 +157,7 @@ services:
       - ./shared/output:/output
       - ./shared/examples:/examples
       - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
+      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -239,6 +241,7 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
+      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -262,6 +265,7 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
+      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -291,6 +295,7 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
+      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -305,7 +310,7 @@ services:
       - postgres
     restart: unless-stopped
     deploy:
-      replicas: 2
+      replicas: 1
       resources:
         limits:
           cpus: '1.0'
@@ -364,6 +369,7 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
+      - interaxo:/interaxo
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -375,7 +381,7 @@ services:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
       - NODES_EXCLUDE="[]"
-      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples;/interaxo
       # PostgreSQL SSL settings
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - PGSSLMODE=disable
@@ -386,8 +392,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
-          memory: 6000M
+          cpus: '1.0'
+          memory: 1G
 
   postgres:
     image: postgres:14
@@ -436,6 +442,12 @@ volumes:
   redis-data:
   postgres-data:
   pgadmin-data:
+  interaxo:
+    driver: local
+    driver_opts:
+      type: cifs
+      o: "username=${CIFS_USERNAME},password=${CIFS_PASSWORD},vers=3.1.1,uid=1000,gid=1000,file_mode=0755,dir_mode=0755"
+      device: "//bim-wsp1.hogerklick.bim/Trelleborg/INTERAXO"
 
 networks:
   default:

@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 import socket
 import os
@@ -13,6 +13,9 @@ import ipaddress
 import logging
 import shutil
 import secrets
+import pickle
+import zlib
+import glob
 from datetime import datetime, timedelta
 from shared.classes import (
     IfcConvertRequest,
@@ -33,6 +36,7 @@ from shared.classes import (
     IfcPatchRequest,
     IfcPatchListRecipesRequest,
     IfcPatchListRecipesResponse,
+    RevitExecuteRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -68,12 +72,14 @@ ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
 ifc2json_queue = Queue('ifc2json', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
+revit_queue = Queue('revit', connection=redis_conn)
 
 # Define job status response model
 class JobStatusResponse(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
     job_id: str
     status: str
-    result: Optional[dict] = None
+    result: Optional[Any] = None
     error: Optional[str] = None
     execution_time_seconds: Optional[float] = None
     created_at: Optional[datetime] = None
@@ -247,6 +253,7 @@ async def health_check():
         "ifc5d_queue": "waiting",
         "ifc2json_queue": "waiting",
         "ifcpatch_queue": "waiting",
+        "revit_queue": "waiting",
         "default_queue": "waiting",
     }
 
@@ -274,6 +281,7 @@ async def health_check():
         "ifc5d_queue": ifc5d_queue,
         "ifc2json_queue": ifc2json_queue,
         "ifcpatch_queue": ifcpatch_queue,
+        "revit_queue": revit_queue,
         "default_queue": default_queue
     }
     
@@ -321,6 +329,34 @@ async def health_check():
 
     return {"status": overall_status, "services": health_status}
 
+def _read_job_result(job_id: str) -> Optional[dict]:
+    """Read and unpickle a job result from Redis, handling both raw pickle
+    and zlib-compressed pickle (written by older C# worker builds)."""
+    raw = redis_conn.hget(f"rq:job:{job_id}", "result")
+    if not raw:
+        return None
+    # Try raw pickle first (normal case)
+    try:
+        result = pickle.loads(raw)
+        if isinstance(result, dict):
+            return result
+        return {"raw": str(result)}
+    except Exception:
+        pass
+    # Fallback: zlib-decompress then unpickle
+    try:
+        result = pickle.loads(zlib.decompress(raw))
+        if isinstance(result, dict):
+            return result
+        return {"raw": str(result)}
+    except Exception:
+        pass
+    return None
+
+
+REVIT_LOGS_DIR = "/uploads/revit-logs"
+
+
 # Add endpoint to check job status
 @app.get("/jobs/{job_id}/status", response_model=JobStatusResponse, tags=["Jobs"])
 async def get_job_status(job_id: str, _: str = Depends(verify_access)):
@@ -351,7 +387,9 @@ async def get_job_status(job_id: str, _: str = Depends(verify_access)):
         response["ended_at"] = job.ended_at
         
         if status == JobStatus.FINISHED:
-            response["result"] = job.result
+            result = _read_job_result(job_id)
+            if result is not None:
+                response["result"] = result
         elif status == JobStatus.FAILED and job.exc_info:
             response["error"] = job.exc_info
             
@@ -606,7 +644,7 @@ async def list_directories(_: str = Depends(verify_access)):
     Returns:
         dict: A dictionary containing a flat list of all file paths.
     """
-    base_dirs = ["/examples", "/uploads", "/output"]
+    base_dirs = ["/examples", "/uploads", "/output", "/interaxo"]
     all_files = []
 
     for base_dir in base_dirs:
@@ -1019,6 +1057,158 @@ async def list_patch_recipes(
     except Exception as e:
         logger.error(f"Error listing recipes: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/revit/execute", tags=["Revit"])
+async def execute_revit_command(request: RevitExecuteRequest, _: str = Depends(verify_access)):
+    """
+    Enqueue a Revit/PyRevit command for execution on the Windows worker.
+
+    The job runs on a remote Windows machine that polls the 'revit' queue.
+    Use GET /jobs/{job_id}/status to poll for results.
+
+    Args:
+        request (RevitExecuteRequest): The command to execute.
+
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        job_timeout = f"{request.timeout_seconds + 300}s"
+        job_data = json.loads(request.json())
+        job = revit_queue.enqueue(
+            "tasks.run_revit_command",
+            job_data,
+            job_timeout=job_timeout,
+            result_ttl=JOB_RESULT_TTL,
+        )
+
+        logger.info(f"Enqueued revit job with ID: {job.id} (type={request.command_type}, script={request.script_path})")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing revit job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/revit/logs", tags=["Revit"])
+async def upload_revit_log(
+    job_id: str = Form(...),
+    log_type: str = Form(...),
+    file: UploadFile = File(...),
+    _: str = Depends(verify_access)
+):
+    """
+    Upload a log file from the Revit worker.
+
+    Args:
+        job_id (str): The job ID to associate with the log file.
+        log_type (str): The type of log (journal, pyrevit, rtv, worker).
+        file (UploadFile): The log file to upload.
+
+    Returns:
+        dict: A dictionary containing the file path where the log was saved.
+    """
+    try:
+        # Validate log_type: alphanumeric, hyphens and underscores only
+        import re as _re
+        if not _re.match(r'^[\w\-]{1,128}$', log_type):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid log_type '{log_type}'. Must be alphanumeric with hyphens/underscores, max 128 chars."
+            )
+
+        # Validate file extension (.log or .txt)
+        if not any(file.filename.endswith(ext) for ext in (".log", ".txt")):
+            raise HTTPException(
+                status_code=400,
+                detail="File must have a .log or .txt extension."
+            )
+
+        # Create upload directory
+        upload_dir = "/uploads/revit-logs"
+        os.makedirs(upload_dir, exist_ok=True)
+
+        # Generate filename: {job_id}-{log_type}.{ext}
+        file_extension = os.path.splitext(file.filename)[1]
+        filename = f"{job_id}-{log_type}{file_extension}"
+        file_path = os.path.join(upload_dir, filename)
+
+        # Save the file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        logger.info(f"Uploaded Revit log file: {file_path}")
+        return {"file_path": file_path}
+
+    except Exception as e:
+        logger.error(f"Error uploading Revit log file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload log file: {str(e)}")
+
+@app.get("/jobs/{job_id}/logs", tags=["Jobs"])
+async def list_job_logs(job_id: str, _: str = Depends(verify_access)):
+    """
+    List all log files associated with a job.
+
+    Looks up log files on disk (uploaded by the worker) and also checks
+    the job result dict for a ``log_files`` list.
+    """
+    import re as _re
+    if not _re.match(r'^[\w\-]+$', job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id")
+
+    logs: List[Dict[str, Any]] = []
+
+    # Discover log files on disk: {REVIT_LOGS_DIR}/{job_id}-*.{log,txt}
+    pattern = os.path.join(REVIT_LOGS_DIR, f"{job_id}-*")
+    for path in sorted(glob.glob(pattern)):
+        fname = os.path.basename(path)
+        size = os.path.getsize(path)
+        logs.append({
+            "filename": fname,
+            "size_bytes": size,
+            "path": path,
+        })
+
+    # Also pull log_files from the job result (may include paths not on this host)
+    result = _read_job_result(job_id)
+    result_log_paths: List[str] = []
+    if isinstance(result, dict) and "log_files" in result:
+        val = result["log_files"]
+        if isinstance(val, list):
+            result_log_paths = [str(v) for v in val]
+        elif isinstance(val, str):
+            result_log_paths = [val]
+
+    return {
+        "job_id": job_id,
+        "logs": logs,
+        "result_log_paths": result_log_paths,
+    }
+
+@app.get("/jobs/{job_id}/logs/{filename}", tags=["Jobs"])
+async def get_job_log(job_id: str, filename: str, _: str = Depends(verify_access)):
+    """
+    Return the contents of a specific log file for a job.
+
+    The filename must start with the job_id prefix to prevent path traversal.
+    """
+    import re as _re
+    if not _re.match(r'^[\w\-]+$', job_id):
+        raise HTTPException(status_code=400, detail="Invalid job_id")
+
+    safe_name = os.path.basename(filename)
+    if not safe_name.startswith(job_id):
+        raise HTTPException(status_code=403, detail="Filename must belong to the requested job")
+
+    file_path = os.path.join(REVIT_LOGS_DIR, safe_name)
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail=f"Log file not found: {safe_name}")
+
+    try:
+        with open(file_path, "r", errors="replace") as f:
+            content = f.read()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read log file: {str(e)}")
+
+    return Response(content=content, media_type="text/plain; charset=utf-8")
 
 @app.post("/classify", response_model=IfcClassifyResponse, tags=["Classification"])
 async def classify_single(request: IfcClassifyRequest, _: str = Depends(verify_access)):

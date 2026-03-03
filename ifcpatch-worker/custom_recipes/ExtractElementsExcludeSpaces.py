@@ -1,9 +1,15 @@
 """
-ExtractElementsExcludeSpaces - Extract elements while excluding IfcSpaces
+ExtractElementsExcludeSpaces - Extract elements while excluding specified types
 
-This recipe extends ExtractElements but excludes IfcSpace elements from the output,
-even if they contain the selected elements. Other spatial structures (IfcBuildingStorey,
-IfcBuilding, etc.) are still included.
+This recipe extends ExtractElements with two exclusion mechanisms:
+1. Spatial hierarchy filtering - excluded types are skipped during tree traversal
+   so they never appear as containing structures.
+2. Post-processing removal - after the new file is built, any instances of the
+   excluded types that were pulled in through forward references (shared placements,
+   representations, etc.) are removed from the output.
+
+By default IfcSpace is excluded. You can supply any IFC type names (spatial or
+non-spatial) such as IfcDuctSegment, IfcPipeFitting, etc.
 
 Recipe Name: ExtractElementsExcludeSpaces
 Description: Extract elements while excluding IfcSpaces from spatial hierarchy
@@ -29,52 +35,57 @@ class Patcher:
         assume_asset_uniqueness_by_name: bool = True,
         exclude: Union[List[str], None] = None,
     ):
-        """Extract certain elements into a new model, excluding specified spatial structure types
+        """Extract certain elements into a new model, excluding specified types
 
         Extract a subset of elements from an existing IFC data set and save it
-        to a new IFC file. Unlike the standard ExtractElements recipe, this allows
-        you to exclude certain spatial structure types (like IfcSpace) from being
-        included even if they contain the selected elements.
+        to a new IFC file. Excluded types are removed from the spatial hierarchy
+        during extraction AND stripped from the output file via post-processing,
+        so they are completely absent from the result.
 
         :param query: A query to select the subset of IFC elements.
         :param assume_asset_uniqueness_by_name: Avoid adding assets (profiles, materials, styles)
             with the same name multiple times. Which helps in avoiding duplicated assets.
-        :param exclude: List of spatial structure types to exclude (e.g., ["IfcSpace"]).
-            If None, defaults to ["IfcSpace"].
+        :param exclude: IFC type names to exclude from the output. Accepts a list
+            (e.g. ["IfcSpace"]) or a comma-separated string
+            (e.g. "IfcDuctSegment, IfcPipeFitting"). Works for both spatial
+            structure types and regular element types. Defaults to ["IfcSpace"].
 
         Example:
 
         .. code:: python
 
-            # Extract all walls, excluding IfcSpaces
+            # Extract all walls, excluding IfcSpaces (default)
             ifcpatch.execute({
-                "input": "input.ifc", 
-                "file": model, 
-                "recipe": "ExtractElementsExcludeSpaces", 
+                "input": "input.ifc",
+                "file": model,
+                "recipe": "ExtractElementsExcludeSpaces",
                 "arguments": ["IfcWall"]
             })
 
-            # Extract walls and slabs, excluding IfcSpaces
+            # Extract coverings, excluding duct/pipe elements that may be
+            # pulled in through shared references
             ifcpatch.execute({
-                "input": "input.ifc", 
-                "file": model, 
-                "recipe": "ExtractElementsExcludeSpaces", 
-                "arguments": ["IfcWall, IfcSlab"]
+                "input": "input.ifc",
+                "file": model,
+                "recipe": "ExtractElementsExcludeSpaces",
+                "arguments": [
+                    "IfcCovering",
+                    False,
+                    "IfcDuctSegment, IfcDuctFitting, IfcPipeSegment, IfcPipeFitting"
+                ]
             })
 
             # Extract walls, excluding both IfcSpace and IfcZone
             ifcpatch.execute({
-                "input": "input.ifc", 
-                "file": model, 
-                "recipe": "ExtractElementsExcludeSpaces", 
+                "input": "input.ifc",
+                "file": model,
+                "recipe": "ExtractElementsExcludeSpaces",
                 "arguments": ["IfcWall", True, ["IfcSpace", "IfcZone"]]
             })
-            
-            # Note: The exclude parameter defaults to ["IfcSpace"] if not provided
         """
         self.file = file
         self.logger = logger if logger else logging.getLogger(__name__)
-        self.query = query
+        self.query = query.strip().rstrip(",").strip() if isinstance(query, str) else query
         
         # Handle boolean conversion (in case it's passed as string "true"/"false")
         if isinstance(assume_asset_uniqueness_by_name, str):
@@ -86,8 +97,7 @@ class Patcher:
         if exclude is None:
             self.exclude = ["IfcSpace"]
         elif isinstance(exclude, str):
-            # Handle case where exclude is passed as a single string
-            self.exclude = [exclude]
+            self.exclude = [t.strip() for t in exclude.split(",") if t.strip()]
         elif isinstance(exclude, list):
             self.exclude = exclude
         else:
@@ -98,7 +108,7 @@ class Patcher:
         self.exclude_set = set(self.exclude)
         
         if self.logger:
-            self.logger.info(f"Query: {self.query}, Excluding spatial types: {self.exclude}")
+            self.logger.info(f"Query: {self.query}, Excluding types: {self.exclude}")
 
     def patch(self):
         self.contained_ins: dict[str, set[ifcopenshell.entity_instance]] = {}
@@ -106,6 +116,8 @@ class Patcher:
         self.new = ifcopenshell.file(schema_version=self.file.schema_version)
         self.owner_history = None
         self.reuse_identities: dict[int, ifcopenshell.entity_instance] = {}
+        self._added_guids: set[str] = set()
+        self._hierarchy_done: set[str] = set()
         for owner_history in self.file.by_type("IfcOwnerHistory"):
             self.owner_history = self.new.add(owner_history)
             break
@@ -113,6 +125,7 @@ class Patcher:
         for element in ifcopenshell.util.selector.filter_elements(self.file, self.query):
             self.add_element(element)
         self.create_spatial_tree()
+        self._remove_excluded_elements()
         self.file = self.new
 
     def add_element(self, element: ifcopenshell.entity_instance) -> None:
@@ -123,19 +136,22 @@ class Patcher:
         self.add_decomposition_parents(element, new_element)
 
     def append_asset(self, element: ifcopenshell.entity_instance) -> Union[ifcopenshell.entity_instance, None]:
-        try:
-            return self.new.by_guid(element.GlobalId)
-        except:
-            pass
+        guid = element.GlobalId
+        if guid in self._added_guids:
+            return self.new.by_guid(guid)
         if element.is_a("IfcProject"):
+            self._added_guids.add(guid)
             return self.new.add(element)
-        return ifcopenshell.api.project.append_asset(
+        result = ifcopenshell.api.project.append_asset(
             self.new,
             library=self.file,
             element=element,
             reuse_identities=self.reuse_identities,
             assume_asset_uniqueness_by_name=self.assume_asset_uniqueness_by_name,
         )
+        if result:
+            self._added_guids.add(guid)
+        return result
 
     def add_spatial_structures(
         self, element: ifcopenshell.entity_instance, new_element: ifcopenshell.entity_instance
@@ -143,19 +159,16 @@ class Patcher:
         """element is IfcElement - Modified to exclude specified spatial types"""
         for rel in getattr(element, "ContainedInStructure", []):
             spatial_element = rel.RelatingStructure
-            
-            # Check if this spatial element type should be excluded
+
             if self._should_exclude_spatial_element(spatial_element):
-                if self.logger:
-                    self.logger.debug(f"Excluding spatial element {spatial_element.is_a()}: {spatial_element.GlobalId}")
-                # Skip this spatial structure, but continue up the hierarchy
-                # by checking if it has a parent spatial structure
                 self._add_parent_spatial_structures(spatial_element, new_element)
                 continue
-            
+
             new_spatial_element = self.append_asset(spatial_element)
             self.contained_ins.setdefault(spatial_element.GlobalId, set()).add(new_element)
-            self.add_decomposition_parents(spatial_element, new_spatial_element)
+            if spatial_element.GlobalId not in self._hierarchy_done:
+                self._hierarchy_done.add(spatial_element.GlobalId)
+                self.add_decomposition_parents(spatial_element, new_spatial_element)
 
     def _should_exclude_spatial_element(self, spatial_element: ifcopenshell.entity_instance) -> bool:
         """Check if a spatial element should be excluded"""
@@ -174,20 +187,92 @@ class Patcher:
         
         return False
 
+    def _remove_excluded_elements(self) -> None:
+        """Post-process the output file to remove all instances of excluded types.
+
+        This catches elements that were pulled into self.new through forward
+        references in append_asset (shared placements, representations, etc.)
+        even though they were never explicitly selected by the query.
+
+        Uses a two-pass bulk approach instead of per-element remove_product
+        so that large numbers of exclusions don't cause O(n * m) relationship
+        scanning.
+        """
+        to_remove: list[ifcopenshell.entity_instance] = []
+        for excluded_type in self.exclude_set:
+            try:
+                elements = self.new.by_type(excluded_type)
+            except Exception:
+                continue
+            if elements:
+                self.logger.info(
+                    f"Post-process: found {len(elements)} {excluded_type} element(s) to remove"
+                )
+                to_remove.extend(elements)
+
+        if not to_remove:
+            return
+
+        remove_ids = {e.id() for e in to_remove}
+        self.logger.info(f"Post-process: removing {len(remove_ids)} element(s) total")
+
+        # Pass 1 – detach from relationships so remove() won't leave dangling refs
+        for rel in list(self.new.by_type("IfcRelationship")):
+            try:
+                info = rel.get_info(recursive=False)
+            except Exception:
+                continue
+            dirty = False
+            for attr_name, val in info.items():
+                if attr_name in ("id", "type"):
+                    continue
+                if isinstance(val, ifcopenshell.entity_instance) and val.id() in remove_ids:
+                    try:
+                        setattr(rel, attr_name, None)
+                        dirty = True
+                    except Exception:
+                        pass
+                elif isinstance(val, (tuple, list)):
+                    filtered = [v for v in val if not (isinstance(v, ifcopenshell.entity_instance) and v.id() in remove_ids)]
+                    if len(filtered) != len(val):
+                        try:
+                            setattr(rel, attr_name, filtered)
+                            dirty = True
+                        except Exception:
+                            pass
+            if dirty:
+                # Remove the relationship entirely if it has no related objects left
+                try:
+                    info2 = rel.get_info(recursive=False)
+                    related_attrs = [k for k in info2 if k.startswith("Related")]
+                    if related_attrs and all(
+                        not info2[k] or info2[k] == () for k in related_attrs
+                    ):
+                        self.new.remove(rel)
+                except Exception:
+                    pass
+
+        # Pass 2 – remove the elements themselves
+        for element in to_remove:
+            try:
+                self.new.remove(element)
+            except Exception as e:
+                self.logger.warning(
+                    f"Could not remove {element.is_a()} #{element.id()}: {e}"
+                )
+
     def _add_parent_spatial_structures(
         self, excluded_element: ifcopenshell.entity_instance, new_element: ifcopenshell.entity_instance
     ) -> None:
         """Add parent spatial structures when an intermediate one is excluded"""
-        # Check if the excluded element is contained in another spatial structure
         for rel in getattr(excluded_element, "ContainedInStructure", []):
             parent_spatial = rel.RelatingStructure
             if not self._should_exclude_spatial_element(parent_spatial):
-                # This parent is not excluded, so add it
                 new_parent_spatial = self.append_asset(parent_spatial)
                 self.contained_ins.setdefault(parent_spatial.GlobalId, set()).add(new_element)
-                self.add_decomposition_parents(parent_spatial, new_parent_spatial)
-                # Also check for further parents
-                self._add_parent_spatial_structures(parent_spatial, new_element)
+                if parent_spatial.GlobalId not in self._hierarchy_done:
+                    self._hierarchy_done.add(parent_spatial.GlobalId)
+                    self.add_decomposition_parents(parent_spatial, new_parent_spatial)
 
     def add_decomposition_parents(
         self, element: ifcopenshell.entity_instance, new_element: ifcopenshell.entity_instance
@@ -195,17 +280,17 @@ class Patcher:
         """element is IfcObjectDefinition"""
         for rel in element.Decomposes:
             parent = rel.RelatingObject
-            
-            # Check if parent is an excluded spatial type
+
             if self._should_exclude_spatial_element(parent):
-                # Skip this parent but continue up the hierarchy
                 self.add_decomposition_parents(parent, new_element)
                 continue
-            
+
             new_parent = self.append_asset(parent)
             self.aggregates.setdefault(parent.GlobalId, set()).add(new_element)
-            self.add_decomposition_parents(parent, new_parent)
-            self.add_spatial_structures(parent, new_parent)
+            if parent.GlobalId not in self._hierarchy_done:
+                self._hierarchy_done.add(parent.GlobalId)
+                self.add_decomposition_parents(parent, new_parent)
+                self.add_spatial_structures(parent, new_parent)
 
     def create_spatial_tree(self) -> None:
         """Create spatial relationships, filtering out excluded spatial types"""

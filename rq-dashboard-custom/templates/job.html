@@ -1,0 +1,246 @@
+{% extends "base.html" %} {% block content %}
+<style>
+  .back-button-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 10px;
+  }
+
+  .back-button {
+    padding: 10px 15px;
+    color: #ececec;
+    border: 2px solid #000000;
+    border-radius: 5px;
+    text-decoration: none;
+    background-color: #000000;
+    transition: background-color 0.3s ease, color 0.3s ease,
+      border-color 0.3s ease;
+    cursor: pointer;
+  }
+
+  .back-button:hover {
+    background-color: #534c4c;
+    color: #ececec;
+    border-color: #534c4c;
+  }
+
+  {% if css %}{{ css|safe }}{% endif %}
+</style>
+
+<div class="h2-section">
+  <h2>Job Details</h2>
+</div>
+<div class="section">
+  <table id="jobs">
+    <tr>
+      <th>ID</th>
+      <td class="table-cell">{{ job_data.id }}</td>
+    </tr>
+    <tr>
+      <th>Name</th>
+      <td class="table-cell">{{ job_data.name }}</td>
+    </tr>
+    <tr>
+      <th>Created At</th>
+      <td class="table-cell">{{ job_data.created_at }}</td>
+    </tr>
+    <tr>
+      <th>Enqueued At</th>
+      <td class="table-cell">{{ job_data.enqueued_at }}</td>
+    </tr>
+    <tr>
+      <th>Ended At</th>
+      <td class="table-cell">{{ job_data.ended_at }}</td>
+    </tr>
+    <tr>
+      <th>Result</th>
+      <td class="table-cell"><pre class="result-json">{{ job_data.result|format_result }}</pre></td>
+    </tr>
+    <tr>
+      <th>Exception Info</th>
+      <td class="table-cell">
+        {% if col_exc_info %}{{ col_exc_info|safe }}{% else %}
+        <pre>{{ job_data.exc_info }}{% endif %}</pre>
+      </td>
+    </tr>
+    <tr>
+      <th>Meta</th>
+      <td class="table-cell">{{ job_data.meta }}</td>
+    </tr>
+  </table>
+
+  {% if log_files and log_files|length > 0 %}
+  <div class="log-viewer">
+    <h3>Log Files</h3>
+    <div class="log-tabs">
+      {% for lf in log_files %}
+      <button class="log-tab {% if loop.first %}active{% endif %}"
+              data-filename="{{ lf.filename }}"
+              data-job-id="{{ job_data.id }}"
+              onclick="loadLog(this)">
+        {{ lf.filename.replace(job_data.id ~ '-', '') }}
+        <span class="log-size">({{ (lf.size_bytes / 1024)|round(1) }} KB)</span>
+      </button>
+      {% endfor %}
+    </div>
+    <div class="log-toolbar">
+      <label class="log-toolbar-item">
+        <input type="checkbox" id="log-wrap-toggle" checked onchange="toggleWrap()">
+        Wrap lines
+      </label>
+      <label class="log-toolbar-item">
+        <input type="checkbox" id="log-highlight-toggle" checked onchange="toggleHighlight()">
+        Syntax highlighting
+      </label>
+    </div>
+    <div id="log-content-area">
+      <div class="log-loading" id="log-loading" style="display:none;">Loading...</div>
+      <pre class="log-content" id="log-content"></pre>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="back-button-container">
+    <a href="javascript:history.back()" class="back-button">Back</a>
+  </div>
+</div>
+
+<script>
+(function() {
+  var logCache = {};
+  var rawCache = {};
+  var highlightEnabled = true;
+
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function highlightLine(line) {
+    var escaped = escapeHtml(line);
+    var classes = [];
+
+    if (/\[ERROR\]/i.test(line) || /\bERROR\b/.test(line)) {
+      classes.push('log-line-error');
+    } else if (/\[WARNING\]/i.test(line) || /\bWARNING\b/.test(line)) {
+      classes.push('log-line-warning');
+    }
+
+    if (/^={3,}|^-{3,}/.test(line.trim())) {
+      return '<span class="log-line ' + classes.join(' ') + '"><span class="log-header">' + escaped + '</span></span>';
+    }
+
+    escaped = escaped.replace(/\[(INFO)\]/g, '<span class="log-level-info">[$1]</span>');
+    escaped = escaped.replace(/\[(DEBUG)\]/g, '<span class="log-level-debug">[$1]</span>');
+    escaped = escaped.replace(/\[(WARNING)\]/g, '<span class="log-level-warning">[$1]</span>');
+    escaped = escaped.replace(/\[(ERROR)\]/g, '<span class="log-level-error">[$1]</span>');
+
+    escaped = escaped.replace(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/g, '<span class="log-timestamp">$1</span>');
+    escaped = escaped.replace(/(\d{8}\s+\d{2}:\d{2}:\d{2})/g, '<span class="log-timestamp">$1</span>');
+    escaped = escaped.replace(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/g, '<span class="log-timestamp">$1</span>');
+    escaped = escaped.replace(/(^|\s)(\d{2}:\d{2}:\d{2}\.\d+)/g, '$1<span class="log-timestamp">$2</span>');
+
+    escaped = escaped.replace(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi, '<span class="log-uuid">$1</span>');
+
+    escaped = escaped.replace(/(\\\\[^\s,;"']+)/g, '<span class="log-path">$1</span>');
+    escaped = escaped.replace(/([A-Z]:\\[^\s,;"']+)/g, '<span class="log-path">$1</span>');
+
+    return '<span class="log-line ' + classes.join(' ') + '">' + escaped + '</span>';
+  }
+
+  function highlightLog(text) {
+    var lines = text.split('\n');
+    var result = [];
+    for (var i = 0; i < lines.length; i++) {
+      result.push(highlightLine(lines[i]));
+    }
+    return result.join('\n');
+  }
+
+  function renderLog(filename) {
+    var pre = document.getElementById('log-content');
+    if (!pre) return;
+    var raw = rawCache[filename] || '';
+    if (highlightEnabled) {
+      if (!logCache[filename]) {
+        logCache[filename] = highlightLog(raw);
+      }
+      pre.innerHTML = logCache[filename];
+    } else {
+      pre.textContent = raw;
+    }
+  }
+
+  window.loadLog = function(btn) {
+    var filename = btn.getAttribute('data-filename');
+    var jobId = btn.getAttribute('data-job-id');
+
+    var tabs = document.querySelectorAll('.log-tab');
+    tabs.forEach(function(t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+
+    var pre = document.getElementById('log-content');
+    var loading = document.getElementById('log-loading');
+
+    if (rawCache[filename]) {
+      renderLog(filename);
+      return;
+    }
+
+    if (pre) pre.textContent = '';
+    if (loading) loading.style.display = 'block';
+
+    var baseurl = window.location.protocol + '//' + window.location.host + '{{ prefix }}';
+    var url = baseurl + '/job/' + jobId + '/log/' + encodeURIComponent(filename);
+
+    fetch(url)
+      .then(function(resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.text();
+      })
+      .then(function(text) {
+        if (loading) loading.style.display = 'none';
+        rawCache[filename] = text;
+        logCache[filename] = null;
+        renderLog(filename);
+      })
+      .catch(function(err) {
+        if (loading) loading.style.display = 'none';
+        if (pre) pre.textContent = 'Error loading log: ' + err.message;
+      });
+  };
+
+  window.toggleWrap = function() {
+    var pre = document.getElementById('log-content');
+    if (!pre) return;
+    var checked = document.getElementById('log-wrap-toggle').checked;
+    pre.style.whiteSpace = checked ? 'pre-wrap' : 'pre';
+    pre.style.overflowX = checked ? 'hidden' : 'auto';
+  };
+
+  window.toggleHighlight = function() {
+    highlightEnabled = document.getElementById('log-highlight-toggle').checked;
+    var activeTab = document.querySelector('.log-tab.active');
+    if (activeTab) {
+      var filename = activeTab.getAttribute('data-filename');
+      renderLog(filename);
+    }
+  };
+
+  // Auto-load first log tab — use timeout fallback in case DOMContentLoaded already fired
+  function initLogs() {
+    var firstTab = document.querySelector('.log-tab');
+    if (firstTab) {
+      loadLog(firstTab);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initLogs);
+  } else {
+    initLogs();
+  }
+})();
+</script>
+{% endblock %}
