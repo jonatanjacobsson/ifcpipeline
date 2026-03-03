@@ -613,15 +613,22 @@ def run_ifcpatch(job_data: dict) -> dict:
             # including ExtractElements with assume_asset_uniqueness_by_name parameter
             output = ifcpatch.execute(patch_args)
         
-        # Write output
-        logger.info(f"Writing output to: {output_path}")
-        ifcpatch.write(output, output_path)
+        # Write output - use a local temp file first, then copy to the final
+        # destination.  This avoids slow streaming writes to network mounts
+        # like /interaxo/ (WebDAV/CIFS).
+        import tempfile, shutil
+        local_tmp = os.path.join(output_dir, f".tmp_{os.path.basename(output_path)}")
+        logger.info(f"Writing output to local temp: {local_tmp}")
+        ifcpatch.write(output, local_tmp)
+        output_size = os.path.getsize(local_tmp)
+        logger.info(f"Local write done ({output_size} bytes), copying to: {output_path}")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        shutil.copy2(local_tmp, output_path)
+        os.remove(local_tmp)
         
         # Verify output file was created
         if not os.path.exists(output_path):
             raise RuntimeError("Output file was not created successfully")
-        
-        output_size = os.path.getsize(output_path)
         logger.info(f"IfcPatch completed successfully. Output size: {output_size} bytes")
         
         return {
