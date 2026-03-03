@@ -7,7 +7,7 @@ IfcBuilding, etc.) are still included.
 
 Recipe Name: ExtractElementsExcludeSpaces
 Description: Extract elements while excluding IfcSpaces from spatial hierarchy
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 """
 
 import logging

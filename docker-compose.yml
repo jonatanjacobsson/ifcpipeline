@@ -4,6 +4,9 @@ services:
       context: .
       dockerfile: api-gateway/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
       - "8000:80"
     depends_on:
@@ -22,6 +25,7 @@ services:
       - LOG_LEVEL=DEBUG
       - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
       - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
+      - DOCKER_GATEWAY_IP=${DOCKER_GATEWAY_IP:-172.18.0.1}
       - IFC_PIPELINE_EXTERNAL_URL=${IFC_PIPELINE_EXTERNAL_URL}
       - IFC_PIPELINE_PREVIEW_EXTERNAL_URL=${IFC_PIPELINE_PREVIEW_EXTERNAL_URL}
       - REDIS_URL=redis://redis:6379/0
@@ -54,8 +58,6 @@ services:
 
   redis:
     image: "redis:7.2.11-alpine"
-    ports:
-      - "6379:6379"
     tmpfs:
       - /data
     command: >
@@ -125,6 +127,7 @@ services:
       context: .
       dockerfile: ifc5d-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -147,6 +150,7 @@ services:
       context: .
       dockerfile: ifcpatch-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -160,17 +164,18 @@ services:
       - redis
     restart: unless-stopped
     deploy:
-      replicas: 6
+      replicas: 3
       resources:
         limits:
           cpus: '1.0'
-          memory: 4G
+          memory: 8G
 
   ifcconvert-worker:
     build:
       context: .
       dockerfile: ifcconvert-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -199,6 +204,7 @@ services:
       context: .
       dockerfile: ifcclash-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -228,6 +234,7 @@ services:
       context: .
       dockerfile: ifccsv-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -250,6 +257,7 @@ services:
       context: .
       dockerfile: ifctester-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -278,6 +286,7 @@ services:
       context: .
       dockerfile: ifcdiff-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -308,6 +317,7 @@ services:
       context: .
       dockerfile: ifc2json-worker/Dockerfile
     platform: linux/amd64
+    user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -330,8 +340,6 @@ services:
       context: .
       dockerfile: ifc-classifier-service/Dockerfile
     platform: linux/amd64
-    ports:
-      - "8002:8000"  # Exposed for debugging, accessed internally via service name
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -346,6 +354,7 @@ services:
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
+    user: "1000:1000"
     ports:
       - "5678:5678"
     networks:
@@ -388,8 +397,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-ifcpipeline}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
@@ -401,26 +408,9 @@ services:
           cpus: '0.5'
           memory: 512M
 
-  pgweb:
-    image: sosedoff/pgweb
-    container_name: ifc_pipeline_pgweb
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-    environment:
-      - DATABASE_URL=postgres://${POSTGRES_USER:-ifcpipeline}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ifcpipeline}?sslmode=disable
-    depends_on:
-      - postgres
-    networks:
-      - default
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 256M
-
   cleanup-service:
     image: alpine
+    user: "1000:1000"
     volumes:
       - ./shared/output:/output
     command: >

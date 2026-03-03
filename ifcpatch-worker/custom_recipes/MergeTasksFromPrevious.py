@@ -11,7 +11,7 @@ This design supports weekly IFC workflows where one task = one model update/revi
 Recipe Name: MergeTasksFromPrevious
 Version: 0.3.4
 Description: Merge task history from previous IFC model and add revision task from diff
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-10-14
 
 Key Changes in v0.3.4:

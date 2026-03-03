@@ -10,7 +10,7 @@ merges child geometry into the parent element.
 
 Recipe Name: MergeNestedFamilies
 Description: Merge nested shared family elements (handles, frames, etc.) into parent elements
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 """
 
 import logging

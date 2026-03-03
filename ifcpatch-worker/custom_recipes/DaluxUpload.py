@@ -6,7 +6,7 @@ It splits large files into manageable chunks and uploads them sequentially.
 
 Recipe Name: DaluxUpload
 Description: Upload IFC file to Dalux Build with automatic chunking
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-10-06
 Version: 1.0.0
 """

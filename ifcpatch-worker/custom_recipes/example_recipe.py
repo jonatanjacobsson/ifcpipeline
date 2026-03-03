@@ -6,7 +6,7 @@ Copy this file and modify it to create your own recipes.
 
 Recipe Name: ExampleRecipe
 Description: This recipe demonstrates the structure of a custom recipe.
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-01-01
 """
 

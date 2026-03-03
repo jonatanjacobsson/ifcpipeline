@@ -7,7 +7,7 @@ Supports literal values or dynamic extraction using 'from' field with regex.
 
 Recipe Name: SetPropertyBySelector
 Description: Write properties to IFC elements using selector syntax with data type specification
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-01-08
 
     Example Usage (Literal Values):

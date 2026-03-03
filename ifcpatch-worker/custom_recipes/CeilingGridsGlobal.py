@@ -18,16 +18,15 @@ For nested beams within parent coverings, see CeilingGridsNested recipe.
 
 Recipe Name: CeilingGridsGlobal
 Description: Generate ceiling grid beams with global/absolute coordinate placement
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-01-01
-Version: 0.2.0
+Version: 0.3.0
 """
 
 import logging
-import os
+import time
 import numpy as np
 import ifcopenshell
-import ifcopenshell.api.nest
 import ifcopenshell.api.root
 import ifcopenshell.api.geometry
 import ifcopenshell.api.pset
@@ -37,8 +36,8 @@ import ifcopenshell.api.context
 import ifcopenshell.api.spatial
 import ifcopenshell.util.representation
 import ifcopenshell.util.placement
-import ifcopenshell.util.selector
 import ifcopenshell.guid
+from collections import defaultdict
 from typing import List, Dict, Any, Set, Tuple, Optional
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,7 @@ class Patcher:
     4. Identifies perimeter vs interior segments using connectivity analysis
     5. Creates IFC beams with appropriate profiles (L for perimeter, T for interior)
     6. Assigns beams to spatial containers (BuildingStorey/Building)
-    7. Optionally extracts beams to a separate IFC file
+    7. Optionally outputs beams to a separate lightweight IFC file
     
     Use Cases:
     - Create beams independent of parent ceiling elements
@@ -97,23 +96,10 @@ class Patcher:
                  profile_thickness: str = "5.0",
                  tolerance: str = "10.0",
                  output_path: str = ""):
-        """
-        Initialize the CeilingGridsGlobal patcher.
-        
-        Args:
-            file: IFC file to patch
-            logger: Logger instance
-            extract_beams: "true" or "false" to extract beams to separate file (default: "false")
-            profile_height: Height of T-profile in mm (default: "40.0")
-            profile_width: Width of profiles in mm (default: "20.0")
-            profile_thickness: Thickness of profiles in mm (default: "5.0")
-            tolerance: Connection tolerance in mm (default: "10.0")
-            output_path: Path for extracted beams file, empty for auto-generated (default: "")
-        """
         self.file = file
         self.logger = logger
+        self.target_file = None
         
-        # Parse arguments with defaults
         self.extract_beams = extract_beams.lower() == "true" if extract_beams else False
         self.profile_height = float(profile_height) if profile_height else 40.0
         self.profile_width = float(profile_width) if profile_width else 20.0
@@ -121,7 +107,6 @@ class Patcher:
         self.tolerance = float(tolerance) if tolerance else 50.0
         self.output_path = output_path if output_path else None
         
-        # Validate parameters
         if self.profile_height <= 0:
             raise ValueError(f"profile_height must be positive, got {self.profile_height}")
         if self.profile_width <= 0:
@@ -131,7 +116,6 @@ class Patcher:
         if self.tolerance < 0:
             raise ValueError(f"tolerance must be non-negative, got {self.tolerance}")
         
-        # Statistics
         self.stats = {
             "covering_elements": 0,
             "total_segments": 0,
@@ -140,118 +124,212 @@ class Patcher:
             "total_beams": 0
         }
         
-        # Cache for style, contexts, and spatial container
         self.grid_covering_style = None
         self.body_context = None
         self.axis_context = None
         self.spatial_container = None
         self.unit_scale = 1.0
         
-        self.logger.info(f"Initialized CeilingGridsGlobal recipe (Global/Absolute Placement):")
-        self.logger.info(f"  Profile Height: {self.profile_height}mm")
-        self.logger.info(f"  Profile Width: {self.profile_width}mm")
-        self.logger.info(f"  Profile Thickness: {self.profile_thickness}mm")
-        self.logger.info(f"  Tolerance: {self.tolerance}mm")
-        self.logger.info(f"  Extract Beams: {self.extract_beams}")
-        if self.extract_beams and self.output_path:
-            self.logger.info(f"  Output Path: {self.output_path}")
+        self._dir_z = None
+        self._dir_x = None
+        self._origin_3d = None
+        self._l_profile = None
+        self._t_profile = None
+        self._style_wrapper = None
+        self._perimeter_offset_pt = None
+        self._interior_offset_pt = None
+        
+        self.logger.info(
+            f"CeilingGridsGlobal: h={self.profile_height} w={self.profile_width} "
+            f"t={self.profile_thickness} tol={self.tolerance} extract={self.extract_beams}"
+        )
     
     def patch(self) -> None:
-        """
-        Execute the ceiling grid beam generation with global placement.
-        """
-        self.logger.info("Starting CeilingGridsGlobal patch operation")
+        """Execute the ceiling grid beam generation with global placement."""
+        t_start = time.time()
         
         try:
-            # Assign units if not already present
-            ifcopenshell.api.unit.assign_unit(self.file)
-            
-            # Get unit scale
             self.unit_scale = self._get_project_unit_scale()
-            self.logger.info(f"Project unit scale: {self.unit_scale}x (1.0=mm, 1000.0=meters)")
             
-            # Create grid covering style for beams
-            self.grid_covering_style = self._create_grid_covering_style()
-            
-            # Get representation contexts
-            self._setup_contexts()
-            
-            # Get spatial container for beams
-            self.spatial_container = self._get_spatial_container()
-            if self.spatial_container:
-                self.logger.info(f"Spatial container: {self.spatial_container.is_a()} - {getattr(self.spatial_container, 'Name', 'Unnamed')}")
-            else:
-                self.logger.warning("No spatial container found - beams will not be assigned to building structure")
-            
-            # Find all covering elements
             covering_elements = self.file.by_type("IfcCovering")
-            
             if not covering_elements:
-                self.logger.warning("No IfcCovering elements found in the model")
+                self.logger.warning("No IfcCovering elements found")
                 return
             
-            self.logger.info(f"Found {len(covering_elements)} IfcCovering elements")
-            
-            # Extract beam data from all covering elements
+            # Extract beam geometry from source (read-only pass)
             all_beam_data = []
+            transform_cache = {}
             
             for elem_index, elem in enumerate(covering_elements):
-                if elem_index % 50 == 0 and elem_index > 0:
-                    self.logger.info(f"Processing covering element {elem_index}/{len(covering_elements)}...")
-                
-                beam_data, segments = self._extract_beam_data_from_covering(elem_index, elem)
+                beam_data, segments = self._extract_beam_data_from_covering(
+                    elem_index, elem, transform_cache
+                )
                 all_beam_data.extend(beam_data)
                 self.stats["total_segments"] += segments
                 if beam_data:
                     self.stats["covering_elements"] += 1
             
-            self.logger.info(f"Extracted {len(all_beam_data)} beam segments from {self.stats['total_segments']} polyline segments")
+            # Prepare target file
+            if self.extract_beams:
+                self.target_file = self._create_lightweight_ifc()
+            else:
+                self.target_file = self.file
+                ifcopenshell.api.unit.assign_unit(self.target_file)
             
-            # Count perimeter vs interior
-            perimeter_count = sum(1 for b in all_beam_data if b['segment'].get('is_perimeter', False))
-            interior_count = len(all_beam_data) - perimeter_count
+            self._setup_contexts()
+            self.grid_covering_style = self._create_grid_covering_style()
+            self._setup_shared_entities()
+            self.spatial_container = self._get_spatial_container()
             
-            self.logger.info(f"  Perimeter beams (L-profile): {perimeter_count}")
-            self.logger.info(f"  Interior beams (T-profile): {interior_count}")
-            
-            # Create beams
-            covering_lookup = {elem.id(): elem for elem in covering_elements}
-            
-            for idx, beam_info in enumerate(all_beam_data):
-                if idx % 1000 == 0 and idx > 0:
-                    self.logger.info(f"Created {idx}/{len(all_beam_data)} beams...")
-                
-                covering_element = covering_lookup[beam_info['covering_element_id']]
-                self._create_beam_at_segment(
-                    covering_element,
+            # Create beams in target file
+            all_beams = []
+            for beam_info in all_beam_data:
+                beam = self._create_beam_at_segment(
+                    beam_info['covering_transform'],
                     beam_info['segment'],
                     beam_info['segment_id'],
                     beam_info['segment'].get('is_perimeter', False)
                 )
+                all_beams.append(beam)
                 
                 if beam_info['segment'].get('is_perimeter', False):
                     self.stats["perimeter_beams"] += 1
                 else:
                     self.stats["interior_beams"] += 1
-                
                 self.stats["total_beams"] += 1
             
-            # Determine output path for extracted beams before logging statistics
-            if self.extract_beams and not self.output_path:
-                self.output_path = "extracted_beams.ifc"
+            # Batch spatial assignment
+            if self.spatial_container and all_beams:
+                owner_history = None
+                ohs = self.target_file.by_type("IfcOwnerHistory")
+                if ohs:
+                    owner_history = ohs[0]
+                self.target_file.createIfcRelContainedInSpatialStructure(
+                    ifcopenshell.guid.new(), owner_history,
+                    None, None, all_beams, self.spatial_container
+                )
             
-            # Log statistics
-            self._log_statistics()
-            
-            # Extract beams to separate file if requested
             if self.extract_beams:
-                self._extract_beams_to_file()
+                if not self.output_path:
+                    self.output_path = "extracted_beams.ifc"
+                self.file = self.target_file
             
-            self.logger.info("CeilingGridsGlobal patch operation completed successfully")
+            self._log_statistics(time.time() - t_start)
             
         except Exception as e:
             self.logger.error(f"Error during CeilingGridsGlobal patch: {str(e)}", exc_info=True)
             raise
+    
+    # ------------------------------------------------------------------ #
+    #  Lightweight IFC creation (replaces append_asset extraction)        #
+    # ------------------------------------------------------------------ #
+    
+    def _create_lightweight_ifc(self) -> ifcopenshell.file:
+        """
+        Create a new lightweight IFC file with minimal project structure,
+        copying units and owner history from the source to preserve
+        coordinate system and enable API entity creation.
+        """
+        source = self.file
+        new_file = ifcopenshell.file(schema=source.wrapped_data.schema)
+        
+        # Copy OwnerHistory (and its Person/Org/App references) from source
+        # so that api.root.create_entity can find existing owner info.
+        source_ohs = source.by_type("IfcOwnerHistory")
+        if source_ohs:
+            new_file.add(source_ohs[0])
+        
+        project = ifcopenshell.api.root.create_entity(new_file, ifc_class="IfcProject")
+        source_projects = source.by_type("IfcProject")
+        if source_projects:
+            project.Name = getattr(source_projects[0], 'Name', None)
+            src_units = source_projects[0].UnitsInContext
+            if src_units:
+                project.UnitsInContext = new_file.add(src_units)
+        
+        if not project.UnitsInContext:
+            ifcopenshell.api.unit.assign_unit(new_file)
+        
+        owner_history = None
+        ohs = new_file.by_type("IfcOwnerHistory")
+        if ohs:
+            owner_history = ohs[0]
+        
+        site = ifcopenshell.api.root.create_entity(new_file, ifc_class="IfcSite")
+        new_file.createIfcRelAggregates(
+            ifcopenshell.guid.new(), owner_history, None, None, project, [site]
+        )
+        
+        building = ifcopenshell.api.root.create_entity(new_file, ifc_class="IfcBuilding")
+        source_buildings = source.by_type("IfcBuilding")
+        if source_buildings:
+            building.Name = getattr(source_buildings[0], 'Name', None)
+        new_file.createIfcRelAggregates(
+            ifcopenshell.guid.new(), owner_history, None, None, site, [building]
+        )
+        
+        storey = ifcopenshell.api.root.create_entity(new_file, ifc_class="IfcBuildingStorey")
+        source_storeys = source.by_type("IfcBuildingStorey")
+        if source_storeys:
+            storey.Name = getattr(source_storeys[0], 'Name', None)
+        new_file.createIfcRelAggregates(
+            ifcopenshell.guid.new(), owner_history, None, None, building, [storey]
+        )
+        
+        return new_file
+    
+    # ------------------------------------------------------------------ #
+    #  Shared entity setup (eliminates ~50K duplicate entity creations)   #
+    # ------------------------------------------------------------------ #
+    
+    def _setup_shared_entities(self) -> None:
+        """Create shared IFC entities that are reused across all beams."""
+        f = self.target_file
+        
+        self._dir_z = f.createIfcDirection((0., 0., 1.))
+        self._dir_x = f.createIfcDirection((1., 0., 0.))
+        self._origin_3d = f.createIfcCartesianPoint((0., 0., 0.))
+        origin_2d = f.createIfcCartesianPoint((0., 0.))
+        
+        profile_placement = f.createIfcAxis2Placement2D(origin_2d)
+        
+        self._l_profile = f.createIfcLShapeProfileDef(
+            ProfileType="AREA",
+            ProfileName="L Beam Profile (Perimeter)",
+            Position=profile_placement,
+            Depth=self.profile_width,
+            Thickness=self.profile_thickness,
+            FilletRadius=0,
+            EdgeRadius=0
+        )
+        self._t_profile = f.createIfcTShapeProfileDef(
+            ProfileType="AREA",
+            ProfileName="T Beam Profile (Interior)",
+            Position=profile_placement,
+            Depth=self.profile_height,
+            FlangeWidth=self.profile_width,
+            WebThickness=self.profile_thickness,
+            FlangeThickness=self.profile_thickness
+        )
+        
+        self._perimeter_offset_pt = f.createIfcCartesianPoint(
+            (self.profile_width / 2, 0.0, self.profile_thickness)
+        )
+        self._interior_offset_pt = f.createIfcCartesianPoint((0.0, 0.0, 15.0))
+        
+        if self.grid_covering_style:
+            schema = f.schema
+            if 'IFC2X3' in schema:
+                assignment = f.createIfcPresentationStyleAssignment(
+                    (self.grid_covering_style,)
+                )
+                self._style_wrapper = (assignment,)
+            else:
+                self._style_wrapper = (self.grid_covering_style,)
+    
+    # ------------------------------------------------------------------ #
+    #  Source model helpers (read-only)                                   #
+    # ------------------------------------------------------------------ #
     
     def _get_project_unit_scale(self) -> float:
         """
@@ -268,297 +346,200 @@ class Patcher:
                             if 'METRE' in unit_name or 'METER' in unit_name:
                                 if hasattr(unit, 'Prefix'):
                                     if unit.Prefix == 'MILLI':
-                                        return 1.0  # Already in mm
+                                        return 1.0
                                     elif unit.Prefix == 'CENTI':
-                                        return 10.0  # cm to mm
-                                # No prefix means meters
-                                return 1000.0  # meters to mm
-            # Default: assume meters
+                                        return 10.0
+                                return 1000.0
             return 1000.0
         except Exception as e:
             self.logger.warning(f"Could not determine project units, assuming meters: {str(e)}")
             return 1000.0
     
     def _get_global_placement_matrix(self, element: ifcopenshell.entity_instance) -> np.ndarray:
-        """
-        Get the global transformation matrix for an element's placement.
-        Returns a 4x4 matrix in the file's project units.
-        """
+        """Get the global transformation matrix for an element's placement."""
         try:
-            matrix = ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
-            return matrix
+            return ifcopenshell.util.placement.get_local_placement(element.ObjectPlacement)
         except Exception as e:
             self.logger.warning(f"Could not get placement matrix, using identity: {str(e)}")
             return np.eye(4)
     
     def _transform_point(self, point: Tuple[float, float, float], 
                         transform_matrix: np.ndarray) -> List[float]:
-        """Transform a 3D point using a 4x4 transformation matrix"""
-        point_homogeneous = np.array([point[0], point[1], point[2], 1.0])
-        transformed = np.dot(transform_matrix, point_homogeneous)
+        """Transform a 3D point using a 4x4 transformation matrix."""
+        point_h = np.array([point[0], point[1], point[2], 1.0])
+        transformed = np.dot(transform_matrix, point_h)
         return [float(transformed[0]), float(transformed[1]), float(transformed[2])]
     
     def _transform_direction(self, direction: Tuple[float, float, float],
                             transform_matrix: np.ndarray) -> Tuple[float, float, float]:
-        """Transform a direction vector (rotation only, no translation)"""
-        direction_4d = np.array([direction[0], direction[1], direction[2], 0.0])
-        global_direction_4d = np.dot(transform_matrix, direction_4d)
-        global_direction = (float(global_direction_4d[0]), float(global_direction_4d[1]), float(global_direction_4d[2]))
+        """Transform a direction vector (rotation only, no translation)."""
+        dir_4d = np.array([direction[0], direction[1], direction[2], 0.0])
+        global_dir_4d = np.dot(transform_matrix, dir_4d)
+        gd = (float(global_dir_4d[0]), float(global_dir_4d[1]), float(global_dir_4d[2]))
         
-        # Normalize
-        dir_length = (global_direction[0]**2 + global_direction[1]**2 + global_direction[2]**2) ** 0.5
-        if dir_length > 0:
-            global_direction = tuple(float(d / dir_length) for d in global_direction)
-        
-        return global_direction
-    
-    def _get_spatial_container(self) -> Optional[ifcopenshell.entity_instance]:
-        """Get the appropriate spatial container for beams (BuildingStorey or Building)"""
-        # Try to find a building storey
-        building_storeys = self.file.by_type("IfcBuildingStorey")
-        if building_storeys:
-            return building_storeys[0]
-        
-        # Fall back to building
-        buildings = self.file.by_type("IfcBuilding")
-        if buildings:
-            return buildings[0]
-        
-        return None
-    
-    def _create_grid_covering_style(self) -> Optional[ifcopenshell.entity_instance]:
-        """Create a grid covering surface style for beams"""
-        try:
-            presentation_style = ifcopenshell.api.style.add_style(self.file, name="Grid Covering Style")
-                        
-            grey_color = self.file.createIfcColourRgb("Grid Covering", 0.5, 0.5, 0.5)
-            
-            surface_style = self.file.createIfcSurfaceStyleRendering(
-                grey_color,
-                0.0,  # Transparency
-                None, None, None, None, None, None,
-                "NOTDEFINED"
-            )
-            
-            presentation_style.Styles = (surface_style,)
-            
-            return presentation_style
-        except Exception as e:
-            self.logger.warning(f"Could not create grid covering style: {str(e)}")
-            return None
-    
-    def _setup_contexts(self) -> None:
-        """Setup geometric representation contexts"""
-        try:
-            model_context = self.file.by_type("IfcGeometricRepresentationContext")[0]
-            
-            self.body_context = ifcopenshell.util.representation.get_context(
-                self.file, "Model", "Body", "MODEL_VIEW"
-            )
-            if not self.body_context:
-                self.body_context = ifcopenshell.api.context.add_context(
-                    self.file, context_type="Model", context_identifier="Body",
-                    target_view="MODEL_VIEW", parent=model_context
-                )
-            
-            self.axis_context = ifcopenshell.util.representation.get_context(
-                self.file, "Model", "Axis", "GRAPH_VIEW"
-            )
-            if not self.axis_context:
-                self.axis_context = ifcopenshell.api.context.add_context(
-                    self.file, context_type="Model", context_identifier="Axis",
-                    target_view="GRAPH_VIEW", parent=model_context
-                )
-        except Exception as e:
-            self.logger.error(f"Could not setup contexts: {str(e)}")
-            raise
+        length = (gd[0]**2 + gd[1]**2 + gd[2]**2) ** 0.5
+        if length > 0:
+            gd = (gd[0] / length, gd[1] / length, gd[2] / length)
+        return gd
     
     def _extract_footprint_curves(self, elem: ifcopenshell.entity_instance) -> List[ifcopenshell.entity_instance]:
-        """Extract FootPrint curves from element"""
+        """Extract FootPrint curves from element."""
         curves_found = []
-        
         try:
             representation = elem.Representation
             if not representation or not representation.Representations:
                 return curves_found
-            
             for rep in representation.Representations:
                 rep_id = getattr(rep, "RepresentationIdentifier", "")
                 rep_type = getattr(rep, "RepresentationType", "")
-                
                 if rep_id == "FootPrint" and rep_type == "Curve2D" and rep.Items:
                     for item in rep.Items:
                         if item.is_a("IfcPolyline"):
                             curves_found.append(item)
-                            
         except Exception as e:
             self.logger.debug(f"Error extracting footprint curves: {str(e)}")
-        
         return curves_found
     
     def _process_polyline_to_segments(self, polyline: ifcopenshell.entity_instance, 
                                      polyline_index: int) -> List[Dict[str, Any]]:
-        """Process an IfcPolyline into ceiling grid segments"""
+        """Process an IfcPolyline into ceiling grid segments."""
         segments = []
-        
         try:
             points = polyline.Points
             if not points or len(points) < 2:
                 return segments
             
             for i in range(len(points) - 1):
-                start_point = points[i]
-                end_point = points[i + 1]
-                
-                start_coords = start_point.Coordinates
-                end_coords = end_point.Coordinates
+                start_coords = points[i].Coordinates
+                end_coords = points[i + 1].Coordinates
                 
                 if start_coords and end_coords:
-                    start_z = start_coords[2] if len(start_coords) > 2 else 0.0
-                    end_z = end_coords[2] if len(end_coords) > 2 else 0.0
+                    sz = start_coords[2] if len(start_coords) > 2 else 0.0
+                    ez = end_coords[2] if len(end_coords) > 2 else 0.0
+                    s = (start_coords[0], start_coords[1], sz)
+                    e = (end_coords[0], end_coords[1], ez)
                     
-                    start_mm = (start_coords[0], start_coords[1], start_z)
-                    end_mm = (end_coords[0], end_coords[1], end_z)
+                    dx = e[0] - s[0]
+                    dy = e[1] - s[1]
+                    h_len = (dx**2 + dy**2)**0.5
                     
-                    dx = end_mm[0] - start_mm[0]
-                    dy = end_mm[1] - start_mm[1]
-                    horizontal_length = (dx**2 + dy**2)**0.5
-                    
-                    if horizontal_length > 0.001:  # Ignore very small segments
-                        direction = (dx/horizontal_length, dy/horizontal_length, 0.0)
-                        
-                        segment = {
+                    if h_len > 0.001:
+                        segments.append({
                             "polyline_index": polyline_index,
                             "segment_index": i,
-                            "start_point": start_mm,
-                            "end_point": end_mm,
-                            "direction": direction,
-                            "length": horizontal_length,
-                            "midpoint": (
-                                (start_mm[0] + end_mm[0]) / 2,
-                                (start_mm[1] + end_mm[1]) / 2,
-                                (start_mm[2] + end_mm[2]) / 2
-                            )
-                        }
-                        segments.append(segment)
-                        
+                            "start_point": s,
+                            "end_point": e,
+                            "direction": (dx / h_len, dy / h_len, 0.0),
+                            "length": h_len,
+                            "midpoint": ((s[0]+e[0])/2, (s[1]+e[1])/2, (s[2]+e[2])/2)
+                        })
         except Exception as e:
             self.logger.debug(f"Error processing polyline {polyline_index}: {str(e)}")
-        
         return segments
+    
+    # ------------------------------------------------------------------ #
+    #  Perimeter detection with spatial hash (replaces O(n^2) brute force)#
+    # ------------------------------------------------------------------ #
     
     def _find_closed_loop_segments(self, all_segments: List[Dict[str, Any]]) -> Set[int]:
         """
-        Find segments that form a closed loop (perimeter) by recursively tracing connected segments.
-        Returns the set of segment indices that form the outer perimeter loop.
+        Find segments that form a closed loop (perimeter) using spatial hashing
+        for connectivity building, then recursive loop tracing.
         """
-        def points_coincident(p1: Tuple[float, float, float], 
-                            p2: Tuple[float, float, float]) -> bool:
-            """Check if two 3D points are coincident within tolerance"""
-            dx = p1[0] - p2[0]
-            dy = p1[1] - p2[1]
-            dz = p1[2] - p2[2]
-            dist = (dx*dx + dy*dy + dz*dz) ** 0.5
-            return dist < self.tolerance
+        if not all_segments:
+            return set()
         
-        # Build connectivity map: for each segment, find which segments connect at each endpoint
-        # Structure: segment_idx -> {'start': [connected_seg_indices], 'end': [connected_seg_indices]}
-        connectivity = {}
+        tol = self.tolerance
+        tol_sq = tol * tol
+        cell_size = tol if tol > 0 else 1.0
         
-        for idx, segment in enumerate(all_segments):
-            connectivity[idx] = {'start': [], 'end': []}
+        def _cell(p):
+            return (int(p[0] // cell_size), int(p[1] // cell_size), int(p[2] // cell_size))
         
-        # Check each pair of segments for connections
-        for i in range(len(all_segments)):
-            seg_i = all_segments[i]
-            for j in range(i + 1, len(all_segments)):
-                seg_j = all_segments[j]
-                
-                # Check all four endpoint combinations
-                if points_coincident(seg_i['start_point'], seg_j['start_point']):
-                    connectivity[i]['start'].append(j)
-                    connectivity[j]['start'].append(i)
-                elif points_coincident(seg_i['start_point'], seg_j['end_point']):
-                    connectivity[i]['start'].append(j)
-                    connectivity[j]['end'].append(i)
-                elif points_coincident(seg_i['end_point'], seg_j['start_point']):
-                    connectivity[i]['end'].append(j)
-                    connectivity[j]['start'].append(i)
-                elif points_coincident(seg_i['end_point'], seg_j['end_point']):
-                    connectivity[i]['end'].append(j)
-                    connectivity[j]['end'].append(i)
+        # Spatial index: grid cell -> [(segment_idx, endpoint_type, point)]
+        grid = defaultdict(list)
+        for idx, seg in enumerate(all_segments):
+            for ep in ('start', 'end'):
+                p = seg[ep + '_point']
+                grid[_cell(p)].append((idx, ep, p))
         
-        # Find the longest closed loop by trying different starting points
-        def trace_loop(start_idx: int, visited: List[int], current_endpoint: str) -> Tuple[bool, List[int]]:
-            """
-            Recursively trace a path from current position.
-            Returns (success, path) where success is True if we found a closed loop.
-            """
+        # Build connectivity using spatial hash (check 27 neighboring cells)
+        connectivity = [{'start': [], 'end': []} for _ in range(len(all_segments))]
+        seen_pairs = set()
+        
+        for idx, seg in enumerate(all_segments):
+            for ep in ('start', 'end'):
+                p = seg[ep + '_point']
+                cx, cy, cz = _cell(p)
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        for dz in (-1, 0, 1):
+                            for o_idx, o_ep, o_p in grid.get((cx+dx, cy+dy, cz+dz), ()):
+                                if o_idx == idx:
+                                    continue
+                                pair = (min(idx, o_idx), max(idx, o_idx))
+                                if pair in seen_pairs:
+                                    continue
+                                d_sq = (p[0]-o_p[0])**2 + (p[1]-o_p[1])**2 + (p[2]-o_p[2])**2
+                                if d_sq < tol_sq:
+                                    connectivity[idx][ep].append(o_idx)
+                                    connectivity[o_idx][o_ep].append(idx)
+                                    seen_pairs.add(pair)
+        
+        # Trace closed loops
+        def _points_close(p1, p2):
+            return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2) < tol_sq
+        
+        def _trace_loop(start_idx, visited, current_endpoint):
             if len(visited) > 1 and start_idx in connectivity[visited[-1]][current_endpoint]:
-                # We've come back to the start - found a closed loop!
                 return True, visited
             
-            # Get next possible segments
             current_seg_idx = visited[-1]
-            next_segments = connectivity[current_seg_idx][current_endpoint]
-            
-            for next_idx in next_segments:
+            for next_idx in connectivity[current_seg_idx][current_endpoint]:
                 if next_idx in visited and next_idx != start_idx:
-                    # Already visited (but not closing the loop)
                     continue
-                
                 if next_idx == start_idx and len(visited) < 3:
-                    # Too short to be a valid loop
                     continue
                 
-                # Determine which endpoint of next segment connects to us
                 next_seg = all_segments[next_idx]
-                if points_coincident(all_segments[current_seg_idx][current_endpoint + '_point'], 
-                                    next_seg['start_point']):
-                    next_endpoint = 'end'
-                else:
-                    next_endpoint = 'start'
+                cur_pt = all_segments[current_seg_idx][current_endpoint + '_point']
+                next_endpoint = 'end' if _points_close(cur_pt, next_seg['start_point']) else 'start'
                 
-                # Recursively explore this path
-                new_visited = visited + [next_idx]
-                success, path = trace_loop(start_idx, new_visited, next_endpoint)
-                
+                success, path = _trace_loop(start_idx, visited + [next_idx], next_endpoint)
                 if success:
                     return True, path
             
             return False, visited
         
-        # Try to find closed loops starting from segments with 2 connections (likely perimeter)
         best_loop = set()
-        
-        # Prioritize segments with exactly 2 total connections
-        candidates = [(idx, len(conn['start']) + len(conn['end'])) 
-                      for idx, conn in connectivity.items()]
-        candidates.sort(key=lambda x: (0 if x[1] == 2 else 1, x[0]))  # Prefer 2-connection segments
+        candidates = [(idx, len(c['start']) + len(c['end'])) for idx, c in enumerate(connectivity)]
+        candidates.sort(key=lambda x: (0 if x[1] == 2 else 1, x[0]))
         
         for start_idx, _ in candidates:
             if start_idx in best_loop:
                 continue
-            
-            # Try starting from each endpoint
-            for start_endpoint in ['start', 'end']:
+            for start_endpoint in ('start', 'end'):
                 if connectivity[start_idx][start_endpoint]:
-                    success, loop_path = trace_loop(start_idx, [start_idx], start_endpoint)
-                    
+                    success, loop_path = _trace_loop(start_idx, [start_idx], start_endpoint)
                     if success and len(loop_path) > len(best_loop):
                         best_loop = set(loop_path)
         
         return best_loop
     
+    # ------------------------------------------------------------------ #
+    #  Beam data extraction (with transform caching)                     #
+    # ------------------------------------------------------------------ #
+    
     def _extract_beam_data_from_covering(self, elem_index: int, 
-                                        elem: ifcopenshell.entity_instance) -> Tuple[List[Dict[str, Any]], int]:
-        """Extract beam data from a covering element"""
+                                        elem: ifcopenshell.entity_instance,
+                                        transform_cache: Dict[int, np.ndarray]
+                                        ) -> Tuple[List[Dict[str, Any]], int]:
+        """Extract beam data from a covering element, caching transforms."""
         try:
             curves = self._extract_footprint_curves(elem)
             beam_data = []
             all_segments = []
             
-            # Process footprint curves into segments
             for curve_index, curve in enumerate(curves):
                 segments = self._process_polyline_to_segments(curve, curve_index)
                 all_segments.extend(segments)
@@ -566,18 +547,19 @@ class Patcher:
             if not all_segments:
                 return [], 0
             
-            # Find perimeter segments
+            elem_id = elem.id()
+            if elem_id not in transform_cache:
+                transform_cache[elem_id] = self._get_global_placement_matrix(elem)
+            covering_transform = transform_cache[elem_id]
+            
             perimeter_indices = self._find_closed_loop_segments(all_segments)
             
-            # Create beam data with perimeter flags
             for idx, segment in enumerate(all_segments):
-                is_perimeter = idx in perimeter_indices
-                segment['is_perimeter'] = is_perimeter
-                
+                segment['is_perimeter'] = idx in perimeter_indices
                 beam_data.append({
                     'segment': segment,
                     'segment_id': f"{elem_index}_{segment['polyline_index']}_{segment['segment_index']}",
-                    'covering_element_id': elem.id()
+                    'covering_transform': covering_transform
                 })
             
             return beam_data, len(all_segments)
@@ -586,293 +568,184 @@ class Patcher:
             self.logger.debug(f"Error processing covering element {elem_index}: {str(e)}")
             return [], 0
     
-    def _create_beam_at_segment(self, covering_element: ifcopenshell.entity_instance,
+    # ------------------------------------------------------------------ #
+    #  Target file setup helpers                                         #
+    # ------------------------------------------------------------------ #
+    
+    def _get_spatial_container(self) -> Optional[ifcopenshell.entity_instance]:
+        """Get the appropriate spatial container for beams from the target file."""
+        storeys = self.target_file.by_type("IfcBuildingStorey")
+        if storeys:
+            return storeys[0]
+        buildings = self.target_file.by_type("IfcBuilding")
+        if buildings:
+            return buildings[0]
+        return None
+    
+    def _create_grid_covering_style(self) -> Optional[ifcopenshell.entity_instance]:
+        """Create a grid covering surface style in the target file."""
+        try:
+            f = self.target_file
+            style = ifcopenshell.api.style.add_style(f, name="Grid Covering Style")
+            grey = f.createIfcColourRgb("Grid Covering", 0.5, 0.5, 0.5)
+            rendering = f.createIfcSurfaceStyleRendering(
+                grey, 0.0, None, None, None, None, None, None, "NOTDEFINED"
+            )
+            style.Styles = (rendering,)
+            return style
+        except Exception as e:
+            self.logger.warning(f"Could not create grid covering style: {str(e)}")
+            return None
+    
+    def _setup_contexts(self) -> None:
+        """Setup geometric representation contexts in the target file."""
+        f = self.target_file
+        root_contexts = [c for c in f.by_type("IfcGeometricRepresentationContext")
+                         if not c.is_a("IfcGeometricRepresentationSubContext")]
+        
+        if root_contexts:
+            model_context = root_contexts[0]
+        else:
+            model_context = ifcopenshell.api.context.add_context(f, context_type="Model")
+        
+        self.body_context = ifcopenshell.util.representation.get_context(
+            f, "Model", "Body", "MODEL_VIEW"
+        )
+        if not self.body_context:
+            self.body_context = ifcopenshell.api.context.add_context(
+                f, context_type="Model", context_identifier="Body",
+                target_view="MODEL_VIEW", parent=model_context
+            )
+        
+        self.axis_context = ifcopenshell.util.representation.get_context(
+            f, "Model", "Axis", "GRAPH_VIEW"
+        )
+        if not self.axis_context:
+            self.axis_context = ifcopenshell.api.context.add_context(
+                f, context_type="Model", context_identifier="Axis",
+                target_view="GRAPH_VIEW", parent=model_context
+            )
+    
+    # ------------------------------------------------------------------ #
+    #  Optimized beam creation                                           #
+    # ------------------------------------------------------------------ #
+    
+    def _create_beam_at_segment(self, covering_transform: np.ndarray,
                                segment: Dict[str, Any], segment_id: str,
                                is_perimeter: bool) -> ifcopenshell.entity_instance:
-        """Create an IFC beam with axis and body representations using GLOBAL/ABSOLUTE placement"""
+        """
+        Create an IFC beam using shared entities, pre-computed transform,
+        and direct entity creation (minimizing API call overhead).
+        """
+        f = self.target_file
+        
+        beam = ifcopenshell.api.root.create_entity(f, ifc_class="IfcBeam")
+        beam.ObjectType = "Grid Covering"
+        if is_perimeter:
+            beam.Name = f"Ceiling_Profile_Angle_{segment_id}"
+        else:
+            beam.Name = f"Ceiling_Profile_T-Runner_{segment_id}"
+        
+        start_point = segment["start_point"]
+        direction = segment["direction"]
+        length = segment["length"]
+        
+        global_start = self._transform_point(start_point, covering_transform)
+        global_dir = self._transform_direction(direction, covering_transform)
+        
+        # Placement using shared direction entities
+        beam.ObjectPlacement = f.createIfcLocalPlacement(
+            None,
+            f.createIfcAxis2Placement3D(
+                f.createIfcCartesianPoint(global_start),
+                self._dir_z, self._dir_x
+            )
+        )
+        
+        # Axis representation using shared origin point
+        end_relative = (global_dir[0] * length, global_dir[1] * length, global_dir[2] * length)
+        polyline = f.createIfcPolyline([
+            self._origin_3d,
+            f.createIfcCartesianPoint(end_relative)
+        ])
+        axis_repr = f.createIfcShapeRepresentation(self.axis_context, "Axis", "Curve3D", [polyline])
+        
+        # Shared profile and shared extrusion direction
+        profile = self._l_profile if is_perimeter else self._t_profile
+        
+        # Extrusion coordinate system (direction-dependent, created per beam)
+        bd = global_dir
+        up = (0.0, 0.0, 1.0)
+        dot = bd[0]*up[0] + bd[1]*up[1] + bd[2]*up[2]
+        if abs(dot) > 0.9:
+            up = (0.0, 1.0, 0.0)
+            dot = bd[0]*up[0] + bd[1]*up[1] + bd[2]*up[2]
+        
+        ay = (up[0] - dot*bd[0], up[1] - dot*bd[1], up[2] - dot*bd[2])
+        ay_len = (ay[0]**2 + ay[1]**2 + ay[2]**2) ** 0.5
+        if ay_len < 1e-9:
+            ay = (0.0, 1.0, 0.0)
+            ay_len = 1.0
+        ay = (ay[0]/ay_len, ay[1]/ay_len, ay[2]/ay_len)
+        
+        if is_perimeter:
+            extrude_placement = f.createIfcAxis2Placement3D(
+                self._perimeter_offset_pt,
+                f.createIfcDirection(bd),
+                f.createIfcDirection(ay)
+            )
+        else:
+            ax = (
+                ay[1]*bd[2] - ay[2]*bd[1],
+                ay[2]*bd[0] - ay[0]*bd[2],
+                ay[0]*bd[1] - ay[1]*bd[0]
+            )
+            extrude_placement = f.createIfcAxis2Placement3D(
+                self._interior_offset_pt,
+                f.createIfcDirection(bd),
+                f.createIfcDirection((-ax[0], -ax[1], -ax[2]))
+            )
+        
+        extruded_solid = f.createIfcExtrudedAreaSolid(
+            profile, extrude_placement, self._dir_z, length
+        )
+        
+        body_repr = f.createIfcShapeRepresentation(self.body_context, "Body", "SweptSolid", [extruded_solid])
+        
+        # Style using pre-created wrapper (avoids per-beam API dispatch)
+        if self._style_wrapper:
+            f.createIfcStyledItem(extruded_solid, self._style_wrapper, None)
+        
+        # Single representation assignment (replaces 2 API calls)
+        beam.Representation = f.createIfcProductDefinitionShape(None, None, (axis_repr, body_repr))
+        
+        # Consolidated property set (2 calls instead of 4)
         try:
-            # Create beam element
-            beam = ifcopenshell.api.root.create_entity(self.file, ifc_class="IfcBeam")
-            beam.ObjectType = "Grid Covering"
-            
-            # Set name based on type
-            if is_perimeter:
-                beam.Name = f"Ceiling_Profile_Angle_{segment_id}"
-            else:
-                beam.Name = f"Ceiling_Profile_T-Runner_{segment_id}"
-            
-            # Beam properties (in covering element's local coordinates)
-            start_point = segment["start_point"]
-            direction = segment["direction"]
-            length = segment["length"]
-            
-            # TRANSFORM TO GLOBAL COORDINATES
-            covering_transform = self._get_global_placement_matrix(covering_element)
-            
-            # Transform start point to global coordinates
-            global_start_point = self._transform_point(start_point, covering_transform)
-            
-            # Transform direction vector
-            global_direction = self._transform_direction(direction, covering_transform)
-            
-            # Create ABSOLUTE placement (PlacementRelTo = None)
-            local_placement = self.file.createIfcLocalPlacement(
-                None,  # None = absolute world coordinates
-                self.file.createIfcAxis2Placement3D(
-                    self.file.createIfcCartesianPoint(global_start_point),
-                    self.file.createIfcDirection((0., 0., 1.)),
-                    self.file.createIfcDirection((1., 0., 0.))
-                )
-            )
-            beam.ObjectPlacement = local_placement
-            
-            # Create axis representation using global direction
-            start_relative = (0.0, 0.0, 0.0)
-            end_relative = (global_direction[0] * length, global_direction[1] * length, global_direction[2] * length)
-            
-            polyline = self.file.createIfcPolyline([
-                self.file.createIfcCartesianPoint(start_relative),
-                self.file.createIfcCartesianPoint(end_relative)
-            ])
-            
-            axis_repr = self.file.createIfcShapeRepresentation(
-                self.axis_context, "Axis", "Curve3D", [polyline]
-            )
-            
-            # Create profile
-            if is_perimeter:
-                profile = self.file.createIfcLShapeProfileDef(
-                    ProfileType="AREA",
-                    ProfileName="L Beam Profile (Perimeter)",
-                    Position=self.file.createIfcAxis2Placement2D(
-                        self.file.createIfcCartesianPoint((0., 0.))
-                    ),
-                    Depth=self.profile_width,
-                    Thickness=self.profile_thickness,
-                    FilletRadius=0,
-                    EdgeRadius=0
-                )
-            else:
-                profile = self.file.createIfcTShapeProfileDef(
-                    ProfileType="AREA",
-                    ProfileName="T Beam Profile (Interior)",
-                    Position=self.file.createIfcAxis2Placement2D(
-                        self.file.createIfcCartesianPoint((0., 0.))
-                    ),
-                    Depth=self.profile_height,
-                    FlangeWidth=self.profile_width,
-                    WebThickness=self.profile_thickness,
-                    FlangeThickness=self.profile_thickness
-                )
-            
-            # Calculate local coordinate system using global direction
-            beam_dir = global_direction
-            up_ref = (0.0, 0.0, 1.0)
-            dot_up = sum(a * b for a, b in zip(up_ref, beam_dir))
-            
-            if abs(dot_up) > 0.9:
-                up_ref = (0.0, 1.0, 0.0)
-                dot_up = sum(a * b for a, b in zip(up_ref, beam_dir))
-            
-            axis_y = tuple(a - dot_up * b for a, b in zip(up_ref, beam_dir))
-            axis_y_len = sum(a**2 for a in axis_y) ** 0.5
-            
-            if axis_y_len < 1e-9:
-                axis_y = (0.0, 1.0, 0.0)
-                axis_y_len = 1.0
-            
-            axis_y = tuple(a / axis_y_len for a in axis_y)
-            
-            axis_x = (
-                axis_y[1] * beam_dir[2] - axis_y[2] * beam_dir[1],
-                axis_y[2] * beam_dir[0] - axis_y[0] * beam_dir[2],
-                axis_y[0] * beam_dir[1] - axis_y[1] * beam_dir[0]
-            )
-            
-            if is_perimeter:
-                extrude_placement = self.file.createIfcAxis2Placement3D(
-                    self.file.createIfcCartesianPoint([(self.profile_width/2), 0.0, self.profile_thickness]),
-                    self.file.createIfcDirection(beam_dir),
-                    self.file.createIfcDirection((axis_y[0], axis_y[1], axis_y[2]))
-                )
-            else:
-                extrude_placement = self.file.createIfcAxis2Placement3D(
-                    self.file.createIfcCartesianPoint([0.0, 0.0, 15.0]),
-                    self.file.createIfcDirection(beam_dir),
-                    self.file.createIfcDirection((-axis_x[0], -axis_x[1], -axis_x[2]))
-                )
-            
-            extruded_solid = self.file.createIfcExtrudedAreaSolid(
-                profile,
-                extrude_placement,
-                self.file.createIfcDirection((0.0, 0.0, 1.0)),
-                length
-            )
-            
-            body_repr = self.file.createIfcShapeRepresentation(
-                self.body_context, "Body", "SweptSolid", [extruded_solid]
-            )
-            
-            # Apply style
-            if self.grid_covering_style:
-                try:
-                    ifcopenshell.api.style.assign_representation_styles(
-                        self.file, shape_representation=body_repr, styles=[self.grid_covering_style]
-                    )
-                except Exception as e:
-                    self.logger.debug(f"Could not assign style: {str(e)}")
-            
-            # Assign representations
-            ifcopenshell.api.geometry.assign_representation(self.file, product=beam, representation=axis_repr)
-            ifcopenshell.api.geometry.assign_representation(self.file, product=beam, representation=body_repr)
-            
-            # Add QTO properties
-            try:
-                qto_propset = ifcopenshell.api.pset.add_pset(self.file, product=beam, name="Qto_BeamBaseQuantities")
-                ifcopenshell.api.pset.edit_pset(self.file, pset=qto_propset, properties={"Length": length})
-                ifcopenshell.api.pset.edit_pset(self.file, pset=qto_propset, properties={"Height": self.profile_height})
-                ifcopenshell.api.pset.edit_pset(self.file, pset=qto_propset, properties={"Width": self.profile_width})
-            except Exception as e:
-                self.logger.debug(f"Could not add QTO properties: {str(e)}")
-            
-            # Assign to spatial container (BuildingStorey/Building) instead of nesting
-            if self.spatial_container:
-                try:
-                    ifcopenshell.api.spatial.assign_container(
-                        self.file, products=[beam], relating_structure=self.spatial_container
-                    )
-                except Exception as e:
-                    self.logger.debug(f"Could not assign spatial container: {str(e)}")
-            
-            return beam
-            
+            qto = ifcopenshell.api.pset.add_pset(f, product=beam, name="Qto_BeamBaseQuantities")
+            ifcopenshell.api.pset.edit_pset(f, pset=qto, properties={
+                "Length": length,
+                "Height": self.profile_height,
+                "Width": self.profile_width
+            })
         except Exception as e:
-            self.logger.error(f"Error creating beam: {str(e)}", exc_info=True)
-            raise
+            self.logger.debug(f"Could not add QTO properties: {str(e)}")
+        
+        return beam
     
-    def _extract_beams_to_file(self) -> None:
-        """Extract only beams to a separate IFC file"""
-        try:
-            # Determine output path
-            if not self.output_path:
-                # Auto-generate path based on input file
-                self.output_path = "extracted_beams.ifc"
-            
-            self.logger.info(f"Extracting beams to: {self.output_path}")
-            
-            source_file = self.file
-            new_file = ifcopenshell.file(schema=source_file.wrapped_data.schema)
-            
-            # Track for relationship recreation
-            contained_ins = {}
-            aggregates = {}
-            reuse_identities = {}
-            owner_history = None
-            
-            # Copy owner history first
-            for oh in source_file.by_type("IfcOwnerHistory"):
-                owner_history = new_file.add(oh)
-                break
-            
-            def append_asset(entity):
-                """Copy entity using append_asset API"""
-                try:
-                    return new_file.by_guid(entity.GlobalId)
-                except:
-                    pass
-                
-                if entity.is_a("IfcProject"):
-                    return new_file.add(entity)
-                
-                return ifcopenshell.api.run(
-                    "project.append_asset", 
-                    new_file, 
-                    library=source_file, 
-                    element=entity, 
-                    reuse_identities=reuse_identities
-                )
-            
-            def add_spatial_structures(element, new_element):
-                """Track spatial container relationships"""
-                for rel in getattr(element, "ContainedInStructure", []):
-                    spatial_element = rel.RelatingStructure
-                    new_spatial_element = append_asset(spatial_element)
-                    contained_ins.setdefault(spatial_element.GlobalId, set()).add(new_element)
-                    add_decomposition_parents(spatial_element, new_spatial_element)
-            
-            def add_decomposition_parents(element, new_element):
-                """Track decomposition hierarchy"""
-                for rel in element.Decomposes:
-                    parent = rel.RelatingObject
-                    new_parent = append_asset(parent)
-                    aggregates.setdefault(parent.GlobalId, set()).add(new_element)
-                    add_decomposition_parents(parent, new_parent)
-                    add_spatial_structures(parent, new_parent)
-            
-            # Copy project
-            project = source_file.by_type("IfcProject")[0]
-            append_asset(project)
-            
-            # Filter to only get ceiling grid beams we created (not pre-existing beams)
-            # Use selector syntax to match beams with names starting with "Ceiling_Profile_"
-            beams = ifcopenshell.util.selector.filter_elements(
-                source_file, 
-                'IfcBeam, Name=/Ceiling_Profile_.*/'
-            )
-            
-            self.logger.info(f"Extracting {len(beams)} ceiling grid beams...")
-            
-            for beam in beams:
-                new_beam = append_asset(beam)
-                if new_beam:
-                    add_spatial_structures(beam, new_beam)
-                    add_decomposition_parents(beam, new_beam)
-            
-            # Recreate spatial tree
-            for relating_structure_guid, related_elements in contained_ins.items():
-                new_file.createIfcRelContainedInSpatialStructure(
-                    ifcopenshell.guid.new(),
-                    owner_history,
-                    None,
-                    None,
-                    list(related_elements),
-                    new_file.by_guid(relating_structure_guid)
-                )
-            
-            # Recreate decomposition hierarchy
-            for relating_object_guid, related_objects in aggregates.items():
-                new_file.createIfcRelAggregates(
-                    ifcopenshell.guid.new(),
-                    owner_history,
-                    None,
-                    None,
-                    new_file.by_guid(relating_object_guid),
-                    list(related_objects)
-                )
-            
-            # Write output file
-            new_file.write(self.output_path)
-            self.logger.info(f"Successfully extracted beams to: {self.output_path}")
-            
-            # Replace self.file with the extracted beams file so get_output() returns it
-            self.file = new_file
-            self.logger.info("Output will now contain only extracted beams (not full model)")
-            
-        except Exception as e:
-            self.logger.error(f"Error extracting beams to file: {str(e)}", exc_info=True)
+    # ------------------------------------------------------------------ #
+    #  Output                                                            #
+    # ------------------------------------------------------------------ #
     
-    def _log_statistics(self) -> None:
+    def _log_statistics(self, elapsed: float) -> None:
         """Log processing statistics."""
-        self.logger.info("=" * 60)
-        self.logger.info("Processing Statistics (Global Placement):")
-        self.logger.info(f"  Covering Elements Processed: {self.stats['covering_elements']}")
-        self.logger.info(f"  Total Polyline Segments: {self.stats['total_segments']}")
-        self.logger.info(f"  Total Beams Created: {self.stats['total_beams']}")
-        self.logger.info(f"    - Perimeter Beams (L-profile): {self.stats['perimeter_beams']}")
-        self.logger.info(f"    - Interior Beams (T-profile): {self.stats['interior_beams']}")
-        if self.extract_beams:
-            self.logger.info(f"  Extracted to: {self.output_path}")
-        self.logger.info("=" * 60)
+        s = self.stats
+        self.logger.info(
+            f"CeilingGridsGlobal done in {elapsed:.1f}s: "
+            f"{s['covering_elements']} coverings, "
+            f"{s['total_beams']} beams "
+            f"({s['perimeter_beams']} perimeter, {s['interior_beams']} interior)"
+            f"{' [extracted]' if self.extract_beams else ''}"
+        )
     
     def get_output(self) -> ifcopenshell.file:
         """
@@ -883,8 +756,3 @@ class Patcher:
             positioned in global coordinates
         """
         return self.file
-
-
-
-
-

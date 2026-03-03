@@ -6,7 +6,7 @@ Supports multiple operations with filter groups and hex color assignments.
 
 Recipe Name: SetColorBySelector
 Description: Assign colors to IFC elements using IfcOpenShell selector syntax
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-01-08
 Updated: 2026-01-16 (V3 optimizations - 13.8x faster)
 
