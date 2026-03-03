@@ -530,12 +530,80 @@ def clean_test_data_from_db():
         logger.error(traceback.format_exc())
         return False
 
+
+def test_revit_log_upload():
+    """Test the POST /revit/logs endpoint by uploading a sample log file."""
+    test_name = f"RevitLogUploadTest_{uuid.uuid4().hex[:8]}"
+    logger.info(f"--- Testing: Revit Log Upload - {test_name} ---")
+
+    import requests
+    import tempfile
+    import os
+
+    try:
+        # Create a temporary log file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write("Sample Revit journal log content\n")
+            f.write("More log content here\n")
+            temp_file_path = f.name
+
+        # Get API key from environment (same as used for other API calls)
+        api_key = os.environ.get("IFC_PIPELINE_API_KEY")
+        if not api_key:
+            logger.error("IFC_PIPELINE_API_KEY environment variable not set")
+            return False
+
+        # Prepare the multipart upload
+        api_url = "http://localhost:8000/revit/logs"
+        headers = {"X-API-Key": api_key}
+
+        with open(temp_file_path, 'rb') as f:
+            files = {'file': ('journal.txt', f, 'text/plain')}
+            data = {'job_id': test_name, 'log_type': 'journal'}
+
+            logger.info(f"Uploading log file to {api_url}")
+            logger.info(f"Job ID: {test_name}, Log Type: journal")
+
+            response = requests.post(api_url, headers=headers, files=files, data=data, timeout=30)
+
+        # Clean up temp file
+        os.unlink(temp_file_path)
+
+        if response.status_code == 200:
+            logger.info("Log upload successful")
+            logger.info("Response:")
+            logger.info(response.json())
+
+            # Verify the response contains the expected file_path
+            response_data = response.json()
+            expected_path_start = f"/uploads/revit-logs/{test_name}-journal"
+            if 'file_path' in response_data and response_data['file_path'].startswith(expected_path_start):
+                logger.info(f"File path verification successful: {response_data['file_path']}")
+
+                # If API runs in Docker, file_path is on the server; only check existence when path is local
+                file_path = response_data['file_path']
+                if os.path.exists(file_path):
+                    logger.info(f"File exists on disk at: {file_path}")
+                else:
+                    logger.info(f"File path returned (may be on remote server): {file_path}")
+                return True
+            logger.error(f"Unexpected file_path in response: {response_data.get('file_path')}")
+            return False
+        else:
+            logger.error(f"Log upload failed with status {response.status_code}: {response.text}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error testing revit log upload: {str(e)}")
+        return False
+
+
 # --- Main Execution ---
 
 def main():
     parser = argparse.ArgumentParser(description='Test IFC Pipeline workers')
     parser.add_argument('--workers', type=str, nargs='+', choices=[
-        'ifcconvert', 'ifcclash', 'ifccsv_export', 'ifctester', 'ifcdiff', 'ifc5d', 'ifc2json', 'all'
+        'ifcconvert', 'ifcclash', 'ifccsv_export', 'ifctester', 'ifcdiff', 'ifc5d', 'ifc2json', 'revit_logs', 'all'
     ], default=['all'], help='Workers to test')
     parser.add_argument('--clean-db', action='store_true', help='Clean test data from database after tests')
     
@@ -582,6 +650,9 @@ def main():
     
     if all_tests or 'ifc2json' in workers:
         results["ifc2json"] = test_ifc2json(queues)
+
+    if all_tests or 'revit_logs' in workers:
+        results["revit_logs"] = test_revit_log_upload()
     
     # Clean test data from database if requested
     if clean_db:

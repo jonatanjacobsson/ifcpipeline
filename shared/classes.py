@@ -163,3 +163,39 @@ class IfcPatchListRecipesResponse(BaseModel):
     total_count: int
     builtin_count: int
     custom_count: int
+
+
+class RevitCommandType(str, Enum):
+    PYREVIT = "pyrevit"
+    RTV = "rtv"
+    POWERSHELL = "powershell"
+
+class RevitExecuteRequest(BaseModel):
+    """Request to execute a Revit/PyRevit command on the Windows worker."""
+    command_type: RevitCommandType = Field(..., description="Type of command: pyrevit, rtv, or powershell")
+    script_path: str = Field(..., description="Path to the script, executable, or PS1 wrapper on the Windows machine")
+    model_path: Optional[str] = Field(default=None, description="Path to the .rvt model (passed as positional arg for pyrevit)")
+    revit_version: Optional[str] = Field(default=None, description="Revit year to launch, e.g. '2025'. Adds --revit=YYYY for pyrevit")
+    batch_file: Optional[str] = Field(default=None, description="RTV batch file path (.rbxml). Passed as -BatchFile arg to the RTV wrapper script")
+    arguments: Optional[List[str]] = Field(default=[], description="Additional command-line arguments")
+    timeout_seconds: int = Field(default=3600, ge=10, le=86400, description="Max execution time in seconds")
+    working_directory: Optional[str] = Field(default=None, description="Working directory (local or UNC path)")
+
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "command_type": "pyrevit",
+                    "script_path": "C:\\Scripts\\test_detach_to_temp.py",
+                    "model_path": "C:\\Models\\project.rvt",
+                    "revit_version": "2025",
+                    "timeout_seconds": 3600
+                },
+                {
+                    "command_type": "rtv",
+                    "script_path": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\A\\Batch\\Run-RTVXporterBatch.ps1",
+                    "batch_file": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\A\\Batch\\sample.rbxml",
+                    "timeout_seconds": 7200
+                }
+            ]
+        }
