@@ -1,0 +1,434 @@
+import asyncio
+import csv
+import json
+import logging
+import os
+import re
+from io import BytesIO, StringIO
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers.python import Python2TracebackLexer
+from starlette.staticfiles import StaticFiles
+
+from rq_dashboard_fast.utils.jobs import (
+    REVIT_LOGS_DIR,
+    JobDataDetailed,
+    QueueJobRegistryStats,
+    convert_queue_job_registry_dict_to_list,
+    convert_queue_job_registry_stats_to_json_dict,
+    delete_job_id,
+    get_job,
+    get_job_logs,
+    get_jobs,
+    requeue_job_id,
+)
+from rq_dashboard_fast.utils.queues import (
+    QueueRegistryStats,
+    convert_queue_data_to_json_dict,
+    convert_queues_dict_to_list,
+    delete_jobs_for_queue,
+    get_job_registry_amount,
+)
+from rq_dashboard_fast.utils.workers import (
+    WorkerData,
+    convert_worker_data_to_json_dict,
+    convert_workers_dict_to_list,
+    get_workers,
+)
+
+
+def _format_result(result):
+    """Pretty-print a job result dict as JSON for display."""
+    if result is None:
+        return "None"
+    if isinstance(result, dict):
+        try:
+            return json.dumps(result, indent=2, default=str, ensure_ascii=False)
+        except Exception:
+            return str(result)
+    return str(result)
+
+
+class RedisQueueDashboard(FastAPI):
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379",
+        prefix: str = "/rq",
+        protocol: str | None = None,
+        *args,
+        **kwargs
+    ):
+        super().__init__(root_path=prefix, *args, **kwargs)
+
+        package_directory = Path(__file__).resolve().parent
+        static_directory = package_directory / "static"
+
+        self.mount("/static", StaticFiles(directory=static_directory), name="static")
+
+        templates_directory = package_directory / "templates"
+        self.templates = Jinja2Templates(directory=templates_directory)
+        self.templates.env.filters["format_result"] = _format_result
+        self.redis_url = redis_url
+        self.protocol = protocol
+
+        self.rq_dashboard_version = "0.5.12"
+
+        logger = logging.getLogger(__name__)
+
+        @self.get("/", response_class=HTMLResponse)
+        async def get_home(
+            request: Request,
+            queue_name: str = Query("all"),
+            state: str = Query("all"),
+            page: int = Query(1),
+        ):
+            try:
+                job_data = get_jobs(self.redis_url, queue_name, state, page=page)
+
+                active_tab = "jobs"
+
+                protocol = self.protocol if self.protocol else request.url.scheme
+
+                return self.templates.TemplateResponse(
+                    "jobs.html",
+                    {
+                        "request": request,
+                        "job_data": job_data,
+                        "active_tab": active_tab,
+                        "prefix": prefix,
+                        "rq_dashboard_version": self.rq_dashboard_version,
+                        "protocol": protocol,
+                    },
+                )
+            except Exception as e:
+                logger.exception(
+                    "An error occurred while loading the base template:", e
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred while loading the base template",
+                )
+
+        @self.get("/workers", response_class=HTMLResponse)
+        async def read_workers(request: Request):
+            try:
+                worker_data = get_workers(self.redis_url)
+
+                active_tab = "workers"
+
+                protocol = self.protocol if self.protocol else request.url.scheme
+
+                return self.templates.TemplateResponse(
+                    "workers.html",
+                    {
+                        "request": request,
+                        "worker_data": worker_data,
+                        "active_tab": active_tab,
+                        "prefix": prefix,
+                        "rq_dashboard_version": self.rq_dashboard_version,
+                        "protocol": protocol,
+                    },
+                )
+            except Exception as e:
+                logger.exception("An error occurred while reading workers:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred while reading workers"
+                )
+
+        @self.get("/workers/json", response_model=list[WorkerData])
+        async def read_workers():
+            try:
+                worker_data = get_workers(self.redis_url)
+
+                return worker_data
+            except Exception as e:
+                logger.exception(
+                    "An error occurred while reading worker data in json:", e
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred while reading worker data in json",
+                )
+
+        @self.delete("/queues/{queue_name}")
+        def delete_jobs_in_queue(queue_name: str):
+            try:
+                deleted_ids = delete_jobs_for_queue(queue_name, self.redis_url)
+                return deleted_ids
+            except Exception as e:
+                logger.exception("An error occurred while deleting jobs in queue:", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred while deleting jobs in queue",
+                )
+
+        @self.get("/queues", response_class=HTMLResponse)
+        async def read_queues(request: Request):
+            try:
+                queue_data = get_job_registry_amount(self.redis_url)
+
+                active_tab = "queues"
+
+                protocol = self.protocol if self.protocol else request.url.scheme
+
+                return self.templates.TemplateResponse(
+                    "queues.html",
+                    {
+                        "request": request,
+                        "queue_data": queue_data,
+                        "active_tab": active_tab,
+                        "prefix": prefix,
+                        "rq_dashboard_version": self.rq_dashboard_version,
+                        "protocol": protocol,
+                    },
+                )
+            except Exception as e:
+                logger.exception("An error occurred reading queues data template:", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred reading queues data template",
+                )
+
+        @self.get("/queues/json", response_model=list[QueueRegistryStats])
+        async def read_queues():
+            try:
+                queue_data = get_job_registry_amount(self.redis_url)
+
+                return queue_data
+            except Exception as e:
+                logger.exception("An error occurred reading queues data json:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred reading queues data json"
+                )
+
+        @self.get("/jobs", response_class=HTMLResponse)
+        async def read_jobs(
+            request: Request,
+            queue_name: str = Query("all"),
+            state: str = Query("all"),
+            page: int = Query(1),
+        ):
+            try:
+                job_data = get_jobs(self.redis_url, queue_name, state, page=page)
+
+                active_tab = "jobs"
+
+                protocol = self.protocol if self.protocol else request.url.scheme
+
+                return self.templates.TemplateResponse(
+                    "jobs.html",
+                    {
+                        "request": request,
+                        "job_data": job_data,
+                        "active_tab": active_tab,
+                        "prefix": prefix,
+                        "rq_dashboard_version": self.rq_dashboard_version,
+                        "protocol": protocol,
+                    },
+                )
+            except Exception as e:
+                logger.exception("An error occurred reading jobs data template:", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred reading jobs data template",
+                )
+
+        @self.get("/jobs/json", response_model=list[QueueJobRegistryStats])
+        async def read_jobs(
+            queue_name: str = Query("all"),
+            state: str = Query("all"),
+            page: int = Query(1),
+        ):
+            try:
+                job_data = get_jobs(self.redis_url, queue_name, state, page=page)
+
+                return job_data
+            except Exception as e:
+                logger.exception("An error occurred reading jobs data json:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred reading jobs data json"
+                )
+
+        @self.get("/job/{job_id}/log/{filename}")
+        async def get_job_log_content(job_id: str, filename: str):
+            """Serve a log file's contents as plain text."""
+            if not re.match(r'^[\w\-]+$', job_id):
+                raise HTTPException(status_code=400, detail="Invalid job_id")
+
+            safe_name = os.path.basename(filename)
+            if not safe_name.startswith(job_id):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Filename must belong to the requested job",
+                )
+
+            file_path = os.path.join(REVIT_LOGS_DIR, safe_name)
+            if not os.path.isfile(file_path):
+                raise HTTPException(
+                    status_code=404, detail=f"Log file not found: {safe_name}"
+                )
+
+            try:
+                with open(file_path, "r", errors="replace") as f:
+                    content = f.read()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to read log file: {str(e)}"
+                )
+
+            return PlainTextResponse(content)
+
+        @self.get("/job/{job_id}", response_model=JobDataDetailed)
+        async def get_job_data(job_id: str, request: Request):
+            try:
+                job = get_job(self.redis_url, job_id)
+                log_files = get_job_logs(job_id)
+
+                if job.exc_info:
+                    css = HtmlFormatter().get_style_defs()
+                    col_exc_info = highlight(
+                        job.exc_info, Python2TracebackLexer(), HtmlFormatter()
+                    )
+                else:
+                    css = None
+                    col_exc_info = None
+
+                active_tab = "job"
+
+                protocol = self.protocol if self.protocol else request.url.scheme
+
+                return self.templates.TemplateResponse(
+                    "job.html",
+                    {
+                        "request": request,
+                        "job_data": job,
+                        "log_files": log_files,
+                        "active_tab": active_tab,
+                        "css": css,
+                        "col_exc_info": col_exc_info,
+                        "prefix": prefix,
+                        "rq_dashboard_version": self.rq_dashboard_version,
+                        "protocol": protocol,
+                    },
+                )
+            except Exception as e:
+                logger.exception("An error occurred fetching a specific job:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred fetching a specific job"
+                )
+
+        @self.delete("/job/{job_id}")
+        def delete_job(job_id: str):
+            try:
+                delete_job_id(self.redis_url, job_id=job_id)
+            except Exception as e:
+                logger.exception("An error occurred while deleting a job:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred while deleting a job"
+                )
+
+        @self.post("/job/{job_id}/requeue")
+        def requeue_job(job_id: str):
+            try:
+                requeue_job_id(self.redis_url, job_id=job_id)
+            except Exception as e:
+                logger.exception("An error occurred while requeueing a job:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred while requeueing a job"
+                )
+
+        @self.get("/export", response_class=HTMLResponse)
+        async def export(request: Request):
+            try:
+                active_tab = "export"
+                protocol = self.protocol if self.protocol else request.url.scheme
+                return self.templates.TemplateResponse(
+                    "export.html",
+                    {
+                        "request": request,
+                        "active_tab": active_tab,
+                        "prefix": prefix,
+                        "rq_dashboard_version": self.rq_dashboard_version,
+                        "protocol": protocol,
+                    },
+                )
+            except Exception as e:
+                logger.exception("An error occurred reading export data template:", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail="An error occurred reading export data template",
+                )
+
+        @self.get("/export/queues")
+        def export_queues():
+            try:
+                queue_data = asyncio.run(read_queues())
+                json_dict = convert_queue_data_to_json_dict(queue_data)
+                queue_list = convert_queues_dict_to_list(json_dict)
+                csv_data = export_to_csv(queue_list, "queue_data.csv")
+                output = BytesIO(csv_data.encode())
+                headers = {"Content-Disposition": "attachment; filename=queue_data.csv"}
+                return StreamingResponse(
+                    output, headers=headers, media_type="application/octet-stream"
+                )
+            except Exception as e:
+                logger.exception("An error occurred while exporting:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred while exporting"
+                )
+
+        @self.get("/export/workers")
+        def export_workers():
+            try:
+                worker_data = asyncio.run(read_workers())
+                json_dict = convert_worker_data_to_json_dict(worker_data)
+                df = convert_workers_dict_to_list(json_dict)
+                csv_data = export_to_csv(df, "worker_data.csv")
+                output = BytesIO(csv_data.encode())
+                headers = {
+                    "Content-Disposition": "attachment; filename=worker_data.csv"
+                }
+                headers = {
+                    "Content-Disposition": "attachment; filename=worker_data.csv"
+                }
+                return StreamingResponse(
+                    output, headers=headers, media_type="application/octet-stream"
+                )
+            except Exception as e:
+                logger.exception("An error occurred while exporting:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred while exporting"
+                )
+
+        @self.get("/export/jobs")
+        def export_jobs():
+            try:
+                jobs_data = asyncio.run(read_jobs("all", "all", 1))
+                json_dict = convert_queue_job_registry_stats_to_json_dict(jobs_data)
+                df = convert_queue_job_registry_dict_to_list(json_dict)
+                csv_data = export_to_csv(df, "jobs_data.csv")
+                output = BytesIO(csv_data.encode())
+                headers = {"Content-Disposition": "attachment; filename=jobs_data.csv"}
+                return StreamingResponse(
+                    output, headers=headers, media_type="application/octet-stream"
+                )
+            except Exception as e:
+                logger.exception("An error occurred while exporting:", e)
+                raise HTTPException(
+                    status_code=500, detail="An error occurred while exporting"
+                )
+
+
+def export_to_csv(data: list[dict], filename: str) -> str:
+    if not data:
+        return ""
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=data[0].keys())
+    writer.writeheader()
+    writer.writerows(data)
+    return output.getvalue()
