@@ -1,0 +1,482 @@
+{
+  "name": "Revit PyRevit Job Runner",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-200, 300],
+      "id": "a0000001-0000-0000-0000-000000000001",
+      "name": "Run manually"
+    },
+    {
+      "parameters": {
+        "content": "# Revit / PyRevit Job Runner\nSubmits a pyrevit command to the Windows worker via the `revit` queue, then polls until finished.\n\n**Setup:**\n1. Edit the **Config** node with your script path, model path, and Revit version.\n2. Set `IFC_PIPELINE_URL` and `IFC_PIPELINE_API_KEY` in the **Config** node.\n3. Ensure the Revit RQ worker is running on the Windows machine.",
+        "width": 520,
+        "height": 200,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-220, 40],
+      "id": "a0000001-0000-0000-0000-000000000020",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-api-url",
+              "name": "api_url",
+              "value": "http://api-gateway",
+              "type": "string"
+            },
+            {
+              "id": "cfg-api-key",
+              "name": "api_key",
+              "value": "YOUR_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-command-type",
+              "name": "command_type",
+              "value": "pyrevit",
+              "type": "string"
+            },
+            {
+              "id": "cfg-script-path",
+              "name": "script_path",
+              "value": "C:\\code\\pyRevit Extensions\\pySPF.extension\\test_detach_to_temp.py",
+              "type": "string"
+            },
+            {
+              "id": "cfg-model-path",
+              "name": "model_path",
+              "value": "C:\\Models\\project.rvt",
+              "type": "string"
+            },
+            {
+              "id": "cfg-revit-version",
+              "name": "revit_version",
+              "value": "2025",
+              "type": "string"
+            },
+            {
+              "id": "cfg-timeout",
+              "name": "timeout_seconds",
+              "value": "3600",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [0, 300],
+      "id": "a0000001-0000-0000-0000-000000000002",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_url }}/revit/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.api_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"command_type\": \"{{ $json.command_type }}\",\n  \"script_path\": \"{{ $json.script_path }}\",\n  \"model_path\": \"{{ $json.model_path }}\",\n  \"revit_version\": \"{{ $json.revit_version }}\",\n  \"timeout_seconds\": {{ $json.timeout_seconds }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 300],
+      "id": "a0000001-0000-0000-0000-000000000003",
+      "name": "Submit Revit Job"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pass-job-id",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "pass-api-url",
+              "name": "api_url",
+              "value": "={{ $('Config').item.json.api_url }}",
+              "type": "string"
+            },
+            {
+              "id": "pass-api-key",
+              "name": "api_key",
+              "value": "={{ $('Config').item.json.api_key }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 300],
+      "id": "a0000001-0000-0000-0000-000000000004",
+      "name": "Pass Job ID"
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [660, 300],
+      "id": "a0000001-0000-0000-0000-000000000005",
+      "name": "Wait 10s",
+      "webhookId": "b0000001-0000-0000-0000-000000000005"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.api_url }}/jobs/{{ $json.job_id }}/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.api_key }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300],
+      "id": "a0000001-0000-0000-0000-000000000006",
+      "name": "Poll Job Status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-finished",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "finished",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 300],
+      "id": "a0000001-0000-0000-0000-000000000007",
+      "name": "Finished?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-failed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1320, 460],
+      "id": "a0000001-0000-0000-0000-000000000008",
+      "name": "Failed?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "keep-job-id",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "keep-api-url",
+              "name": "api_url",
+              "value": "={{ $('Config').item.json.api_url }}",
+              "type": "string"
+            },
+            {
+              "id": "keep-api-key",
+              "name": "api_key",
+              "value": "={{ $('Config').item.json.api_key }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1540, 620],
+      "id": "a0000001-0000-0000-0000-000000000009",
+      "name": "Loop Back"
+    },
+    {
+      "parameters": {
+        "content": "## Job Succeeded\nThe `result` field contains:\n- `success`: true\n- `exit_code`: 0\n- `stdout` / `stderr`\n- `started_at` / `finished_at`",
+        "width": 300,
+        "height": 140,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1300, 40],
+      "id": "a0000001-0000-0000-0000-000000000021",
+      "name": "Success Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "res-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "res-success",
+              "name": "success",
+              "value": "={{ $json.result.success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "res-exit-code",
+              "name": "exit_code",
+              "value": "={{ $json.result.exit_code }}",
+              "type": "number"
+            },
+            {
+              "id": "res-stdout",
+              "name": "stdout",
+              "value": "={{ $json.result.stdout }}",
+              "type": "string"
+            },
+            {
+              "id": "res-stderr",
+              "name": "stderr",
+              "value": "={{ $json.result.stderr }}",
+              "type": "string"
+            },
+            {
+              "id": "res-started",
+              "name": "started_at",
+              "value": "={{ $json.result.started_at }}",
+              "type": "string"
+            },
+            {
+              "id": "res-finished",
+              "name": "finished_at",
+              "value": "={{ $json.result.finished_at }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 140],
+      "id": "a0000001-0000-0000-0000-000000000010",
+      "name": "Job Succeeded"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err-status",
+              "name": "status",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "err-error",
+              "name": "error",
+              "value": "={{ $json.error }}",
+              "type": "string"
+            },
+            {
+              "id": "err-job-id",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1540, 300],
+      "id": "a0000001-0000-0000-0000-000000000011",
+      "name": "Job Failed"
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Submit Revit Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Revit Job": {
+      "main": [
+        [
+          {
+            "node": "Pass Job ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Job ID": {
+      "main": [
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "Poll Job Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Job Status": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Job Succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failed?": {
+      "main": [
+        [
+          {
+            "node": "Job Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Back": {
+      "main": [
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0
+}
