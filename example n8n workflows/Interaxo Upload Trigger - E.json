@@ -1,0 +1,216 @@
+{
+  "name": "Interaxo Upload Trigger - E",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "folder",
+        "path": "/interaxo/Project-Phase/E/Export",
+        "events": [
+          "change",
+          "add"
+        ],
+        "options": {
+          "usePolling": true
+        }
+      },
+      "id": "b1e00001-0001-4001-8001-000000000001",
+      "name": "Local File Trigger",
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ifc-filter",
+              "leftValue": "={{ $json.path }}",
+              "rightValue": ".ifc",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1e00001-0001-4001-8001-000000000002",
+      "name": "Only IFC Files",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "file_path",
+              "name": "file_path",
+              "value": "={{ $json.path }}",
+              "type": "string"
+            },
+            {
+              "id": "target_folder_id",
+              "name": "target_folder_id",
+              "value": "00000000-0000-0000-0000-000000000001",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1e00001-0001-4001-8001-000000000003",
+      "name": "Config E",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "yopwHcALjgTlLtHO",
+          "cachedResultName": "Interaxo IFC Upload"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "file_path": "={{ $json.file_path }}",
+            "target_folder_id": "={{ $json.target_folder_id }}"
+          },
+          "matchingColumns": [
+            "file_path",
+            "target_folder_id"
+          ],
+          "schema": [
+            {
+              "id": "file_path",
+              "displayName": "file_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "target_folder_id",
+              "displayName": "target_folder_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "b1e00001-0001-4001-8001-000000000004",
+      "name": "Call Interaxo Upload",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b1e00001-0001-4001-8001-000000000005",
+      "name": "Not IFC - Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        440,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "# Interaxo Upload Trigger - E\nWatches `/interaxo/Project-Phase/E/Export` for IFC file changes.\n\nTarget Interaxo folder: `00000000-0000-0000-0000-000000000001`\n\n**Important:** After importing, update the \"Call Interaxo Upload\" node to point to the imported \"Interaxo IFC Upload\" sub-workflow ID.",
+        "width": 520,
+        "height": 140
+      },
+      "id": "b1e00001-0001-4001-8001-000000000006",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Local File Trigger": {
+      "main": [
+        [
+          {
+            "node": "Only IFC Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only IFC Files": {
+      "main": [
+        [
+          {
+            "node": "Config E",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Not IFC - Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config E": {
+      "main": [
+        [
+          {
+            "node": "Call Interaxo Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

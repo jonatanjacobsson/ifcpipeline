@@ -5,6 +5,12 @@ shared/output/*/*
 # Don't ignore .gitkeep files in any subdirectory
 !**/.gitkeep
 
+# Ignore .NET build output
+bin/
+obj/
+publish/
+revit-worker/RevitWorkerApp.exe
+
 # Ignore Python cache files
 __pycache__/
 *.pyc
