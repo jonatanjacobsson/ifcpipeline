@@ -374,3 +374,175 @@ pre {
   overflow-x: auto;
   max-width: 100%;
 }
+
+/* Result JSON formatting */
+pre.result-json {
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* ── Log Viewer ── */
+.log-viewer {
+  margin-top: 24px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.log-viewer h3 {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 500;
+  border-bottom: 1px solid #eee;
+  background: #f8f8f8;
+}
+
+.log-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 2px solid #e0e0e0;
+  background: #f5f5f5;
+  padding: 0 8px;
+}
+
+.log-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: 'Helvetica Neue', helvetica, sans-serif;
+  font-size: 13px;
+  color: #666;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.log-tab:hover {
+  color: #333;
+  background: #eee;
+}
+
+.log-tab.active {
+  color: #111;
+  border-bottom-color: #333;
+  font-weight: 500;
+}
+
+.log-size {
+  font-size: 11px;
+  color: #999;
+  margin-left: 4px;
+}
+
+.log-toolbar {
+  display: flex;
+  gap: 16px;
+  padding: 6px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+  font-size: 12px;
+  color: #666;
+}
+
+.log-toolbar-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.log-toolbar-item input {
+  cursor: pointer;
+}
+
+#log-content-area {
+  position: relative;
+}
+
+.log-loading {
+  padding: 20px 16px;
+  color: #999;
+  font-style: italic;
+  font-size: 13px;
+}
+
+pre.log-content {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  border-radius: 0 0 10px 10px;
+}
+
+/* ── Log Syntax Highlighting ── */
+.log-line {
+  display: inline;
+}
+
+.log-line-error {
+  background: rgba(255, 70, 70, 0.15);
+  display: block;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+
+.log-line-warning {
+  background: rgba(255, 180, 50, 0.1);
+  display: block;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+
+.log-timestamp {
+  color: #7a7a7a;
+}
+
+.log-level-info {
+  color: #4fc1ff;
+  font-weight: 600;
+}
+
+.log-level-debug {
+  color: #888;
+}
+
+.log-level-warning {
+  color: #e5a64e;
+  font-weight: 600;
+}
+
+.log-level-error {
+  color: #f44747;
+  font-weight: 700;
+}
+
+.log-path {
+  color: #9cdcfe;
+  text-decoration: underline;
+  text-decoration-color: rgba(156, 220, 254, 0.3);
+  text-underline-offset: 2px;
+}
+
+.log-uuid {
+  color: #ce9178;
+}
+
+.log-header {
+  color: #6a9955;
+  font-weight: 600;
+}

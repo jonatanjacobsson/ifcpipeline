@@ -1,0 +1,338 @@
+import glob
+import logging
+import os
+import pickle
+import zlib
+from datetime import datetime
+from typing import Any, List
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from redis import Redis
+from rq.job import Job
+from rq_scheduler import Scheduler
+
+from .queues import get_queues
+
+router = APIRouter()
+
+REVIT_LOGS_DIR = "/uploads/revit-logs"
+
+
+class JobData(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+
+
+class JobDataDetailed(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    enqueued_at: datetime | None
+    ended_at: datetime | None
+    result: Any
+    exc_info: str | None
+    meta: dict
+
+
+class JobLogFile(BaseModel):
+    filename: str
+    size_bytes: int
+    path: str
+
+
+class QueueJobRegistryStats(BaseModel):
+    queue_name: str
+    scheduled: List[JobData]
+    queued: List[JobData]
+    started: List[JobData]
+    failed: List[JobData]
+    deferred: List[JobData]
+    finished: List[JobData]
+
+
+logger = logging.getLogger(__name__)
+
+
+def _read_job_result(redis_url: str, job_id: str):
+    """Read and unpickle a job result from Redis, handling both raw pickle
+    and zlib-compressed pickle (written by older C# worker builds)."""
+    try:
+        redis = Redis.from_url(redis_url)
+        raw = redis.hget(f"rq:job:{job_id}", "result")
+        if not raw:
+            return None
+        try:
+            result = pickle.loads(raw)
+            return result
+        except Exception:
+            pass
+        try:
+            result = pickle.loads(zlib.decompress(raw))
+            return result
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return None
+
+
+def get_job_logs(job_id: str) -> List[JobLogFile]:
+    """Find all log files on disk associated with a job ID."""
+    logs = []
+    pattern = os.path.join(REVIT_LOGS_DIR, f"{job_id}-*")
+    for path in sorted(glob.glob(pattern)):
+        fname = os.path.basename(path)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        logs.append(JobLogFile(filename=fname, size_bytes=size, path=path))
+    return logs
+
+
+def get_job_registrys(
+    redis_url: str,
+    queue_name: str = "all",
+    state: str = "all",
+    page: int = 1,
+    per_page: int = 10,
+) -> List[QueueJobRegistryStats]:
+    try:
+        redis = Redis.from_url(redis_url)
+        scheduler = Scheduler(connection=redis)
+        queues = get_queues(redis_url)
+        result = []
+
+        start_index = (page - 1) * per_page
+        end_index = start_index + per_page
+
+        for queue in queues:
+            if queue_name == "all" or queue_name == queue.name:
+                jobs = []
+
+                if state == "all":
+                    jobs.extend(queue.get_job_ids())
+                    jobs.extend(queue.finished_job_registry.get_job_ids())
+                    jobs.extend(queue.failed_job_registry.get_job_ids())
+                    jobs.extend(queue.started_job_registry.get_job_ids())
+                    jobs.extend(queue.deferred_job_registry.get_job_ids())
+                    jobs.extend(queue.scheduled_job_registry.get_job_ids())
+                else:
+                    if state == "scheduled":
+                        jobs.extend(queue.scheduled_job_registry.get_job_ids())
+                    elif state == "queued":
+                        jobs.extend(queue.get_job_ids())
+                    elif state == "finished":
+                        jobs.extend(queue.finished_job_registry.get_job_ids())
+                    elif state == "failed":
+                        jobs.extend(queue.failed_job_registry.get_job_ids())
+                    elif state == "started":
+                        jobs.extend(queue.started_job_registry.get_job_ids())
+                    elif state == "deferred":
+                        jobs.extend(queue.deferred_job_registry.get_job_ids())
+
+                scheduled_jobs = []
+                scheduled = scheduler.get_jobs()
+
+                for job in scheduled:
+                    if job.origin == queue.name and job.id not in scheduled_jobs:
+                        scheduled_jobs.append(
+                            JobData(
+                                id=job.id,
+                                name=job.description,
+                                created_at=job.created_at,
+                            )
+                        )
+
+                jobs_fetched = Job.fetch_many(jobs, connection=redis)
+                started_jobs = []
+                failed_jobs = []
+                deferred_jobs = []
+                finished_jobs = []
+                queued_jobs = []
+
+                jobs = jobs_fetched[start_index:end_index]
+                for job in jobs:
+                    if job is None:
+                        continue
+                    status = job.get_status()
+                    if status == "started":
+                        started_jobs.append(
+                            JobData(
+                                id=job.id,
+                                name=job.description,
+                                created_at=job.created_at,
+                            )
+                        )
+                    elif status == "failed":
+                        failed_jobs.append(
+                            JobData(
+                                id=job.id,
+                                name=job.description,
+                                created_at=job.created_at,
+                            )
+                        )
+                    elif status == "deferred":
+                        deferred_jobs.append(
+                            JobData(
+                                id=job.id,
+                                name=job.description,
+                                created_at=job.created_at,
+                            )
+                        )
+                    elif status == "finished":
+                        finished_jobs.append(
+                            JobData(
+                                id=job.id,
+                                name=job.description,
+                                created_at=job.created_at,
+                            )
+                        )
+                    elif status == "queued":
+                        queued_jobs.append(
+                            JobData(
+                                id=job.id,
+                                name=job.description,
+                                created_at=job.created_at,
+                            )
+                        )
+
+                result.append(
+                    QueueJobRegistryStats(
+                        queue_name=queue.name,
+                        scheduled=scheduled_jobs,
+                        queued=queued_jobs,
+                        started=started_jobs,
+                        failed=failed_jobs,
+                        deferred=deferred_jobs,
+                        finished=finished_jobs,
+                    )
+                )
+
+        return result
+    except Exception as error:
+        logger.exception("Error fetching job registries: ", error)
+        raise HTTPException(
+            status_code=500, detail=str("Error fetching job registries")
+        )
+
+
+def get_jobs(
+    redis_url: str, queue_name: str = "all", state: str = "all", page: int = 1
+) -> list[QueueJobRegistryStats]:
+    try:
+        job_stats = get_job_registrys(redis_url, queue_name, state, page)
+        return job_stats
+    except Exception as error:
+        logger.exception("Error fetching job data: ", error)
+        raise HTTPException(status_code=500, detail=str("Error fetching job data"))
+
+
+def get_job(redis_url: str, job_id: str) -> JobDataDetailed:
+    try:
+        redis = Redis.from_url(redis_url)
+        job = Job.fetch(job_id, connection=redis)
+
+        # Use our zlib-aware reader instead of job.result directly
+        result = _read_job_result(redis_url, job_id)
+        if result is None:
+            result = job.result
+
+        return JobDataDetailed(
+            id=job.id,
+            name=job.description,
+            created_at=job.created_at,
+            enqueued_at=job.enqueued_at,
+            ended_at=job.ended_at,
+            result=result,
+            exc_info=job.exc_info,
+            meta=job.meta,
+        )
+    except Exception as error:
+        logger.exception("Error fetching job: ", error)
+        raise HTTPException(status_code=500, detail=str("Error fetching job"))
+
+
+def delete_job_id(redis_url: str, job_id: str):
+    try:
+        redis = Redis.from_url(redis_url)
+        job = Job.fetch(job_id, connection=redis)
+        if job:
+            job.delete()
+    except Exception as error:
+        logger.exception("Error deleting specific job: ", error)
+        raise HTTPException(status_code=500, detail=str("Error deleting specific job"))
+
+
+def requeue_job_id(redis_url: str, job_id: str):
+    try:
+        redis = Redis.from_url(redis_url)
+        job = Job.fetch(job_id, connection=redis)
+        if job:
+            job.requeue()
+    except Exception as error:
+        logger.exception("Error reloading specific job: ", error)
+        raise HTTPException(status_code=500, detail=str("Error reloading specific job"))
+
+
+def convert_queue_job_registry_stats_to_json_dict(
+    job_data: List[QueueJobRegistryStats],
+) -> list[dict]:
+    try:
+        job_stats_dict = {}
+
+        for job_stats in job_data:
+
+            def job_data_to_dict(job_data: JobData):
+                return {
+                    "id": job_data.id,
+                    "name": job_data.name,
+                    "created_at": job_data.created_at.isoformat(),
+                }
+
+            stats_dict = {
+                "scheduled": [job_data_to_dict(job) for job in job_stats.scheduled],
+                "queued": [job_data_to_dict(job) for job in job_stats.queued],
+                "started": [job_data_to_dict(job) for job in job_stats.started],
+                "failed": [job_data_to_dict(job) for job in job_stats.failed],
+                "deferred": [job_data_to_dict(job) for job in job_stats.deferred],
+                "finished": [job_data_to_dict(job) for job in job_stats.finished],
+            }
+            job_stats_dict[job_stats.queue_name] = stats_dict
+            queue_stats_list = [job_stats_dict]
+
+        return queue_stats_list
+    except Exception as error:
+        logger.exception(
+            "Error converting queue job registry stats list to JSON dictionary: ", error
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error converting queue job registry stats list to JSON dictionary",
+        )
+
+
+def convert_queue_job_registry_dict_to_list(input_data: list[dict]) -> list[dict]:
+    job_details = []
+    try:
+        for queue_dict in input_data:
+            for queue_name, queue_data in queue_dict.items():
+                for status, jobs in queue_data.items():
+                    for job in jobs:
+                        job_info = {
+                            "id": job["id"],
+                            "queue_name": queue_name,
+                            "status": status,
+                            "job_name": job["name"],
+                            "created_at": job["created_at"],
+                        }
+                        job_details.append(job_info)
+        return job_details
+    except Exception as error:
+        logger.exception("Error converting job registry stats dict to list: ", error)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error converting job registry stats dict to list",
+        )
