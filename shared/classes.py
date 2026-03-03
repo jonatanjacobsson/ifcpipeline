@@ -1,12 +1,44 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Any, Dict
 from datetime import datetime
 from enum import Enum
 
+# Safe filename: alphanumeric, dot, underscore, hyphen only (no path traversal, shell metacharacters, or injection)
+SAFE_FILENAME_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+# Safe path: like filename but allows / for path segments; rejects ..
+SAFE_PATH_PATTERN = re.compile(r"^(?!.*\.\.)[a-zA-Z0-9._/-]+$")
+
+
+def _validate_safe_filename(v: str) -> str:
+    if not v or not SAFE_FILENAME_PATTERN.match(v):
+        raise ValueError(
+            "Invalid filename: only letters, numbers, dots, underscores, and hyphens allowed"
+        )
+    return v
+
+
+def _validate_safe_path(v: str) -> str:
+    if not v:
+        raise ValueError("Path cannot be empty")
+    if ".." in v or ";" in v or "`" in v or "|" in v or "$" in v or "&" in v:
+        raise ValueError("Path contains invalid or dangerous characters")
+    for part in v.split("/"):
+        if part and not SAFE_FILENAME_PATTERN.match(part):
+            raise ValueError("Path contains invalid characters")
+    return v
+
+
 class ProcessRequest(BaseModel):
     filename: str
     operation: str
-    
+
+    @field_validator("filename")
+    @classmethod
+    def validate_filename(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+
 class IfcConvertRequest(BaseModel):
     input_filename: str
     output_filename: str
@@ -23,7 +55,20 @@ class IfcConvertRequest(BaseModel):
     include: Optional[List[str]] = None
     exclude: Optional[List[str]] = None
     log_file: Optional[str] = None
-    
+
+    @field_validator("input_filename", "output_filename")
+    @classmethod
+    def validate_filenames(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+    @field_validator("log_file")
+    @classmethod
+    def validate_log_file(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
+
 class IfcCsvRequest(BaseModel):
     filename: str
     output_filename: str
@@ -33,15 +78,35 @@ class IfcCsvRequest(BaseModel):
     query: str = "IfcProduct"
     attributes: List[str] = ["Name", "Description"]
 
+    @field_validator("filename", "output_filename")
+    @classmethod
+    def validate_filenames(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+
 class IfcCsvImportRequest(BaseModel):
     ifc_filename: str
     csv_filename: str
     output_filename: str = None
 
+    @field_validator("ifc_filename", "csv_filename", "output_filename")
+    @classmethod
+    def validate_filenames(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
+
 class ClashFile(BaseModel):
     file: str
     selector: Optional[str] = None
-    mode: Optional[str] = 'e'
+    mode: Optional[str] = "e"
+
+    @field_validator("file")
+    @classmethod
+    def validate_file(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
 
 class ClashSet(BaseModel):
     name: str
@@ -64,11 +129,22 @@ class IfcClashRequest(BaseModel):
     check_all: bool = False
     allow_touching: bool = False
 
+    @field_validator("output_filename")
+    @classmethod
+    def validate_output_filename(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+
 class IfcTesterRequest(BaseModel):
     ifc_filename: str
     ids_filename: str
     output_filename: str
     report_type: str = "json"
+
+    @field_validator("ifc_filename", "ids_filename", "output_filename")
+    @classmethod
+    def validate_filenames(cls, v: str) -> str:
+        return _validate_safe_path(v)
 
 
 class IfcDiffRequest(BaseModel):
@@ -79,12 +155,30 @@ class IfcDiffRequest(BaseModel):
     is_shallow: bool = True
     filter_elements: Optional[str] = None
 
+    @field_validator("old_file", "new_file", "output_file")
+    @classmethod
+    def validate_files(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+
 class IFC2JSONRequest(BaseModel):
     filename: str
     output_filename: str
 
+    @field_validator("filename", "output_filename")
+    @classmethod
+    def validate_filenames(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+
 class DownloadRequest(BaseModel):
     file_path: str
+
+    @field_validator("file_path")
+    @classmethod
+    def validate_file_path(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
 
 class DownloadLink(BaseModel):
     file_path: str
@@ -95,9 +189,25 @@ class IfcQtoRequest(BaseModel):
     input_file: str
     output_file: Optional[str] = None
 
+    @field_validator("input_file", "output_file")
+    @classmethod
+    def validate_files(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
+
 class DownloadUrlRequest(BaseModel):
     url: str
     output_filename: Optional[str] = None  # Optional path to save the file to, if not provided it will use the filename from the URL
+
+    @field_validator("output_filename")
+    @classmethod
+    def validate_output_filename(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
 
 class IfcClassifyRequest(BaseModel):
     category: str
@@ -132,7 +242,31 @@ class IfcPatchRequest(BaseModel):
     recipe: str = Field(..., description="Recipe name (built-in or custom)")
     arguments: Optional[List[Any]] = Field(default=[], description="Recipe-specific arguments")
     use_custom: bool = Field(default=False, description="Whether to use custom recipe")
-    
+
+    @field_validator("input_file", "output_file")
+    @classmethod
+    def validate_paths(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+    @field_validator("recipe")
+    @classmethod
+    def validate_recipe(cls, v: str) -> str:
+        return _validate_safe_filename(v)
+
+    @field_validator("arguments")
+    @classmethod
+    def validate_arguments(cls, v: Optional[List[Any]]) -> Optional[List[Any]]:
+        if v is None:
+            return v
+        # Block shell metacharacters; allow natural text including & for international content
+        dangerous = set(";`$|")
+        for i, arg in enumerate(v):
+            if isinstance(arg, str) and any(c in arg for c in dangerous):
+                raise ValueError(
+                    f"Argument at index {i} contains invalid or dangerous characters"
+                )
+        return v
+
     class Config:
         json_schema_extra = {
             "example": {

@@ -254,6 +254,6 @@ Part of the IFC Pipeline project.
 
 ## Author
 
-IFC Pipeline Team  
+Jonatan Jacobsson  
 Date: 2025-01-27
 

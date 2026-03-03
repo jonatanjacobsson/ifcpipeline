@@ -16,7 +16,7 @@ This design supports weekly IFC workflows where **one task = one model update/re
 - **Recipe Name**: MergeTasksFromPrevious
 - **Version**: 0.3.2
 - **Category**: Project Management / Change Tracking
-- **Author**: IFC Pipeline Team
+- **Author**: Jonatan Jacobsson
 - **Date**: 2025-10-14
 - **Status**: Production Ready
 
@@ -692,5 +692,5 @@ Found a bug or have a feature request? Please document your use case and example
 
 **Version**: 0.3.2  
 **Last Updated**: 2025-10-14  
-**Maintained By**: IFC Pipeline Team
+**Maintained By**: Jonatan Jacobsson
 

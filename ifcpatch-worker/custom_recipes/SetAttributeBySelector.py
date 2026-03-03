@@ -6,7 +6,7 @@ Supports multiple operations with literal values or dynamic extraction using 'fr
 
 Recipe Name: SetAttributeBySelector
 Description: Set attributes on IFC elements using selector syntax
-Author: IFC Pipeline Team
+Author: Jonatan Jacobsson
 Date: 2025-01-27
 
     Example Usage (Literal Values):

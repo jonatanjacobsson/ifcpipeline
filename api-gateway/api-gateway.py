@@ -85,12 +85,14 @@ def load_config():
     # Default configuration
     default_config = {
         'api_keys': ["USE_ENV_VAR"],
-        'allowed_ip_ranges': ['127.0.0.1/32']  # Default to localhost only
+        'allowed_ip_ranges': ['127.0.0.1/32'],  # Default to localhost only
+        'docker_gateway_ips': ['172.18.0.1']   # Docker bridge gateway - external traffic arrives via this IP
     }
     
     # Load configuration from environment variables
     env_api_key = os.getenv('IFC_PIPELINE_API_KEY')
     env_allowed_ip_ranges = os.getenv('IFC_PIPELINE_ALLOWED_IP_RANGES')
+    env_docker_gateway = os.getenv('DOCKER_GATEWAY_IP')
     
     config = default_config.copy()
     
@@ -101,8 +103,13 @@ def load_config():
     
     # Add IP ranges from environment if available
     if env_allowed_ip_ranges:
-        config['allowed_ip_ranges'] = env_allowed_ip_ranges.split(',')
+        config['allowed_ip_ranges'] = [r.strip() for r in env_allowed_ip_ranges.split(',') if r.strip()]
         logger.info(f"Allowed IP ranges loaded from environment: {config['allowed_ip_ranges']}")
+    
+    # Docker gateway IPs are never whitelisted - external traffic arrives via bridge gateway
+    if env_docker_gateway:
+        config['docker_gateway_ips'] = [ip.strip() for ip in env_docker_gateway.split(',') if ip.strip()]
+        logger.info(f"Docker gateway IPs (deny-list for IP whitelist): {config['docker_gateway_ips']}")
     
     # Log configuration (with redacted API keys)
     safe_config = config.copy()
@@ -117,6 +124,7 @@ def load_config():
 config = load_config()
 API_KEYS = config.get('api_keys', [])
 ALLOWED_IP_RANGES = [ipaddress.ip_network(cidr) for cidr in config.get('allowed_ip_ranges', [])]
+DOCKER_GATEWAY_IPS = {ipaddress.ip_address(ip) for ip in config.get('docker_gateway_ips', [])}
 ALLOWED_UPLOADS: Dict[str, Dict[str, str]] = {
     "ifc": {"dir": "/uploads", "extensions": [".ifc"]},
     "ids": {"dir": "/uploads", "extensions": [".ids"]},
@@ -138,23 +146,18 @@ if os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL"):
     cors_origins.append(os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL"))
 
 # Add additional origins from environment variable (comma-separated)
+# Use IFC_PIPELINE_CORS_ORIGINS for local dev (e.g. http://localhost:5173)
 additional_origins = os.environ.get("IFC_PIPELINE_CORS_ORIGINS", "")
 if additional_origins:
     cors_origins.extend([origin.strip() for origin in additional_origins.split(",") if origin.strip()])
-
-# Add local development origins
-cors_origins.extend([
-    "http://172.26.121.78:5173",  # Local dev viewer
-    "http://localhost:5173",      # Local dev fallback
-])
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*", "Content-Disposition"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
+    expose_headers=["Content-Disposition"],
     max_age=3600,
 )
 
@@ -166,24 +169,32 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
     client_ip = ipaddress.ip_address(request.client.host)
     logger.info(f"Access attempt from IP: {client_ip}")
     
-    # Debug log for troubleshooting IP ranges
+    # Docker bridge gateway IP(s) - external traffic arrives via this, never whitelist
+    if client_ip in DOCKER_GATEWAY_IPS:
+        logger.info(f"IP {client_ip} is Docker gateway (external traffic), requiring API key")
+        if not api_key:
+            logger.warning(f"Access denied to {client_ip} (Docker gateway - API key required)")
+            raise HTTPException(status_code=403, detail="API key required")
+        if api_key not in API_KEYS:
+            logger.warning(f"Access denied to {client_ip} (Docker gateway - Invalid API key)")
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        logger.info(f"Access granted to {client_ip} (Valid API key)")
+        return True
+    
+    # Check if IP is in allowed ranges (internal Docker containers, localhost)
     for ip_range in ALLOWED_IP_RANGES:
-        logger.info(f"Checking if {client_ip} is in allowed range {ip_range}")
         if client_ip in ip_range:
             logger.info(f"Access granted to {client_ip} (IP in allowed range {ip_range})")
             return True
     
+    # Not in allowed range, require API key
     logger.info(f"IP {client_ip} not in any allowed ranges, checking API key")
-    
-    # Only check API key if not from allowed IP range
     if not api_key:
         logger.warning(f"Access denied to {client_ip} (No API key provided and not in allowed IP range)")
         raise HTTPException(status_code=403, detail="API key required")
-    
     if api_key not in API_KEYS:
         logger.warning(f"Access denied to {client_ip} (Invalid API key and not in allowed IP range)")
         raise HTTPException(status_code=403, detail="Invalid API key")
-    
     logger.info(f"Access granted to {client_ip} (Valid API key)")
     return True
 
@@ -191,6 +202,13 @@ async def verify_access(request: Request, api_key: str = Depends(api_key_header)
 async def get_aiohttp_session():
     timeout = ClientTimeout(total=3600) # Set a reasonable timeout for downloads
     return aiohttp.ClientSession(timeout=timeout)
+
+def validate_input_file_exists(filename: str, base_dir: str = "/uploads") -> None:
+    """Validate that an input file exists before enqueuing. Prevents wasted worker jobs."""
+    path = os.path.join(base_dir, os.path.basename(filename))
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"Input file not found: {filename}")
+
 
 def validate_url_for_ssrf(url: str) -> None:
     """Validate URL to prevent SSRF attacks."""
@@ -354,6 +372,7 @@ async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.input_filename)
         # Enqueue job to the dedicated ifcconvert worker queue
         job = ifcconvert_queue.enqueue(
             "tasks.run_ifcconvert",  # Points directly to function in /app/tasks.py for ifcconvert-worker
@@ -380,6 +399,7 @@ async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.filename)
         # Enqueue job to the dedicated ifccsv worker queue
         job = ifccsv_queue.enqueue(
             "tasks.run_ifc_to_csv_conversion", # Points to function in /app/tasks.py for ifccsv-worker
@@ -406,6 +426,8 @@ async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verif
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.ifc_filename)
+        validate_input_file_exists(request.csv_filename)
         # Enqueue job to the dedicated ifccsv worker queue
         job = ifccsv_queue.enqueue(
             "tasks.run_csv_to_ifc_import", # Points to function in /app/tasks.py for ifccsv-worker
@@ -432,6 +454,11 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
+        for clash_set in request.clash_sets:
+            for cf in clash_set.a + clash_set.b:
+                path = cf.file if cf.file.startswith("/") else os.path.join("/uploads", cf.file)
+                if not os.path.exists(path):
+                    raise HTTPException(status_code=404, detail=f"Input file not found: {cf.file}")
         # Use the direct function path to the worker task
         job = ifcclash_queue.enqueue(
             "tasks.run_ifcclash_detection",  # Points directly to function in /app/tasks.py
@@ -458,6 +485,8 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.ifc_filename)
+        validate_input_file_exists(request.ids_filename)
         # Use the correct path now that tasks.py is directly in /app for this worker
         job = ifctester_queue.enqueue(
             "tasks.run_ifctester_validation", # Correct path relative to /app
@@ -484,6 +513,8 @@ async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.old_file)
+        validate_input_file_exists(request.new_file)
         # Enqueue job to the dedicated ifcdiff worker queue
         job = ifcdiff_queue.enqueue(
             "tasks.run_ifcdiff",  # Points to function in /app/tasks.py for ifcdiff-worker
@@ -510,6 +541,7 @@ async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.filename)
         # Enqueue job to the dedicated ifc2json worker queue
         job = ifc2json_queue.enqueue(
             "tasks.run_ifc_to_json_conversion", # Points to function in /app/tasks.py for ifc2json-worker
@@ -551,6 +583,7 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.input_file)
         # Enqueue job to the dedicated ifc5d worker queue
         job = ifc5d_queue.enqueue(
             "tasks.run_qto_calculation", # Points to function in /app/tasks.py for ifc5d-worker
@@ -781,6 +814,7 @@ async def execute_patch(request: IfcPatchRequest, _: str = Depends(verify_access
         dict: A dictionary containing the job ID.
     """
     try:
+        validate_input_file_exists(request.input_file)
         job = ifcpatch_queue.enqueue(
             "tasks.run_ifcpatch",
             request.dict(),
@@ -1071,17 +1105,28 @@ async def classify_batch(request: IfcClassifyBatchRequest, _: str = Depends(veri
         raise HTTPException(status_code=500, detail=f"Batch classification failed: {str(e)}")
 
 
+def _sanitize_proxy_path(path: str) -> str:
+    """Reject path traversal and dangerous path components."""
+    if ".." in path or path.startswith("/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    for part in path.split("/"):
+        if part in (".", "..") or "\\" in part:
+            raise HTTPException(status_code=404, detail="Not found")
+    return path
+
+
 # Viewer routes - serve the IFC viewer at token URLs
 @app.get("/{token}")
 async def viewer_with_token_direct(token: str):
     """
     Serve the IFC viewer directly at the token URL (e.g., /token123).
-    The viewer will parse the token from the URL path.
+    Only valid download tokens are allowed - token must exist in download_links.
     """
-    # Validate that this looks like a token (not another API endpoint)
-    if (len(token) < 20 or 
-        token in ["docs", "openapi.json", "health", "create_download_link", "download"] or
-        "." in token):
+    if token not in download_links:
+        raise HTTPException(status_code=404, detail="Not found")
+    download_link = download_links[token]
+    if datetime.now() > download_link.expiry:
+        del download_links[token]
         raise HTTPException(status_code=404, detail="Not found")
     
     try:
@@ -1124,6 +1169,7 @@ async def viewer_assets(path: str):
     Serve viewer assets (CSS, JS, etc.)
     """
     try:
+        _sanitize_proxy_path(path)
         async with httpx.AsyncClient(follow_redirects=True) as client:
             req = client.build_request(
                 "GET",
@@ -1163,6 +1209,7 @@ async def viewer_node_modules(path: str):
     Serve node_modules assets (including WebWorkers)
     """
     try:
+        _sanitize_proxy_path(path)
         async with httpx.AsyncClient(follow_redirects=True) as client:
             req = client.build_request(
                 "GET",
