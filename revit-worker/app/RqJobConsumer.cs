@@ -6,7 +6,7 @@ using System.IO.Compression;
 namespace RevitWorkerApp;
 
 /// <summary>
-/// RQ-compatible job consumer. Reads jobs from an RQ queue via BRPOP,
+/// RQ-compatible job consumer. Reads jobs from an RQ queue via LPOP (FIFO),
 /// unpickles the job data, and pickles results back -- full compatibility
 /// with the Python RQ ecosystem without needing Python installed.
 /// </summary>
@@ -22,12 +22,13 @@ public sealed class RqJobConsumer
     }
 
     /// <summary>
-    /// Blocking pop from the RQ queue. Returns the job ID or null on timeout.
+    /// Pop from the RQ queue (FIFO). Returns the job ID or null if empty.
+    /// RQ enqueues with RPUSH, so LPOP gives first-in-first-out ordering.
     /// </summary>
     public string? DequeueJob(int timeoutSeconds = 5)
     {
         var key = $"rq:queue:{_queueName}";
-        var result = _db.ListRightPop(key);
+        var result = _db.ListLeftPop(key);
         return result.HasValue ? result.ToString() : null;
     }
 

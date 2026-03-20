@@ -44,7 +44,7 @@ public static class TaskRunner
         List<string> cmd;
         try
         {
-            cmd = BuildCommand(commandType, scriptPath, arguments, modelPath, revitVersion, batchFile);
+            cmd = BuildCommand(commandType, scriptPath, arguments, modelPath, revitVersion, batchFile, jobId);
         }
         catch (Exception ex)
         {
@@ -437,9 +437,9 @@ public static class TaskRunner
     private static readonly System.Text.RegularExpressions.Regex LogDirLineRegex =
         new(@"(?:^|\n)[^\n]*\bLogs?:\s*([A-Za-z]:\\[^\n""]+\\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    // Matches RTV "Schedule XML: C:\...\RTVXporter_Schedule_<timestamp>.xml" lines
+    // Matches RTV "Schedule XML: C:\...\RTVXporter_Schedule_<timestamp>[_<jobId>].xml" lines (optional JobId suffix for unique matching)
     private static readonly System.Text.RegularExpressions.Regex RtvScheduleXmlRegex =
-        new(@"Schedule XML:\s*[^\n]*\\(RTVXporter_Schedule_(\d{8}_\d{6}))\.xml", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        new(@"Schedule XML:\s*[^\n]*\\(RTVXporter_Schedule_(\d{8}_\d{6})(?:_[^\\\.]+)?)\.xml", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>
     /// Scans stdout for:
@@ -479,10 +479,12 @@ public static class TaskRunner
             catch { }
         }
 
-        // 3. RTV schedule log: derive from the "Schedule XML:" timestamp in stdout
+        // 3. RTV schedule log: derive from the "Schedule XML:" line in stdout (full basename = timestamp + optional _jobId for precise matching)
         foreach (System.Text.RegularExpressions.Match m in RtvScheduleXmlRegex.Matches(stdout))
         {
+            var scheduleBasename = m.Groups[1].Value; // e.g. "20260302_210329" or "20260302_210329_abc12345"
             var timestamp = m.Groups[2].Value; // e.g. "20260302_210329"
+            var addedForThisMatch = false;
             try
             {
                 var rtvBase = Path.Combine(
@@ -495,8 +497,23 @@ public static class TaskRunner
                     var logsDir = Path.Combine(versionDir, "R1.0", "enu", "Schedule Logs");
                     if (!Directory.Exists(logsDir)) continue;
 
-                    foreach (var file in Directory.GetFiles(logsDir, $"*{timestamp}*.log"))
+                    // Prefer logs matching full schedule basename (timestamp + jobId) for precise job-to-log association
+                    foreach (var file in Directory.GetFiles(logsDir, $"*{scheduleBasename}*.log"))
+                    {
                         found.TryAdd(Path.GetFileNameWithoutExtension(file), file);
+                        addedForThisMatch = true;
+                    }
+                }
+                // If no log contains full basename (e.g. RTV names logs with timestamp only), fall back to timestamp
+                if (!addedForThisMatch)
+                {
+                    foreach (var versionDir in Directory.GetDirectories(rtvBase, "Xporter Pro 20*"))
+                    {
+                        var logsDir = Path.Combine(versionDir, "R1.0", "enu", "Schedule Logs");
+                        if (!Directory.Exists(logsDir)) continue;
+                        foreach (var file in Directory.GetFiles(logsDir, $"*{timestamp}*.log"))
+                            found.TryAdd(Path.GetFileNameWithoutExtension(file), file);
+                    }
                 }
             }
             catch { }
@@ -567,7 +584,7 @@ public static class TaskRunner
     }
 
     private static List<string> BuildCommand(string commandType, string scriptPath,
-        List<string> arguments, string? modelPath, string? revitVersion, string? batchFile)
+        List<string> arguments, string? modelPath, string? revitVersion, string? batchFile, string? jobId)
     {
         var cmd = new List<string>();
         switch (commandType)
@@ -581,6 +598,7 @@ public static class TaskRunner
             case "rtv":
                 cmd.AddRange(["powershell.exe", "-ExecutionPolicy", "Bypass", "-NonInteractive", "-File", scriptPath]);
                 if (!string.IsNullOrEmpty(batchFile)) cmd.AddRange(["-BatchFile", batchFile]);
+                if (!string.IsNullOrEmpty(jobId)) cmd.AddRange(["-JobId", jobId]);
                 cmd.AddRange(arguments);
                 break;
             case "powershell":

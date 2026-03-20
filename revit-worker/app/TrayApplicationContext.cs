@@ -119,7 +119,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             var s = AppSettings.Load();
             if (!string.IsNullOrEmpty(s.RedisUrl) && _redisMonitor.IsConnected && _redisMonitor.Connection != null)
             {
-                _processManager.Configure(s.RedisUrl, s.QueueNames);
+                _processManager.Configure(s.RedisUrl, s.QueueNames, s.JobStartDelaySeconds);
                 _processManager.SetConnection(_redisMonitor.Connection);
                 for (var i = 0; i < s.ClampedWorkerCount; i++)
                     _processManager.AddWorker();

@@ -17,6 +17,11 @@ public sealed class WorkerProcessManager : IDisposable
 
     private readonly Dictionary<string, WorkerState> _workerStates = new();
 
+    // Start gate: ensures minimum spacing between job starts across all workers
+    private readonly object _startGateLock = new();
+    private DateTime _nextAllowedStart = DateTime.MinValue;
+    private int _jobStartDelaySeconds = AppSettings.DefaultJobStartDelaySeconds;
+
     public event EventHandler<WorkerStatusEventArgs>? WorkerStatusChanged;
     public event EventHandler<JobAcceptedEventArgs>? JobAccepted;
     public event EventHandler<WorkerErrorEventArgs>? WorkerError;
@@ -32,11 +37,12 @@ public sealed class WorkerProcessManager : IDisposable
         get { lock (_lock) return _workerStates.Values.Any(s => s.IsBusy); }
     }
 
-    public void Configure(string redisUrl, string queueNames)
+    public void Configure(string redisUrl, string queueNames, int jobStartDelaySeconds = AppSettings.DefaultJobStartDelaySeconds)
     {
         _queueName = string.IsNullOrWhiteSpace(queueNames)
             ? AppSettings.DefaultQueueNames
             : queueNames.Trim().Split(',')[0].Trim();
+        _jobStartDelaySeconds = Math.Max(0, jobStartDelaySeconds);
     }
 
     public void SetConnection(ConnectionMultiplexer connection)
@@ -172,6 +178,35 @@ public sealed class WorkerProcessManager : IDisposable
                 }
 
                 AppLog.Info($"[{workerName}] Job {jobId}: unpickled OK, command_type={jobData.GetValueOrDefault("command_type")}");
+
+                // Start gate: stagger job starts so two workers never launch at the same moment
+                TimeSpan waitTime;
+                lock (_startGateLock)
+                {
+                    var now = DateTime.UtcNow;
+                    if (now < _nextAllowedStart)
+                        waitTime = _nextAllowedStart - now;
+                    else
+                        waitTime = TimeSpan.Zero;
+                    var startAt = now > _nextAllowedStart ? now : _nextAllowedStart;
+                    _nextAllowedStart = startAt + TimeSpan.FromSeconds(_jobStartDelaySeconds);
+                }
+                if (waitTime > TimeSpan.Zero)
+                {
+                    var remainingMs = (int)waitTime.TotalMilliseconds;
+                    AppLog.Info($"[{workerName}] Job {jobId}: start-delay {remainingMs / 1000.0:F1}s (stagger)");
+                    while (remainingMs > 0 && !token.IsCancellationRequested)
+                    {
+                        var sec = (remainingMs + 999) / 1000;
+                        SetState(workerName, false, jobId);
+                        RaiseStatus(workerName, $"start-delay ({sec}s)", jobId);
+                        var sleepMs = Math.Min(1000, remainingMs);
+                        Thread.Sleep(sleepMs);
+                        remainingMs -= sleepMs;
+                    }
+                    if (token.IsCancellationRequested) continue;
+                }
+
                 consumer.MarkStarted(jobId, workerName);
                 AppLog.Info($"[{workerName}] Job {jobId}: [STARTED]");
                 consumer.SetWorkerState(workerName, "busy", jobId);

@@ -414,7 +414,7 @@ public sealed class MainForm : Form
             _settings.ApiKey = string.IsNullOrWhiteSpace(_txtApiKey.Text) ? null : _txtApiKey.Text.Trim();
             _settings.Save();
 
-            _trayContext.ProcessManager.Configure(url, _settings.QueueNames);
+            _trayContext.ProcessManager.Configure(url, _settings.QueueNames, _settings.JobStartDelaySeconds);
             _trayContext.ProcessManager.SetConnection(_trayContext.RedisMonitor.Connection!);
 
             _btnConnect.Text = "Reconnect";

@@ -27,6 +27,11 @@ public sealed class AppSettings
     [JsonPropertyName("api_key")]
     public string? ApiKey { get; set; }
 
+    [JsonPropertyName("job_start_delay_seconds")]
+    public int JobStartDelaySeconds { get; set; } = DefaultJobStartDelaySeconds;
+
+    public const int DefaultJobStartDelaySeconds = 5;
+
     private static string GetSettingsPath()
     {
         var exeDir = AppContext.BaseDirectory;
