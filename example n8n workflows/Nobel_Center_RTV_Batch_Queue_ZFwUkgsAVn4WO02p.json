@@ -1,0 +1,402 @@
+{
+  "name": "Nobel Center RTV Batch Queue",
+  "id": "ZFwUkgsAVn4WO02p",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-880, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Run manually"
+    },
+    {
+      "parameters": {
+        "content": "# Nobel Center RTV Batch Queue\n\nRuns **17** SharePoint-synced `.rbxml` batches **one at a time** via `POST /revit/execute` (`command_type: rtv`).\n\n**Setup**\n1. **Import** `IfcPipeline_Wait_for_jobs_x3P3yJUD2I2W1LOF.json` first (workflow id `x3P3yJUD2I2W1LOF`), install **`n8n-nodes-ifcpipeline`**, and assign **IFC Pipeline** credential on **File Operations1**.\n2. **Config**: `api_url`, `api_key`, `script_path` (`Run-RTVXporterBatch.ps1` on the Revit worker), `timeout_seconds`.\n3. `test_only` = **true** runs **only the first** batch (smoke test).\n\n**Wait for jobs**: Uses **Execute Workflow** → *IfcPipeline: Wait for jobs* (Interaxo parity with Process RVT) instead of raw HTTP polling.\n\n**Optional**: Add `arguments` / `-ModelFile` on **Submit RTV Job** if your rbxml needs it.",
+        "width": 580,
+        "height": 480,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-920, -200],
+      "id": "a1b2c3d4-0001-4000-8000-000000000020",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-api-url",
+              "name": "api_url",
+              "value": "http://api-gateway",
+              "type": "string"
+            },
+            {
+              "id": "cfg-api-key",
+              "name": "api_key",
+              "value": "YOUR_API_KEY",
+              "type": "string"
+            },
+            {
+              "id": "cfg-script-path",
+              "name": "script_path",
+              "value": "C:\\Users\\Nattugglan\\Nobel Center\\Syncpoint - General\\Pipeline\\RTV Config\\Run-RTVXporterBatch.ps1",
+              "type": "string"
+            },
+            {
+              "id": "cfg-timeout",
+              "name": "timeout_seconds",
+              "value": "7200",
+              "type": "number"
+            },
+            {
+              "id": "cfg-test-only",
+              "name": "test_only",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-640, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000002",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const base = $input.first().json;\nconst paths = [\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\SP1-Batch - PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\SP1-Batch.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\DWG-A1.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\DWG-VECKANSPLANER-A1.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\E1-Batch - PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\E1-Batch.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\K1-standard.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\LA-Batch - PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\LA-Batch.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\MEP-Batch - M1 PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\MEP-Batch - P1 PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\MEP-Batch.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\PL-Batch - PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\PL-Batch.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\S2-Batch - DWG.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\S2-Batch - PDF.rbxml',\n  'C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\\\\S2-Batch.rbxml'\n];\nconst testOnly = base.test_only === true || base.test_only === 'true';\nconst list = testOnly ? paths.slice(0, 1) : paths;\nreturn list.map((batch_file) => ({ json: { ...base, batch_file } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-400, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000021",
+      "name": "Build batch list"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [-160, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000022",
+      "name": "One batch at a time"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_url }}/revit/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $json.api_key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"command_type\": \"rtv\",\n  \"script_path\": \"{{ $json.script_path }}\",\n  \"batch_file\": \"{{ $json.batch_file }}\",\n  \"timeout_seconds\": {{ $json.timeout_seconds }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000003",
+      "name": "Submit RTV Job"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pass-job-id",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "pass-api-url",
+              "name": "api_url",
+              "value": "={{ $('Config').item.json.api_url }}",
+              "type": "string"
+            },
+            {
+              "id": "pass-api-key",
+              "name": "api_key",
+              "value": "={{ $('Config').item.json.api_key }}",
+              "type": "string"
+            },
+            {
+              "id": "pass-batch-file",
+              "name": "batch_file",
+              "value": "={{ $('One batch at a time').item.json.batch_file }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [300, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000004",
+      "name": "Pass Job ID"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "x3P3yJUD2I2W1LOF",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/x3P3yJUD2I2W1LOF",
+          "cachedResultName": "IfcPipeline: Wait for jobs"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{ $json.job_id }}"
+          },
+          "matchingColumns": ["job_id"],
+          "schema": [
+            {
+              "id": "job_id",
+              "displayName": "job_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [520, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000030",
+      "name": "Call IfcPipeline: Wait for jobs",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const j = $input.first().json;\nconst batch_file = $('Pass Job ID').item.json.batch_file;\nlet ok = false;\nif (j.error) ok = false;\nelse if (j.status === 'failed') ok = false;\nelse if (j.status === 'finished' && j.result && j.result.success !== false) ok = true;\nreturn [{ json: { ...j, batch_file, ok } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000031",
+      "name": "Check job outcome"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [960, 300],
+      "id": "a1b2c3d4-0001-4000-8000-000000000032",
+      "name": "Job OK?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "res-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "res-success",
+              "name": "success",
+              "value": "={{ $json.result.success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "res-exit-code",
+              "name": "exit_code",
+              "value": "={{ $json.result.exit_code }}",
+              "type": "number"
+            },
+            {
+              "id": "res-batch",
+              "name": "batch_file",
+              "value": "={{ $json.batch_file }}",
+              "type": "string"
+            },
+            {
+              "id": "res-stdout",
+              "name": "stdout",
+              "value": "={{ $json.result.stdout }}",
+              "type": "string"
+            },
+            {
+              "id": "res-stderr",
+              "name": "stderr",
+              "value": "={{ $json.result.stderr }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1180, 180],
+      "id": "a1b2c3d4-0001-4000-8000-000000000010",
+      "name": "Job Succeeded"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err-status",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "err-error",
+              "name": "error",
+              "value": "={{ $json.error || ($json.result && $json.result.error) || 'RTV job did not complete successfully' }}",
+              "type": "string"
+            },
+            {
+              "id": "err-job-id",
+              "name": "job_id",
+              "value": "={{ $json.job_id || $('Pass Job ID').item.json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "err-batch",
+              "name": "batch_file",
+              "value": "={{ $json.batch_file }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1180, 420],
+      "id": "a1b2c3d4-0001-4000-8000-000000000011",
+      "name": "Job Failed"
+    },
+    {
+      "parameters": {
+        "content": "## All batches finished\n\nOutput **1** of **One batch at a time** fires when every batch in this run has been processed (success or fail path loops back until the queue is empty).",
+        "width": 360,
+        "height": 160,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 520],
+      "id": "a1b2c3d4-0001-4000-8000-000000000023",
+      "name": "Sticky Note Done"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "done-msg",
+              "name": "message",
+              "value": "All Nobel Center RTV batches in this run have been processed.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [80, 640],
+      "id": "a1b2c3d4-0001-4000-8000-000000000024",
+      "name": "All batches done"
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [[{ "node": "Build batch list", "type": "main", "index": 0 }]]
+    },
+    "Build batch list": {
+      "main": [[{ "node": "One batch at a time", "type": "main", "index": 0 }]]
+    },
+    "One batch at a time": {
+      "main": [
+        [{ "node": "Submit RTV Job", "type": "main", "index": 0 }],
+        [{ "node": "All batches done", "type": "main", "index": 0 }]
+      ]
+    },
+    "Submit RTV Job": {
+      "main": [[{ "node": "Pass Job ID", "type": "main", "index": 0 }]]
+    },
+    "Pass Job ID": {
+      "main": [[{ "node": "Call IfcPipeline: Wait for jobs", "type": "main", "index": 0 }]]
+    },
+    "Call IfcPipeline: Wait for jobs": {
+      "main": [[{ "node": "Check job outcome", "type": "main", "index": 0 }]]
+    },
+    "Check job outcome": {
+      "main": [[{ "node": "Job OK?", "type": "main", "index": 0 }]]
+    },
+    "Job OK?": {
+      "main": [
+        [{ "node": "Job Succeeded", "type": "main", "index": 0 }],
+        [{ "node": "Job Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Job Succeeded": {
+      "main": [[{ "node": "One batch at a time", "type": "main", "index": 0 }]]
+    },
+    "Job Failed": {
+      "main": [[{ "node": "One batch at a time", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0
+}
