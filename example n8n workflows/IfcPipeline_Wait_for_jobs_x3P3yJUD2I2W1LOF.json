@@ -1,0 +1,350 @@
+{
+  "updatedAt": "2026-03-27T10:28:31.273Z",
+  "createdAt": "2026-02-27T22:36:38.574Z",
+  "id": "x3P3yJUD2I2W1LOF",
+  "name": "IfcPipeline: Wait for jobs",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## IfcPipeline: Wait for jobs (sub-workflow)\n\n**Self-hosted setup**\n1. Install community package **`n8n-nodes-ifcpipeline`** (IFC Pipeline node).\n2. Create credential **IFC Pipeline account** (base URL + API key for your gateway) and assign it to **File Operations1**.\n3. Keep workflow id **`x3P3yJUD2I2W1LOF`** when importing, or update **Execute Workflow** callers (e.g. Nobel Center RTV Batch Queue) to the new id.\n\nPolls job status via **`getJobStatus`** until `finished` / `failed` / error.",
+        "width": 520,
+        "height": 280,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -400
+      ],
+      "id": "sticky-wait-jobs-readme",
+      "name": "Readme self-hosted"
+    },
+    {
+      "parameters": {
+        "operation": "getJobStatus",
+        "jobId": "={{ $json.job_id }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        816,
+        128
+      ],
+      "id": "d14e165e-b294-419e-8f98-1ae71fd4499a",
+      "name": "File Operations1",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        512,
+        112
+      ],
+      "id": "a6a3c7bf-1e94-4ffb-b56a-f4b073e27292",
+      "name": "Wait for each Clash job"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "started",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "df5109a7-5412-4402-8704-d96145e59cb7"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "started"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3fc2385c-7bea-45b7-bd6b-31513b5a9ce4",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "queued",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "queued"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c1646764-ec6f-49ff-ad22-9df61bc4197b",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "97a6e528-42ca-44cb-be13-442414d87d27",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "finished",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "finished"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "21d7a6cf-b9d6-42ba-bcde-baf573de49e5",
+                    "leftValue": "={{ $json.error }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "error"
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": true
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        256,
+        -16
+      ],
+      "id": "5f27b08c-2322-49c4-a56f-4f0d5cd64850",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        -80
+      ],
+      "id": "cb0f065c-95d1-4ad7-9227-fedc7cd4deb7",
+      "name": "Wait 10s",
+      "webhookId": "53b7c51d-2ee3-43d3-92d1-54cec032c6d3"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "job_id",
+              "type": "any"
+            }
+          ]
+        }
+      },
+      "id": "8fe8a07f-6e5d-4d8c-9ea1-6a1b119b6534",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        256,
+        -272
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        -176
+      ],
+      "id": "83f3472c-fe61-4814-b937-cc5491fc1b38",
+      "name": "No Operation, do nothing"
+    }
+  ],
+  "connections": {
+    "Wait for each Clash job": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "File Operations1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "File Operations1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Operations1": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for each Clash job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for each Clash job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for each Clash job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Wait for each Clash job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
