@@ -40,6 +40,7 @@ from shared.classes import (
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
+from shared import object_storage as s3
 from rq import Queue
 from rq.job import Job, JobStatus
 from rq.worker import Worker
@@ -210,10 +211,18 @@ async def get_aiohttp_session():
     return aiohttp.ClientSession(timeout=timeout)
 
 def validate_input_file_exists(filename: str, base_dir: str = "/uploads") -> None:
-    """Validate that an input file exists before enqueuing. Prevents wasted worker jobs."""
+    """Validate that an input file exists before enqueuing. Prevents wasted worker jobs.
+
+    When object storage is enabled, also accept files that only exist in the bucket.
+    """
     path = os.path.join(base_dir, os.path.basename(filename))
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail=f"Input file not found: {filename}")
+    if os.path.exists(path):
+        return
+    if s3.is_enabled():
+        key = s3.build_upload_key(os.path.basename(filename))
+        if s3.object_exists(key):
+            return
+    raise HTTPException(status_code=404, detail=f"Input file not found: {filename}")
 
 
 def validate_url_for_ssrf(url: str) -> None:
@@ -687,15 +696,35 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
     
     upload_dir = upload_config["dir"]
     file_path = os.path.join(upload_dir, file.filename)
-    
+
     try:
         os.makedirs(upload_dir, exist_ok=True)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return {
+
+        response = {
             "message": f"{file_type.upper()} file {file.filename} uploaded successfully",
-            "file_path": file_path
+            "file_path": file_path,
         }
+
+        if s3.is_enabled():
+            try:
+                s3.ensure_bucket()
+                key = s3.build_upload_key(file.filename)
+                s3.upload_from_path(file_path, key)
+                response.update({
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "object_key": key,
+                    "object_url": f"s3://{s3.bucket_name()}/{key}",
+                })
+            except Exception as e:
+                logger.error(f"Object-storage upload failed for {file.filename}: {e}")
+                raise HTTPException(status_code=500, detail=f"Object storage upload failed: {e}")
+
+        return response
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 

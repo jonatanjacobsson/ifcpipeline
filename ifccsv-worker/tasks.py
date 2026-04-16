@@ -4,162 +4,214 @@ import ifcopenshell
 import ifcopenshell.util.selector
 import ifccsv
 from shared.classes import IfcCsvRequest, IfcCsvImportRequest
+from shared import object_storage as s3
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def run_ifc_to_csv_conversion(job_data: dict) -> dict:
-    """
-    Convert an IFC file to CSV/XLSX/ODS format based on the request.
-    
-    Args:
-        job_data: Dictionary containing job parameters conforming to IfcCsvRequest.
-        
-    Returns:
-        Dictionary containing the conversion results.
+    """Convert IFC → CSV/XLSX/ODS.
+
+    With object storage enabled, the input IFC is pulled from the bucket at
+    `uploads/<filename>` and the result is pushed to `output/<format>/<output_filename>`.
+    The legacy filesystem layout is preserved otherwise.
     """
     try:
         request = IfcCsvRequest(**job_data)
-        logger.info(f"Starting IFC to {request.format.upper()} conversion for {request.filename}")
+        logger.info(
+            "Starting IFC→%s conversion for %s (object_storage=%s)",
+            request.format.upper(), request.filename, s3.is_enabled(),
+        )
 
-        models_dir = "/uploads" # Standard mount point
-        output_dir = f"/output/{request.format}" # Target dir based on format
-        file_path = os.path.join(models_dir, request.filename)
-        output_path = os.path.join(output_dir, request.output_filename)
+        if s3.is_enabled():
+            return _run_export_s3(request)
+        return _run_export_filesystem(request)
 
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Validate input file existence
-        if not os.path.exists(file_path):
-            logger.error(f"Input IFC file not found: {file_path}")
-            raise FileNotFoundError(f"Input IFC file {request.filename} not found")
-
-        # Open IFC model
-        model = ifcopenshell.open(file_path)
-        
-        # Filter elements if a query is provided
-        if request.query:
-            logger.info(f"Filtering elements with query: {request.query}")
-            elements = ifcopenshell.util.selector.filter_elements(model, request.query)
-        else:
-            logger.info("No query provided, processing all applicable elements")
-            elements = model.by_type("IfcProduct") # Default to IfcProduct if no query?
-            # Consider if a default is needed or if ifccsv handles None elements.
-            # If ifccsv requires elements, this might need adjustment.
-            
-        logger.info(f"Processing {len(elements)} elements with attributes: {request.attributes}")
-        
-        # Perform conversion using ifccsv library
-        ifc_csv_converter = ifccsv.IfcCsv()
-        ifc_csv_converter.export(model, elements, request.attributes)
-
-        # Export to the requested format
-        logger.info(f"Exporting data to {output_path} in {request.format.upper()} format")
-        if request.format == "csv":
-            ifc_csv_converter.export_csv(output_path, delimiter=request.delimiter)
-        elif request.format == "ods":
-            # Ensure dependencies for ODS are installed (usually handled by ifccsv/pandas extras)
-            ifc_csv_converter.export_ods(output_path)
-        elif request.format == "xlsx":
-            # Ensure dependencies for XLSX are installed (openpyxl)
-            ifc_csv_converter.export_xlsx(output_path)
-        else:
-            raise ValueError(f"Unsupported format specified: {request.format}")
-
-        # Prepare result structure (potentially large, consider implications)
-        result_data = {
-            "headers": ifc_csv_converter.headers,
-            "results": ifc_csv_converter.results # This might be very large!
-            # Consider if returning the full results is always necessary or just the path?
-        }
-        
-        logger.info(f"Successfully converted {request.filename} to {output_path}")
-        return {
-            "success": True, 
-            "message": f"Successfully converted to {request.format.upper()}",
-            "output_path": output_path,
-            # "result_data": result_data # Decide whether to include raw data
-            }
-
-    except FileNotFoundError as e:
-        logger.error(f"File not found error during IFC to CSV conversion: {str(e)}", exc_info=True)
+    except FileNotFoundError:
+        logger.exception("Input file missing")
         raise
-    except Exception as e:
-        logger.error(f"Error during IFC to CSV conversion: {str(e)}", exc_info=True)
-        raise # Re-raise for RQ failure
+    except Exception:
+        logger.exception("Error during IFC→CSV conversion")
+        raise
+
+
+def _run_export_s3(request: IfcCsvRequest) -> dict:
+    input_key = s3.build_upload_key(request.filename)
+    output_key = s3.build_output_key(request.format, request.output_filename)
+    suffix = os.path.splitext(request.filename)[1] or ".ifc"
+
+    with s3.download_to_tempfile(input_key, suffix=suffix) as ifc_tmp:
+        model = ifcopenshell.open(ifc_tmp)
+        elements = (
+            ifcopenshell.util.selector.filter_elements(model, request.query)
+            if request.query else model.by_type("IfcProduct")
+        )
+        logger.info("Processing %d elements with %s", len(elements), request.attributes)
+
+        out_suffix = os.path.splitext(request.output_filename)[1] or f".{request.format}"
+        import tempfile
+        fd, out_tmp = tempfile.mkstemp(suffix=out_suffix)
+        os.close(fd)
+        try:
+            converter = ifccsv.IfcCsv()
+            converter.export(model, elements, request.attributes)
+            if request.format == "csv":
+                converter.export_csv(out_tmp, delimiter=request.delimiter)
+            elif request.format == "ods":
+                converter.export_ods(out_tmp)
+            elif request.format == "xlsx":
+                converter.export_xlsx(out_tmp)
+            else:
+                raise ValueError(f"Unsupported format: {request.format}")
+            s3.upload_from_path(out_tmp, output_key)
+        finally:
+            try:
+                os.remove(out_tmp)
+            except FileNotFoundError:
+                pass
+
+    return {
+        "success": True,
+        "message": f"Successfully converted to {request.format.upper()}",
+        "storage": "s3",
+        "bucket": s3.bucket_name(),
+        "output_key": output_key,
+        "output_path": f"s3://{s3.bucket_name()}/{output_key}",
+    }
+
+
+def _run_export_filesystem(request: IfcCsvRequest) -> dict:
+    models_dir = "/uploads"
+    output_dir = f"/output/{request.format}"
+    file_path = os.path.join(models_dir, request.filename)
+    output_path = os.path.join(output_dir, request.output_filename)
+
+    os.makedirs(output_dir, exist_ok=True)
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Input IFC file {request.filename} not found")
+
+    model = ifcopenshell.open(file_path)
+    elements = (
+        ifcopenshell.util.selector.filter_elements(model, request.query)
+        if request.query else model.by_type("IfcProduct")
+    )
+    logger.info("Processing %d elements with %s", len(elements), request.attributes)
+
+    converter = ifccsv.IfcCsv()
+    converter.export(model, elements, request.attributes)
+    if request.format == "csv":
+        converter.export_csv(output_path, delimiter=request.delimiter)
+    elif request.format == "ods":
+        converter.export_ods(output_path)
+    elif request.format == "xlsx":
+        converter.export_xlsx(output_path)
+    else:
+        raise ValueError(f"Unsupported format: {request.format}")
+
+    return {
+        "success": True,
+        "message": f"Successfully converted to {request.format.upper()}",
+        "storage": "filesystem",
+        "output_path": output_path,
+    }
+
 
 def run_csv_to_ifc_import(job_data: dict) -> dict:
-    """
-    Import changes from a CSV/XLSX/ODS file back into an IFC model.
-    
-    Args:
-        job_data: Dictionary containing job parameters conforming to IfcCsvImportRequest.
-        
-    Returns:
-        Dictionary containing the import results.
+    """Import CSV/XLSX/ODS changes back into an IFC.
+
+    S3 mode: IFC pulled from `uploads/<ifc_filename>`, data from
+    `output/<csv_filename>` (same legacy layout, just re-keyed), result pushed
+    to `output/ifc_updated/<output_filename or derived>`.
     """
     try:
         request = IfcCsvImportRequest(**job_data)
-        logger.info(f"Starting import from {request.csv_filename} into {request.ifc_filename}")
-        
-        models_dir = "/uploads" # Source IFC file
-        data_input_dir = "/output" # Assuming CSV/XLSX/ODS comes from a previous output
-        ifc_output_dir = "/output/ifc_updated" # Separate dir for modified IFCs
+        logger.info(
+            "Starting import from %s into %s (object_storage=%s)",
+            request.csv_filename, request.ifc_filename, s3.is_enabled(),
+        )
 
-        # Construct full paths
-        ifc_path = os.path.join(models_dir, request.ifc_filename)
-        # Determine data file path (could be csv, xlsx, ods)
-        # We might need the format in the request or infer from filename
-        data_path = os.path.join(data_input_dir, request.csv_filename)
-        
-        # Determine output path
-        if request.output_filename:
-            output_ifc_path = os.path.join(ifc_output_dir, request.output_filename)
-        else:
-            # Default to overwriting in the output dir with a modified name
-            base, ext = os.path.splitext(request.ifc_filename)
-            output_ifc_path = os.path.join(ifc_output_dir, f"{base}_updated{ext}")
+        if s3.is_enabled():
+            return _run_import_s3(request)
+        return _run_import_filesystem(request)
 
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(output_ifc_path), exist_ok=True)
-
-        # Validate input files existence
-        if not os.path.exists(ifc_path):
-            logger.error(f"Input IFC file not found: {ifc_path}")
-            raise FileNotFoundError(f"Input IFC file {request.ifc_filename} not found")
-        if not os.path.exists(data_path):
-             logger.error(f"Input data file not found: {data_path}")
-             raise FileNotFoundError(f"Input data file {request.csv_filename} not found")
-
-        # Open the IFC model
-        logger.info(f"Opening IFC model: {ifc_path}")
-        model = ifcopenshell.open(ifc_path)
-        
-        # Create IfcCsv instance and import changes
-        logger.info(f"Importing data from: {data_path}")
-        ifc_csv_importer = ifccsv.IfcCsv()
-        
-        # The ifccsv library's Import method seems to expect a CSV path specifically.
-        # We might need to check the file extension or add format info to request.
-        # Assuming it can handle different delimiters based on file extension or pandas.
-        ifc_csv_importer.Import(model, data_path) # Verify if this handles XLSX/ODS or needs format hint
-        
-        # Write the updated model
-        logger.info(f"Writing updated IFC model to: {output_ifc_path}")
-        model.write(output_ifc_path)
-        
-        logger.info(f"Successfully imported data from {request.csv_filename} into {output_ifc_path}")
-        return {
-            "success": True,
-            "message": "Data changes successfully imported to IFC model",
-            "output_path": output_ifc_path
-        }
-        
-    except FileNotFoundError as e:
-        logger.error(f"File not found error during CSV to IFC import: {str(e)}", exc_info=True)
+    except FileNotFoundError:
+        logger.exception("Input file missing")
         raise
-    except Exception as e:
-        logger.error(f"Error importing data changes to IFC: {str(e)}", exc_info=True)
-        raise # Re-raise for RQ failure 
+    except Exception:
+        logger.exception("Error importing CSV→IFC")
+        raise
+
+
+def _derive_updated_name(ifc_filename: str, output_filename: str | None) -> str:
+    if output_filename:
+        return output_filename
+    base, ext = os.path.splitext(ifc_filename)
+    return f"{base}_updated{ext}"
+
+
+def _run_import_s3(request: IfcCsvImportRequest) -> dict:
+    import tempfile
+
+    ifc_key = s3.build_upload_key(request.ifc_filename)
+    # Treat csv_filename as a key under output/ (matches legacy data_input_dir=/output)
+    csv_key = request.csv_filename.lstrip("/")
+    if not csv_key.startswith("output/"):
+        csv_key = f"output/{csv_key}"
+    out_name = _derive_updated_name(request.ifc_filename, request.output_filename)
+    out_key = s3.build_output_key("ifc_updated", out_name)
+
+    with s3.download_to_tempfile(ifc_key, suffix=".ifc") as ifc_tmp, \
+         s3.download_to_tempfile(csv_key, suffix=os.path.splitext(request.csv_filename)[1] or ".csv") as data_tmp:
+        model = ifcopenshell.open(ifc_tmp)
+        importer = ifccsv.IfcCsv()
+        importer.Import(model, data_tmp)
+
+        fd, out_tmp = tempfile.mkstemp(suffix=".ifc")
+        os.close(fd)
+        try:
+            model.write(out_tmp)
+            s3.upload_from_path(out_tmp, out_key)
+        finally:
+            try:
+                os.remove(out_tmp)
+            except FileNotFoundError:
+                pass
+
+    return {
+        "success": True,
+        "message": "Data changes successfully imported to IFC model",
+        "storage": "s3",
+        "bucket": s3.bucket_name(),
+        "output_key": out_key,
+        "output_path": f"s3://{s3.bucket_name()}/{out_key}",
+    }
+
+
+def _run_import_filesystem(request: IfcCsvImportRequest) -> dict:
+    models_dir = "/uploads"
+    data_input_dir = "/output"
+    ifc_output_dir = "/output/ifc_updated"
+
+    ifc_path = os.path.join(models_dir, request.ifc_filename)
+    data_path = os.path.join(data_input_dir, request.csv_filename)
+    out_name = _derive_updated_name(request.ifc_filename, request.output_filename)
+    output_ifc_path = os.path.join(ifc_output_dir, out_name)
+
+    os.makedirs(os.path.dirname(output_ifc_path), exist_ok=True)
+    if not os.path.exists(ifc_path):
+        raise FileNotFoundError(f"Input IFC file {request.ifc_filename} not found")
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"Input data file {request.csv_filename} not found")
+
+    model = ifcopenshell.open(ifc_path)
+    importer = ifccsv.IfcCsv()
+    importer.Import(model, data_path)
+    model.write(output_ifc_path)
+
+    return {
+        "success": True,
+        "message": "Data changes successfully imported to IFC model",
+        "storage": "filesystem",
+        "output_path": output_ifc_path,
+    }
