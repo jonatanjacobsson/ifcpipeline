@@ -1,0 +1,12 @@
+# Minimal slice for the object-storage PoC smoke test.
+# Only builds MinIO + Redis + Postgres + api-gateway + the two workers we
+# converted. Everything else from docker-compose.yml is ignored because it's
+# not selected on the CLI (see deploy-test.sh).
+services:
+  api-gateway:
+    depends_on:
+      - ifccsv-worker
+      - ifctester-worker
+      - redis
+      - minio-setup
+    # Slim the image for the test: no viewer, no heavy workers needed.

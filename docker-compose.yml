@@ -8,7 +8,7 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     ports:
-      - "8000:80"
+      - "8100:80"
     depends_on:
       - ifccsv-worker
       - ifctester-worker
@@ -16,6 +16,7 @@ services:
       - ifcpatch-worker
       - redis
       - ifc-viewer
+      - minio-setup
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -25,12 +26,17 @@ services:
       - IFC_PIPELINE_EXTERNAL_URL=${IFC_PIPELINE_EXTERNAL_URL}
       - IFC_PIPELINE_PREVIEW_EXTERNAL_URL=${IFC_PIPELINE_PREVIEW_EXTERNAL_URL}
       - REDIS_URL=redis://redis:6379/0
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
       - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
-      - interaxo:/interaxo
     restart: unless-stopped
     deploy:
       resources:
@@ -45,7 +51,7 @@ services:
       args:
         - VITE_API_BASE=${IFC_PIPELINE_EXTERNAL_URL}
     ports:
-      - "8001:3000"
+      - "8101:3000"
     restart: unless-stopped
     deploy:
       resources:
@@ -84,10 +90,52 @@ services:
           cpus: '0.3'
           memory: 256M
 
+  # --- Object storage (S3-compatible) -------------------------------------
+  minio:
+    image: quay.io/minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # One-shot: wait for MinIO, create the bucket if missing.
+  minio-setup:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      set -e;
+      until mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin} >/dev/null 2>&1; do
+        echo 'waiting for minio...'; sleep 1;
+      done;
+      mc mb --ignore-existing local/${S3_BUCKET:-ifcpipeline};
+      echo 'bucket ready: ${S3_BUCKET:-ifcpipeline}';
+      "
+    restart: "no"
+
   rq-dashboard:
     image: hannes221/rq-dashboard-fast:latest
     ports:
-      - "9181:8000"
+      - "9281:8000"
     environment:
       - REDIS_URL=redis://redis:6379/
       - FASTAPI_PORT=8000
@@ -110,7 +158,7 @@ services:
   dozzle:
     image: amir20/dozzle:latest
     ports:
-      - "9182:8080"
+      - "9282:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -157,7 +205,6 @@ services:
       - ./shared/output:/output
       - ./shared/examples:/examples
       - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
-      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -166,11 +213,11 @@ services:
       - redis
     restart: unless-stopped
     deploy:
-      replicas: 3
+      replicas: 1
       resources:
         limits:
           cpus: '1.0'
-          memory: 8G
+          memory: 2G
 
   ifcconvert-worker:
     build:
@@ -198,8 +245,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '8'
-          memory: 8G
+          cpus: '4'
+          memory: 4G
 
   ifcclash-worker:
     build:
@@ -228,9 +275,10 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: '4.0'
-          memory: '12G'
+          cpus: '2.0'
+          memory: '4G'
 
+  # ---- Converted to object storage (PoC) ----
   ifccsv-worker:
     build:
       context: .
@@ -241,13 +289,19 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
-      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
+      - minio-setup
     restart: unless-stopped
     deploy:
       resources:
@@ -265,7 +319,6 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
-      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -275,15 +328,23 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
       - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.3'
+          cpus: '0.5'
           memory: 1G
+  # -------------------------------------------
 
   ifcdiff-worker:
     build:
@@ -295,7 +356,6 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
-      - interaxo:/interaxo
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
@@ -314,8 +374,7 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: '16G'
-    memswap_limit: '24G'
+          memory: '4G'
 
   ifc2json-worker:
     build:
@@ -361,7 +420,7 @@ services:
     image: docker.n8n.io/n8nio/n8n
     user: "1000:1000"
     ports:
-      - "5678:5678"
+      - "5778:5678"
     networks:
       - default
     volumes:
@@ -369,7 +428,6 @@ services:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
       - ./shared/examples:/examples
-      - interaxo:/interaxo
     environment:
       - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
@@ -381,8 +439,7 @@ services:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
       - NODES_EXCLUDE="[]"
-      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples;/interaxo
-      # PostgreSQL SSL settings
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - PGSSLMODE=disable
     depends_on:
@@ -397,7 +454,7 @@ services:
 
   postgres:
     image: postgres:14
-    container_name: ifc_pipeline_postgres
+    container_name: ifc_pipeline_postgres_objectstorage
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
@@ -442,12 +499,7 @@ volumes:
   redis-data:
   postgres-data:
   pgadmin-data:
-  interaxo:
-    driver: local
-    driver_opts:
-      type: cifs
-      o: "username=${CIFS_USERNAME},password=${CIFS_PASSWORD},vers=3.1.1,uid=1000,gid=1000,file_mode=0755,dir_mode=0755"
-      device: "//bim-host.example.internal/Client/INTERAXO"
+  minio-data:
 
 networks:
   default:

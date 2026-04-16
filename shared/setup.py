@@ -7,5 +7,6 @@ setup(
     install_requires=[
         "pydantic",
         "psycopg2-binary>=2.9.5",
+        "boto3>=1.34,<2",
     ],
 )
