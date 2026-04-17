@@ -1,5 +1,5 @@
 """
-SetColorBySelector Recipe (V3 - Optimized)
+SetColorBySelector Recipe (V3.2 - Partial-Match Fix)
 
 This custom recipe assigns colors to IFC elements based on selector syntax.
 Supports multiple operations with filter groups and hex color assignments.
@@ -9,6 +9,7 @@ Description: Assign colors to IFC elements using IfcOpenShell selector syntax
 Author: Jonatan Jacobsson
 Date: 2025-01-08
 Updated: 2026-01-16 (V3 optimizations - 13.8x faster)
+Updated: 2026-03-11 (V3.2 - partial-match MappingSource splitting)
 
 Performance Optimizations (V3):
     - Uses ifcopenshell.api.style.assign_representation_styles() bulk API
@@ -124,7 +125,8 @@ class Patcher:
             'styles_created': 0,
             'styles_reused': 0,
             'conflicts_detected': 0,
-            'mapping_sources_duplicated': 0
+            'mapping_sources_duplicated': 0,
+            'mapping_sources_split': 0
         }
         
         # Collect all non-empty operations
@@ -146,7 +148,25 @@ class Patcher:
         """Parse and validate the operation arguments."""
         if not operation_args:
             return []
-        
+
+        # Batch mode: if the only argument is a JSON array string, unpack it so
+        # callers can pass more than 5 operations in a single recipe invocation.
+        if len(operation_args) == 1:
+            first = operation_args[0].strip() if isinstance(operation_args[0], str) else ""
+            if first.startswith('['):
+                try:
+                    ops_list = json.loads(first)
+                    if isinstance(ops_list, list):
+                        operation_args = tuple(
+                            json.dumps(op) if isinstance(op, dict) else str(op)
+                            for op in ops_list
+                        )
+                        self.logger.info(
+                            f"Batch mode: unpacked {len(operation_args)} operation(s) from JSON array"
+                        )
+                except json.JSONDecodeError as e:
+                    self.logger.warning(f"Failed to parse operations JSON array: {e}, falling back to single-arg mode")
+
         validated_operations = []
         
         for idx, operation_json in enumerate(operation_args):
@@ -301,6 +321,29 @@ class Patcher:
                     direct_rep_to_elements[rep].append(elem)
         
         return mapping_source_to_elements, direct_rep_to_elements
+    
+    def _build_mapping_source_index(self):
+        """
+        Build a complete reverse index: MappingSource -> set of ALL elements using it.
+        
+        This scans every IfcProduct in the file (not just selector-matched ones) so we
+        can detect when a MappingSource is shared between matched and unmatched elements.
+        Called once at the start of patch().
+        """
+        ms_to_all_elements = defaultdict(set)
+        for product in self.file.by_type('IfcProduct'):
+            if not hasattr(product, 'Representation') or not product.Representation:
+                continue
+            if not product.Representation.is_a('IfcProductDefinitionShape'):
+                continue
+            for rep in product.Representation.Representations:
+                if not rep.is_a('IfcShapeRepresentation'):
+                    continue
+                if rep.Items:
+                    for item in rep.Items:
+                        if item.is_a('IfcMappedItem'):
+                            ms_to_all_elements[item.MappingSource].add(product)
+        return ms_to_all_elements
     
     def _style_mapping_source(self, mapping_source, style):
         """
@@ -513,7 +556,6 @@ class Patcher:
                 items_needing_duplication.append((item_id, styles_list))
         
         if not items_needing_duplication:
-            self.logger.info("No Item-level conflicts detected")
             return mapping_source_to_operation
         
         self.logger.warning(
@@ -636,7 +678,7 @@ class Patcher:
         mapping_source_to_operations = defaultdict(list)
         direct_rep_to_operations = defaultdict(list)
         
-        self.logger.info("Pass 1: Analyzing operations and detecting conflicts...")
+        self.logger.debug("Pass 1: Analyzing operations and detecting conflicts...")
         
         for idx, operation in enumerate(self.operations):
             selectors_str = operation['selectors']
@@ -692,30 +734,49 @@ class Patcher:
                 for rep, elems in direct_reps.items():
                     direct_rep_to_operations[rep].append((idx, group_idx, style, elems))
         
-        # Resolve MappingSource conflicts (same MS requested by multiple operations)
-        self.logger.info("Resolving MappingSource conflicts...")
+        # Phase 1: Resolve partial matches (MappingSource shared with unmatched elements)
+        # When a selector matches only SOME elements using a MappingSource, we must
+        # duplicate it so styling doesn't bleed onto unmatched elements.
+        self.logger.debug("Resolving partial-match MappingSources...")
+        resolved_ms_to_operations = defaultdict(list)
+        for mapping_source, operations_list in mapping_source_to_operations.items():
+            all_elements = self._ms_to_all_elements.get(mapping_source, set())
+            matched_elements = set()
+            for _, _, _, elems in operations_list:
+                matched_elements.update(elems)
+            
+            if all_elements and matched_elements < all_elements:
+                unmatched_count = len(all_elements) - len(matched_elements)
+                self.stats['mapping_sources_split'] += 1
+                self.logger.debug(
+                    f"Partial match: MappingSource {mapping_source.id()} used by "
+                    f"{len(all_elements)} elements, but only {len(matched_elements)} matched "
+                    f"({unmatched_count} unmatched). Duplicating for matched subset."
+                )
+                for op_idx, group_idx, style, elems in operations_list:
+                    new_ms = self._duplicate_mapping_source(mapping_source, elems)
+                    resolved_ms_to_operations[new_ms].append((op_idx, group_idx, style, elems))
+            else:
+                resolved_ms_to_operations[mapping_source] = operations_list
+        
+        # Phase 2: Resolve inter-operation conflicts (same MS requested by multiple operations)
         mapping_source_to_operation = {}
         direct_rep_to_operation = {}
         
-        # Process MappingSources
-        for mapping_source, operations_list in mapping_source_to_operations.items():
+        for mapping_source, operations_list in resolved_ms_to_operations.items():
             if len(operations_list) == 1:
-                # No conflict, use original MappingSource
                 op_idx, group_idx, style, elems = operations_list[0]
                 mapping_source_to_operation[mapping_source] = (op_idx, style, elems)
             else:
-                # Conflict detected - duplicate MappingSource for each operation/filter group
                 self.stats['conflicts_detected'] += len(operations_list) - 1
                 self.logger.warning(
                     f"Conflict detected: MappingSource {mapping_source.id()} requested by "
                     f"{len(operations_list)} operation(s)/filter group(s). Creating unique copies..."
                 )
                 
-                # Keep first operation/filter group on original MappingSource
                 op_idx, group_idx, style, elems = operations_list[0]
                 mapping_source_to_operation[mapping_source] = (op_idx, style, elems)
                 
-                # Create duplicates for remaining operations/filter groups
                 for op_idx, group_idx, style, elems in operations_list[1:]:
                     new_mapping_source = self._duplicate_mapping_source(mapping_source, elems)
                     mapping_source_to_operation[new_mapping_source] = (op_idx, style, elems)
@@ -739,12 +800,10 @@ class Patcher:
                 direct_rep_to_operation[rep] = (op_idx, style, elems)
         
         if self.stats['conflicts_detected'] > 0:
-            self.logger.info(
+            self.logger.debug(
                 f"Resolved {self.stats['conflicts_detected']} conflict(s) by creating "
                 f"{self.stats['mapping_sources_duplicated']} unique MappingSource(s)"
             )
-        else:
-            self.logger.info("No conflicts detected - all MappingSources are unique per operation")
         
         return mapping_source_to_operation, direct_rep_to_operation
     
@@ -880,17 +939,19 @@ class Patcher:
             self.logger.warning("No valid operations to execute")
             return
         
-        self.logger.info(f"Starting SetColorBySelector with {self.stats['operations_total']} operation(s)")
+        self.logger.debug(f"Starting SetColorBySelector with {self.stats['operations_total']} operation(s)")
         
         # Reset tracking for fresh patch
         self.styled_mapping_sources = set()
         
         try:
+            # Build full reverse index: MappingSource -> all elements (not just matched)
+            self._ms_to_all_elements = self._build_mapping_source_index()
+            
             # Pass 1: Detect and resolve conflicts by duplicating MappingSources
             mapping_source_to_operation, direct_rep_to_operation = self._detect_and_resolve_conflicts()
             
             # Pass 2: Style each MappingSource/Representation once (now all unique, no conflicts)
-            self.logger.info("Pass 2: Styling MappingSources and representations (each styled once, no conflicts)...")
             
             styled_count = 0
             total_items = len(mapping_source_to_operation) + len(direct_rep_to_operation)
@@ -898,7 +959,7 @@ class Patcher:
             # Style MappingSources (using entity references directly)
             for i, (mapping_source, (op_idx, style, elems)) in enumerate(mapping_source_to_operation.items()):
                 if total_items > 100 and (i + 1) % 100 == 0:
-                    self.logger.info(f"Styling MappingSource {i + 1}/{len(mapping_source_to_operation)}")
+                    self.logger.debug(f"Styling MappingSource {i + 1}/{len(mapping_source_to_operation)}")
                 
                 if self._style_mapping_source(mapping_source, style):
                     styled_count += 1
@@ -907,7 +968,7 @@ class Patcher:
             # Style direct representations (using entity references directly)
             for i, (rep, (op_idx, style, elems)) in enumerate(direct_rep_to_operation.items()):
                 if total_items > 100 and (len(mapping_source_to_operation) + i + 1) % 100 == 0:
-                    self.logger.info(f"Styling direct representation {i + 1}/{len(direct_rep_to_operation)}")
+                    self.logger.debug(f"Styling direct representation {i + 1}/{len(direct_rep_to_operation)}")
                 
                 if self._style_representation(rep, style):
                     styled_count += 1
@@ -923,6 +984,7 @@ class Patcher:
                 f"{self.stats['mapping_sources_styled']} MappingSources styled, "
                 f"{self.stats['mapping_sources_skipped']} MappingSources skipped (already styled), "
                 f"{self.stats['representations_styled']} direct reps styled, "
+                f"{self.stats['mapping_sources_split']} MappingSources split (partial match), "
                 f"{self.stats['conflicts_detected']} conflicts detected, "
                 f"{self.stats['mapping_sources_duplicated']} MappingSources duplicated, "
                 f"{self.stats['styles_created']} styles created, "

@@ -103,12 +103,27 @@ if 'ifcopenshell.util.shape_builder' not in sys.modules:
     # Don't raise error here - the fix will be applied lazily when needed
     # This allows tasks.py to load even if the fix didn't work initially
     pass
+import tempfile
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any, get_type_hints, get_origin, get_args
 from shared.classes import IfcPatchRequest, IfcPatchListRecipesRequest
+from shared import object_storage as s3
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
+
+WORKER_NAME = "ifcpatch-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
+
 logger = logging.getLogger(__name__)
 
 # Add custom recipes directory to path
@@ -459,21 +474,28 @@ def run_ifcpatch(job_data: dict) -> dict:
     try:
         request = IfcPatchRequest(**job_data)
         logger.info(f"Starting IfcPatch job: recipe='{request.recipe}', input='{request.input_file}'")
-        
-        # Define paths
-        models_dir = "/uploads"
-        output_dir = "/output/patch"
-        input_path = os.path.join(models_dir, request.input_file)
-        output_path = os.path.join(output_dir, request.output_file)
-        
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Validate input file
-        if not os.path.exists(input_path):
-            logger.error(f"Input IFC file not found: {input_path}")
-            raise FileNotFoundError(f"Input file {request.input_file} not found")
-        
+
+        s3_ctx = None
+        if s3.is_enabled():
+            tmpdir = tempfile.mkdtemp(prefix="ifcpatch-")
+            input_key = s3.normalize_input_key(request.input_file)
+            output_key = s3.normalize_output_key(request.output_file, "patch")
+            input_path = os.path.join(tmpdir, os.path.basename(input_key) or "input.ifc")
+            output_dir = tmpdir
+            output_path = os.path.join(tmpdir, os.path.basename(output_key) or "output.ifc")
+            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=input_key, Filename=input_path)
+            s3_ctx = {"tmpdir": tmpdir, "output_key": output_key, "input_key": input_key}
+            logger.info("[s3] staged ifcpatch input → %s, output → s3://%s/%s", input_path, s3.bucket_name(), output_key)
+        else:
+            models_dir = "/uploads"
+            output_dir = "/output/patch"
+            input_path = os.path.join(models_dir, request.input_file)
+            output_path = os.path.join(output_dir, request.output_file)
+            os.makedirs(output_dir, exist_ok=True)
+            if not os.path.exists(input_path):
+                logger.error(f"Input IFC file not found: {input_path}")
+                raise FileNotFoundError(f"Input file {request.input_file} not found")
+
         logger.info(f"Input file found: {input_path}")
         
         # Load IFC file
@@ -616,7 +638,6 @@ def run_ifcpatch(job_data: dict) -> dict:
         # Write output - use a local temp file first, then copy to the final
         # destination.  This avoids slow streaming writes to network mounts
         # like /interaxo/ (WebDAV/CIFS).
-        import tempfile, shutil
         local_tmp = os.path.join(output_dir, f".tmp_{os.path.basename(output_path)}")
         logger.info(f"Writing output to local temp: {local_tmp}")
         ifcpatch.write(output, local_tmp)
@@ -631,15 +652,44 @@ def run_ifcpatch(job_data: dict) -> dict:
             raise RuntimeError("Output file was not created successfully")
         logger.info(f"IfcPatch completed successfully. Output size: {output_size} bytes")
         
-        return {
+        result = {
             "success": True,
             "message": f"Successfully applied recipe '{request.recipe}'",
             "output_path": output_path,
             "recipe": request.recipe,
             "is_custom": request.use_custom,
             "output_size_bytes": output_size,
-            "arguments_used": request.arguments
+            "arguments_used": request.arguments,
         }
+        if s3_ctx is not None:
+            try:
+                audit = s3.upload_and_audit(
+                    output_path,
+                    key=s3_ctx["output_key"],
+                    operation="ifcpatch",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[("input", s3_ctx["input_key"])],
+                    metadata={
+                        "recipe": request.recipe,
+                        "is_custom": request.use_custom,
+                        "arguments": request.arguments,
+                        "output_size_bytes": output_size,
+                    },
+                    content_type="application/x-step",
+                )
+                result.update({
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "output_key": s3_ctx["output_key"],
+                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
+                    "sha256": audit["sha256"],
+                    "size_bytes": audit["size_bytes"],
+                    "audit_id": audit["audit_id"],
+                })
+            finally:
+                shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
+        return result
     
     except FileNotFoundError as e:
         logger.error(f"File not found error: {str(e)}", exc_info=True)

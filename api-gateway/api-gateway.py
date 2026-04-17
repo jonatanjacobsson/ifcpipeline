@@ -41,6 +41,7 @@ from shared.classes import (
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
 from shared import object_storage as s3
+from shared import audit_db
 from rq import Queue
 from rq.job import Job, JobStatus
 from rq.worker import Worker
@@ -69,6 +70,7 @@ ifcconvert_queue = Queue('ifcconvert', connection=redis_conn)
 ifccsv_queue = Queue('ifccsv', connection=redis_conn)
 ifcclash_queue = Queue('ifcclash', connection=redis_conn)
 ifctester_queue = Queue('ifctester', connection=redis_conn)
+ifclite_queue = Queue('ifclite', connection=redis_conn)
 ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
 ifc2json_queue = Queue('ifc2json', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
@@ -213,13 +215,24 @@ async def get_aiohttp_session():
 def validate_input_file_exists(filename: str, base_dir: str = "/uploads") -> None:
     """Validate that an input file exists before enqueuing. Prevents wasted worker jobs.
 
-    When object storage is enabled, also accept files that only exist in the bucket.
+    When object storage is enabled, accept any path that resolves to an existing
+    S3 key — not just `uploads/<basename>`. This matters for chained pipelines
+    (e.g. `chain/n8n/A1-building-elements.ifc`) where a worker output is fed
+    straight into another recipe: the output key lives under `chain/…` or
+    `output/patch/…`, never under `uploads/`. Previously those were rejected
+    as 404 even though the worker would have downloaded them fine.
     """
     path = os.path.join(base_dir, os.path.basename(filename))
     if os.path.exists(path):
         return
     if s3.is_enabled():
+        # 1) Legacy basename lookup under uploads/
         key = s3.build_upload_key(os.path.basename(filename))
+        if s3.object_exists(key):
+            return
+        # 2) Treat the caller's path as an arbitrary bucket key — same rules
+        #    the workers use via `normalize_input_key`.
+        key = s3.normalize_input_key(filename)
         if s3.object_exists(key):
             return
     raise HTTPException(status_code=404, detail=f"Input file not found: {filename}")
@@ -258,6 +271,7 @@ async def health_check():
         "ifcclash_queue": "waiting",
         "ifccsv_queue": "waiting",
         "ifctester_queue": "waiting",
+        "ifclite_queue": "waiting",
         "ifcdiff_queue": "waiting",
         "ifc5d_queue": "waiting",
         "ifc2json_queue": "waiting",
@@ -286,6 +300,7 @@ async def health_check():
         "ifcclash_queue": ifcclash_queue,
         "ifccsv_queue": ifccsv_queue,
         "ifctester_queue": ifctester_queue,
+        "ifclite_queue": ifclite_queue,
         "ifcdiff_queue": ifcdiff_queue,
         "ifc5d_queue": ifc5d_queue,
         "ifc2json_queue": ifc2json_queue,
@@ -338,28 +353,59 @@ async def health_check():
 
     return {"status": overall_status, "services": health_status}
 
+def _unpickle_result(raw: bytes) -> Optional[dict]:
+    """Try raw pickle then zlib-compressed pickle (legacy C# worker builds)."""
+    for decoder in (lambda b: b, zlib.decompress):
+        try:
+            result = pickle.loads(decoder(raw))
+        except Exception:
+            continue
+        if isinstance(result, dict):
+            return result
+        return {"raw": str(result)}
+    return None
+
+
 def _read_job_result(job_id: str) -> Optional[dict]:
-    """Read and unpickle a job result from Redis, handling both raw pickle
-    and zlib-compressed pickle (written by older C# worker builds)."""
+    """Return the worker's return value for a finished job.
+
+    RQ ≥ 1.12 stores successful return values in a dedicated Redis stream at
+    ``rq:results:<job_id>`` with a ``return_value`` field (pickled). Older RQ
+    releases stored it on the job hash under ``result``. We check both so the
+    gateway keeps working after an RQ upgrade (this is the delta from the
+    original ifcpipeline, which pinned RQ 1.x).
+    """
+    # Preferred path: RQ 2.x results stream via the high-level API.
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+        latest = job.latest_result()
+        if latest is not None and getattr(latest, "return_value", None) is not None:
+            rv = latest.return_value
+            if isinstance(rv, dict):
+                return rv
+            return {"raw": str(rv)}
+    except Exception:
+        pass
+
+    # Direct stream read (bypasses any library-side deserialization quirks).
+    try:
+        entries = redis_conn.xrevrange(f"rq:results:{job_id}", count=1)
+        if entries:
+            _, fields = entries[0]
+            raw = fields.get(b"return_value") or fields.get("return_value")
+            if raw is not None:
+                result = _unpickle_result(raw)
+                if result is not None:
+                    return result
+    except Exception:
+        pass
+
+    # Legacy RQ 1.x layout: single pickle on the job hash.
     raw = redis_conn.hget(f"rq:job:{job_id}", "result")
-    if not raw:
-        return None
-    # Try raw pickle first (normal case)
-    try:
-        result = pickle.loads(raw)
-        if isinstance(result, dict):
+    if raw:
+        result = _unpickle_result(raw)
+        if result is not None:
             return result
-        return {"raw": str(result)}
-    except Exception:
-        pass
-    # Fallback: zlib-decompress then unpickle
-    try:
-        result = pickle.loads(zlib.decompress(raw))
-        if isinstance(result, dict):
-            return result
-        return {"raw": str(result)}
-    except Exception:
-        pass
     return None
 
 
@@ -503,9 +549,7 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
     try:
         for clash_set in request.clash_sets:
             for cf in clash_set.a + clash_set.b:
-                path = cf.file if cf.file.startswith("/") else os.path.join("/uploads", cf.file)
-                if not os.path.exists(path):
-                    raise HTTPException(status_code=404, detail=f"Input file not found: {cf.file}")
+                validate_input_file_exists(cf.file)
         # Use the direct function path to the worker task
         job = ifcclash_queue.enqueue(
             "tasks.run_ifcclash_detection",  # Points directly to function in /app/tasks.py
@@ -547,6 +591,30 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
     except Exception as e:
         logger.error(f"Error enqueueing ifctester job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/ifclite/ids", tags=["Validation"])
+async def ifclite_ids(request: IfcTesterRequest, _: str = Depends(verify_access)):
+    """
+    Validate an IFC file against IDS rules using the IFClite CLI (`ifc-lite ids ... --json`).
+    Request body matches `/ifctester`; output is written under `/output/ids-ifclite/`
+    (filesystem mode) or `output/ids-ifclite/<filename>` in the S3 bucket.
+    """
+    try:
+        validate_input_file_exists(request.ifc_filename)
+        validate_input_file_exists(request.ids_filename)
+        job = ifclite_queue.enqueue(
+            "tasks.run_ifclite_ids_validation",
+            request.dict(),
+            job_timeout="6h",
+            result_ttl=JOB_RESULT_TTL,
+        )
+        logger.info(f"Enqueued ifclite IDS job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifclite IDS job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/ifcdiff", tags=["Diff"])
 async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
@@ -605,18 +673,100 @@ async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
 
 @app.get("/ifc2json/{filename}", tags=["Conversion"])
 async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
-    output_path = f"/uploads/output/json/{filename}"
-    if not os.path.exists(output_path):
-        raise HTTPException(status_code=404, detail=f"File {filename} not found")
-    
-    try:
-        with open(output_path, 'r') as file:
-            json_content = json.load(file)
-        return json_content
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Failed to parse the JSON file")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Fetch the converted JSON. Tries S3 first (when enabled), then falls
+    back to the legacy local path. The `filename` may be a bare name or any
+    path under the `output/json/` hierarchy."""
+    base = os.path.basename(filename)
+
+    if s3.is_enabled():
+        for candidate in (
+            s3.normalize_output_key(filename, "json"),
+            f"output/json/{base}",
+        ):
+            try:
+                if s3.object_exists(candidate):
+                    body = s3.get_client().get_object(
+                        Bucket=s3.bucket_name(), Key=candidate
+                    )["Body"].read()
+                    try:
+                        return json.loads(body.decode("utf-8"))
+                    except json.JSONDecodeError:
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Failed to parse JSON from s3://{s3.bucket_name()}/{candidate}",
+                        )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"S3 lookup for {candidate} failed: {e}")
+
+    for local in (
+        f"/output/json/{base}",
+        f"/uploads/output/json/{base}",
+    ):
+        if os.path.exists(local):
+            try:
+                with open(local, "r") as fh:
+                    return json.load(fh)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=500, detail="Failed to parse the JSON file")
+
+    raise HTTPException(status_code=404, detail=f"File {filename} not found")
+
+@app.get("/lineage/job/{job_id}", tags=["Audit"])
+async def lineage_for_job(job_id: str, _: str = Depends(verify_access)):
+    """Return every object version produced by the given RQ job along with
+    its parent objects. Empty list if the job produced no audited output."""
+    versions = audit_db.fetch_job_lineage(job_id)
+    return {"job_id": job_id, "versions": versions}
+
+
+@app.get("/audit/roots", tags=["Audit"])
+async def audit_roots(
+    limit: int = 50,
+    since: Optional[str] = None,
+    _: str = Depends(verify_access),
+):
+    """List recent first-time uploads (audit roots).
+
+    `since` is an optional ISO-8601 timestamp; `limit` caps the page size.
+    """
+    limit = max(1, min(limit, 500))
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="`since` must be ISO-8601")
+    return {"roots": audit_db.fetch_roots(limit=limit, since=since_dt)}
+
+
+@app.get("/audit/dedupe/{sha256}", tags=["Audit"])
+async def audit_dedupe(sha256: str, _: str = Depends(verify_access)):
+    """List every recorded object key that currently shares the given
+    content hash. Useful for deduplication and tamper detection."""
+    import re as _re
+    if not _re.fullmatch(r"[a-fA-F0-9]{64}", sha256):
+        raise HTTPException(status_code=400, detail="sha256 must be 64 hex chars")
+    return {"sha256": sha256.lower(), "versions": audit_db.fetch_by_hash(sha256.lower())}
+
+
+@app.get("/lineage/{object_key:path}", tags=["Audit"])
+async def lineage_for_key(object_key: str, depth: int = 10, _: str = Depends(verify_access)):
+    """Return the full lineage tree (ancestors + descendants) of the latest
+    version of `object_key`. 404 if the key has never been audited."""
+    depth = max(1, min(depth, 25))
+    key = object_key.lstrip("/")
+    data = audit_db.fetch_lineage(key, depth=depth)
+    if data is None:
+        # Try the "uploads/" prefix as a convenience for callers that pass
+        # the bare filename (e.g. lineage/model.ifc).
+        if "/" not in key:
+            data = audit_db.fetch_lineage(f"uploads/{key}", depth=depth)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"No audit record for {object_key}")
+    return data
+
 
 @app.post("/calculate-qtos", tags=["Analysis"])
 async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)):
@@ -647,31 +797,46 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
 
 @app.get("/list_directories", summary="List Available Directories and Files", tags=["File Operations"])
 async def list_directories(_: str = Depends(verify_access)):
-    """
-    List all files in the /uploads/, /examples/, and /output/ directories and their subdirectories.
-    
-    Returns:
-        dict: A dictionary containing a flat list of all file paths.
+    """List every file available to the pipeline.
+
+    - Legacy filesystem deployments walk `/examples`, `/uploads`, `/output`
+      and `/interaxo` on the shared volume.
+    - Object-storage deployments additionally enumerate the bucket so that
+      S3-only uploads and worker outputs show up in downstream file pickers
+      (e.g. the n8n community nodes' dropdowns).
+
+    Returns a deduplicated, sorted list of paths. Filesystem paths are
+    returned with a leading slash (`/uploads/model.ifc`); S3 keys are
+    prefixed with a leading slash too (`/uploads/model.ifc`) so the two
+    representations compare equal and the client does not have to branch.
     """
     base_dirs = ["/examples", "/uploads", "/output", "/interaxo"]
-    all_files = []
+    all_files: set[str] = set()
 
     for base_dir in base_dirs:
         try:
             for root, dirs, files in os.walk(base_dir):
-                # Filter out hidden directories
                 dirs[:] = [d for d in dirs if not d.startswith('.')]
-                
-                # Filter out hidden files and .gitkeep
                 files = [f for f in files if not f.startswith('.') and f != '.gitkeep']
-
-                # Add full path for each file
                 for file in files:
                     full_path = os.path.join(root, file)
-                    all_files.append(full_path)
-
+                    all_files.add(full_path)
         except Exception as e:
-            return {"error": f"Error processing {base_dir}: {str(e)}"}
+            logger.warning("list_directories: error walking %s: %s", base_dir, e)
+
+    if s3.is_enabled():
+        try:
+            paginator = s3.get_client().get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=s3.bucket_name()):
+                for obj in page.get("Contents", []) or []:
+                    key = obj.get("Key")
+                    if not key or key.endswith("/"):
+                        continue
+                    # Normalise to the leading-slash form so the dedupe set
+                    # collapses filesystem/S3 twins into a single entry.
+                    all_files.add("/" + key.lstrip("/"))
+        except Exception as e:
+            logger.warning("list_directories: S3 listing failed: %s", e)
 
     return {"files": sorted(all_files)}
 
@@ -698,91 +863,133 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
     file_path = os.path.join(upload_dir, file.filename)
 
     try:
+        if s3.is_enabled():
+            s3.ensure_bucket()
+            key = s3.build_upload_key(file.filename)
+            content_type = file.content_type or None
+            sha256, size_bytes = s3.upload_fileobj_and_hash(
+                file.file, key, content_type=content_type
+            )
+            audit_id = audit_db.record_upload(
+                bucket=s3.bucket_name(),
+                object_key=key,
+                sha256=sha256,
+                size_bytes=size_bytes,
+                content_type=content_type,
+                metadata={
+                    "file_type": file_type,
+                    "original_filename": file.filename,
+                },
+            )
+            return {
+                "message": f"{file_type.upper()} file {file.filename} uploaded successfully",
+                "storage": "s3",
+                "bucket": s3.bucket_name(),
+                "object_key": key,
+                "object_url": f"s3://{s3.bucket_name()}/{key}",
+                "file_path": f"s3://{s3.bucket_name()}/{key}",
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "audit_id": audit_id,
+            }
+
         os.makedirs(upload_dir, exist_ok=True)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        response = {
+        return {
             "message": f"{file_type.upper()} file {file.filename} uploaded successfully",
             "file_path": file_path,
         }
-
-        if s3.is_enabled():
-            try:
-                s3.ensure_bucket()
-                key = s3.build_upload_key(file.filename)
-                s3.upload_from_path(file_path, key)
-                response.update({
-                    "storage": "s3",
-                    "bucket": s3.bucket_name(),
-                    "object_key": key,
-                    "object_url": f"s3://{s3.bucket_name()}/{key}",
-                })
-            except Exception as e:
-                logger.error(f"Object-storage upload failed for {file.filename}: {e}")
-                raise HTTPException(status_code=500, detail=f"Object storage upload failed: {e}")
-
-        return response
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Upload failed for {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
+def _resolve_download_path(file_path: str) -> tuple[str, str | None]:
+    """Return (resolved_path, s3_key_or_none).
+
+    When S3 is enabled and the caller-supplied path lives in the bucket, the
+    S3 key is returned so callers can issue a presigned URL. Otherwise the
+    local path is returned and expected to exist on disk.
+    """
+    if file_path.startswith("s3://"):
+        _, _, rest = file_path.partition("s3://")
+        _, _, key = rest.partition("/")
+        return file_path, key
+
+    if s3.is_enabled():
+        # Try resolving the legacy path directly as an S3 key.
+        for candidate in (
+            s3.normalize_input_key(file_path) if file_path.startswith("/uploads") else file_path.lstrip("/"),
+            file_path.lstrip("/"),
+        ):
+            if candidate and s3.object_exists(candidate):
+                return file_path, candidate
+
+    return file_path, None
+
 
 @app.post("/create_download_link", tags=["File Operations"])
 async def create_download_link(request: DownloadRequest, _: str = Depends(verify_access)):
-    """
-    Create a temporary download link for a file.
-    
-    Args:
-        request (DownloadRequest): The request containing the file path.
-    
-    Returns:
-        dict: A dictionary containing the download token and expiry time.
-    """
+    """Create a temporary download link for a file. When the file lives in
+    object storage, the token is backed by an S3 key and the `/download/{token}`
+    endpoint will redirect to a short-lived presigned URL."""
     file_path = request.file_path
-    if not os.path.exists(file_path):
+    _, s3_key = _resolve_download_path(file_path)
+
+    if s3_key is None and not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     token = secrets.token_urlsafe(32)
     expiry = datetime.now() + timedelta(minutes=30)
-    
-    download_links[token] = DownloadLink(file_path=file_path, token=token, expiry=expiry)
-    
-    # Generate preview URL based on env var
+    download_links[token] = DownloadLink(
+        file_path=s3_key if s3_key else file_path,
+        token=token,
+        expiry=expiry,
+    )
+
     external = os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL")
     if external and external.strip():
         base_url = external.strip().rstrip('/')
     else:
-        # Fallback to a default URL if env var not set
         base_url = "https://ifcpipeline.byggstyrning.se"
-    
-    return {"preview_url": f"{base_url}/{token}", "download_token": token, "expiry": expiry}
+
+    response = {"preview_url": f"{base_url}/{token}", "download_token": token, "expiry": expiry}
+    if s3_key:
+        response["storage"] = "s3"
+        response["object_key"] = s3_key
+    return response
+
 
 @app.get("/download/{token}", tags=["File Operations"])
 async def download_file(token: str):
-    """
-    Download a file using a temporary token.
-    
-    Args:
-        token (str): The temporary download token.
-    
-    Returns:
-        FileResponse: The file to be downloaded.
-    """
+    """Download a file using a temporary token. For S3-backed tokens we issue
+    a redirect to a presigned URL so the client streams straight from MinIO."""
     if token not in download_links:
         raise HTTPException(status_code=404, detail="Invalid or expired download token")
-    
+
     download_link = download_links[token]
     if datetime.now() > download_link.expiry:
         del download_links[token]
         raise HTTPException(status_code=404, detail="Download token has expired")
-    
-    file_path = download_link.file_path
-    if not os.path.exists(file_path):
+
+    target = download_link.file_path
+
+    if s3.is_enabled() and not target.startswith("/"):
+        if not s3.object_exists(target):
+            del download_links[token]
+            raise HTTPException(status_code=404, detail="File not found in object storage")
+        remaining = max(int((download_link.expiry - datetime.now()).total_seconds()), 60)
+        url = s3.presigned_get_url_public(target, expires_in=remaining)
+        return RedirectResponse(url=url, status_code=307)
+
+    if not os.path.exists(target):
         del download_links[token]
         raise HTTPException(status_code=404, detail="File not found")
-    
-    return FileResponse(file_path, filename=os.path.basename(file_path))
+
+    return FileResponse(target, filename=os.path.basename(target))
 
 @app.post("/download-from-url", tags=["File Operations"])
 async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify_access)):

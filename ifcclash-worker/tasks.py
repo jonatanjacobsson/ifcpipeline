@@ -2,17 +2,32 @@ from shared.classes import IfcClashRequest, ClashSet, ClashFile, ClashMode
 import logging
 import json
 import os
+import tempfile
 import time
+import shutil
 import ifcopenshell
 import ifcopenshell.util.selector
 import ifcopenshell.geom
 import multiprocessing
 from ifcclash.ifcclash import Clasher, ClashSettings
 from shared.db_client import save_clash_result
+from shared import object_storage as s3
 from typing import Tuple, List, Dict, Any
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
+
+WORKER_NAME = "ifcclash-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,11 +197,52 @@ def run_ifcclash_detection(job_data: dict) -> dict:
     try:
         # Parse the request from the job data
         request = IfcClashRequest(**job_data)
-        models_dir = "/uploads"
-        output_dir = "/output/clash"
-        output_path = os.path.join(output_dir, request.output_filename)
-        
-        # Create output directory if it doesn't exist
+
+        # --- Object-storage staging -------------------------------------
+        # In S3 mode, download every distinct IFC into a tempdir, rename the
+        # ClashFile entries to point at the local copies, and plan to upload
+        # the final JSON report to the bucket.
+        s3_ctx = None
+        if s3.is_enabled():
+            tmp_models = tempfile.mkdtemp(prefix="ifcclash-in-")
+            tmp_out = tempfile.mkdtemp(prefix="ifcclash-out-")
+            output_key = s3.normalize_output_key(request.output_filename, "clash")
+            models_dir = tmp_models
+            output_dir = tmp_out
+            output_path = os.path.join(output_dir, os.path.basename(output_key))
+
+            seen: Dict[str, str] = {}
+            input_keys: List[str] = []
+            for clash_set in request.clash_sets:
+                for cf in clash_set.a + clash_set.b:
+                    if cf.file in seen:
+                        cf.file = seen[cf.file]
+                        continue
+                    key = s3.normalize_input_key(cf.file)
+                    input_keys.append(key)
+                    local_name = os.path.basename(key) or f"clash-in-{len(seen)}.ifc"
+                    local_path = os.path.join(tmp_models, local_name)
+                    if not os.path.exists(local_path):
+                        s3.get_client().download_file(
+                            Bucket=s3.bucket_name(), Key=key, Filename=local_path
+                        )
+                    seen[cf.file] = local_name
+                    cf.file = local_name  # ClashFile.file is now relative to models_dir
+            s3_ctx = {
+                "tmp_models": tmp_models,
+                "tmp_out": tmp_out,
+                "output_key": output_key,
+                "input_keys": input_keys,
+            }
+            logger.info(
+                "[s3] staged %d clash input file(s) under %s, output → s3://%s/%s",
+                len(seen), tmp_models, s3.bucket_name(), output_key,
+            )
+        else:
+            models_dir = "/uploads"
+            output_dir = "/output/clash"
+            output_path = os.path.join(output_dir, request.output_filename)
+
         os.makedirs(output_dir, exist_ok=True)
 
         logger.info(f"Starting clash detection for {len(request.clash_sets)} clash sets")
@@ -320,28 +376,58 @@ def run_ifcclash_detection(job_data: dict) -> dict:
                 original_clash_id=None  # Set to None for new clash sets
             )
             
-            # Return the results (include db_id if available)
             result = {
                 "success": True,
                 "result": clash_results,
                 "clash_count": clash_count,
                 "output_path": output_path
             }
-            
-            # Add database ID if available
+
+            if s3_ctx is not None and os.path.exists(output_path):
+                audit = s3.upload_and_audit(
+                    output_path,
+                    key=s3_ctx["output_key"],
+                    operation="ifcclash",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[("input", k) for k in s3_ctx["input_keys"]],
+                    metadata={
+                        "clash_count": clash_count,
+                        "clash_set_name": clash_set_name,
+                        "mode": request.mode.value,
+                        "tolerance": request.tolerance,
+                        "smart_grouping": request.smart_grouping,
+                    },
+                    content_type="application/json",
+                )
+                result.update({
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "output_key": s3_ctx["output_key"],
+                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
+                    "sha256": audit["sha256"],
+                    "size_bytes": audit["size_bytes"],
+                    "audit_id": audit["audit_id"],
+                })
+                shutil.rmtree(s3_ctx["tmp_models"], ignore_errors=True)
+                shutil.rmtree(s3_ctx["tmp_out"], ignore_errors=True)
+
             if db_id:
                 result["db_id"] = db_id
-            
+
             return result
         except Exception as e:
             logger.error(f"Error reading result file: {str(e)}")
-            return {
+            fallback_result = {
                 "success": True,
                 "message": "Clash detection completed but result file could not be read",
-                "output_path": output_path
+                "output_path": output_path,
             }
-            
+            if s3_ctx is not None:
+                shutil.rmtree(s3_ctx["tmp_models"], ignore_errors=True)
+                shutil.rmtree(s3_ctx["tmp_out"], ignore_errors=True)
+            return fallback_result
+
     except Exception as e:
         logger.error(f"Error during clash detection: {str(e)}", exc_info=True)
-        # Re-raise the exception to mark the job as failed
         raise

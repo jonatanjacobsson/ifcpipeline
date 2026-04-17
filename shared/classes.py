@@ -40,21 +40,141 @@ class ProcessRequest(BaseModel):
 
 
 class IfcConvertRequest(BaseModel):
+    """Mirror of the flags that ifcconvert-worker's tasks.py looks at.
+
+    Every option the worker reads is listed here with a safe default so that
+    `request.<flag>` attribute access does not explode when callers only
+    provide `input_filename`/`output_filename`.
+    """
+
     input_filename: str
     output_filename: str
-    verbose: bool = True
+
+    # --- command-line options ------------------------------------------------
+    verbose: bool = False
+    quiet: bool = False
+    cache: bool = False
+    cache_file: Optional[str] = None
+    stderr_progress: bool = False
+    yes: bool = False
+    no_progress: bool = False
+    log_format: Optional[str] = None
+    log_file: Optional[str] = None
+
+    # --- geometry options ----------------------------------------------------
+    kernel: Optional[str] = None
+    threads: Optional[int] = None
+    center_model: bool = False
+    center_model_geometry: bool = False
+
+    include: Optional[List[str]] = None
+    include_type: Optional[str] = None
+    include_plus: Optional[List[str]] = None
+    include_plus_type: Optional[str] = None
+    exclude: Optional[List[str]] = None
+    exclude_type: Optional[str] = None
+    exclude_plus: Optional[List[str]] = None
+    exclude_plus_type: Optional[str] = None
+    filter_file: Optional[str] = None
+
+    default_material_file: Optional[str] = None
+    exterior_only: Optional[str] = None
+    apply_default_materials: bool = False
+    use_material_names: bool = False
+    surface_colour: bool = False
+
     plan: bool = False
     model: bool = True
-    weld_vertices: bool = False
-    use_world_coords: bool = False
+    dimensionality: Optional[int] = None
+
+    mesher_linear_deflection: Optional[float] = None
+    mesher_angular_deflection: Optional[float] = None
+    reorient_shells: bool = False
+
+    length_unit: Optional[float] = None
+    angle_unit: Optional[float] = None
+    precision: Optional[float] = None
+    precision_factor: Optional[float] = None
     convert_back_units: bool = False
-    sew_shells: bool = False
-    merge_boolean_operands: bool = False
+
+    layerset_first: bool = False
+    enable_layerset_slicing: bool = False
+
+    disable_boolean_result: bool = False
     disable_opening_subtractions: bool = False
+    merge_boolean_operands: bool = False
+    boolean_attempt_2d: bool = False
+    debug: bool = False
+
+    no_wire_intersection_check: bool = False
+    no_wire_intersection_tolerance: Optional[float] = None
+    edge_arrows: bool = False
+
+    weld_vertices: bool = False
+    unify_shapes: bool = False
+
+    use_world_coords: bool = False
+    building_local_placement: bool = False
+    site_local_placement: bool = False
+    model_offset: Optional[str] = None
+    model_rotation: Optional[str] = None
+
+    context_ids: Optional[List[str]] = None
+    iterator_output: Optional[int] = None
+
+    no_normals: bool = False
+    generate_uvs: bool = False
+    validate: bool = False
+    element_hierarchy: bool = False
+
+    force_space_transparency: Optional[float] = None
+    keep_bounding_boxes: bool = False
+    circle_segments: Optional[int] = None
+
+    function_step_type: Optional[int] = None
+    function_step_param: Optional[float] = None
+
+    no_parallel_mapping: bool = False
+    sew_shells: bool = False
+    triangulation_type: Optional[int] = None
+
+    # --- serialization (SVG) options ----------------------------------------
     bounds: Optional[str] = None
-    include: Optional[List[str]] = None
-    exclude: Optional[List[str]] = None
-    log_file: Optional[str] = None
+    scale: Optional[str] = None
+    center: Optional[str] = None
+    section_ref: Optional[str] = None
+    elevation_ref: Optional[str] = None
+    elevation_ref_guid: Optional[List[str]] = None
+    auto_section: bool = False
+    auto_elevation: bool = False
+    draw_storey_heights: Optional[str] = None
+    storey_height_line_length: Optional[float] = None
+    svg_xmlns: bool = False
+    svg_poly: bool = False
+    svg_prefilter: bool = False
+    svg_segment_projection: bool = False
+    svg_write_poly: bool = False
+    svg_project: bool = False
+    svg_without_storeys: bool = False
+    svg_no_css: bool = False
+    door_arcs: bool = False
+    section_height: Optional[float] = None
+    section_height_from_storeys: bool = False
+    print_space_names: bool = False
+    print_space_areas: bool = False
+    space_name_transform: Optional[str] = None
+
+    # --- naming & coordinate format -----------------------------------------
+    use_element_names: bool = False
+    use_element_guids: bool = False
+    use_element_step_ids: bool = False
+    use_element_types: bool = False
+
+    y_up: bool = False
+    ecef: bool = False
+    digits: Optional[int] = None
+    base_uri: Optional[str] = None
+    wkt_use_section: bool = False
 
     @field_validator("input_filename", "output_filename")
     @classmethod

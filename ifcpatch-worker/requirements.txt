@@ -10,3 +10,6 @@ ifcpatch==0.8.4
 # Additional utilities
 typing-extensions>=4.12.0
 networkx>=3.3,<4.0.0  # Required for sequence.recalculate_schedule API
+
+# Object storage
+boto3>=1.34,<2

@@ -4,4 +4,7 @@ ifcdiff>=0.0.1
 
 # Queue and data validation
 rq>=2.0.0,<3.0.0
-pydantic>=2.9.0,<3.0.0 
+pydantic>=2.9.0,<3.0.0
+
+# Object storage
+boto3>=1.34,<2
