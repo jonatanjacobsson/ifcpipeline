@@ -1,0 +1,323 @@
+{
+  "id": "ObjStorSmokeTest01",
+  "name": "IfcPipeline: Object Storage Smoke Test",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Object-Storage Smoke Test\n\nExercises the full ifcpipeline stack through the custom `n8n-nodes-ifcpipeline` **0.7.0** package against the **MinIO-backed** api-gateway (`http://api-gateway`).\n\n**Prerequisites**\n1. Stack running (`docker compose up -d`) with `USE_OBJECT_STORAGE=true`.\n2. Create an **IFC Pipeline API** credential:\n   - Base URL: `http://api-gateway`\n   - API Key: value of `IFC_PIPELINE_API_KEY` on the stack (e.g. `pocsecret`)\n   Assign it to **every** IfcPipeline node below.\n3. Sample files `/examples/Building-Architecture.ifc` and `/examples/IDS-example.ids` must be present inside the n8n container (they are by default — mounted from `./shared/examples`).\n\n**Flow**\n`Manual Trigger` → upload IFC & IDS to the bucket → fan out to **IfcCsv export**, **IfcTester** validation and **IfcToJson** → merge the three job results.\n\nEach worker returns `{ output_key, output_path: s3://… }` so you can confirm the artefacts landed in MinIO (`http://localhost:9001`, user `minioadmin` / `minioadmin`).",
+        "width": 640,
+        "height": 360,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-80, -460],
+      "id": "sticky-smoke-readme",
+      "name": "Readme"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-80, 40],
+      "id": "node-trigger",
+      "name": "When clicking 'Test workflow'"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/examples/Building-Architecture.ifc",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [180, -80],
+      "id": "node-read-ifc",
+      "name": "Read sample IFC"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/examples/IDS-example.ids",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [180, 160],
+      "id": "node-read-ids",
+      "name": "Read sample IDS"
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "fileType": "ifc",
+        "binaryPropertyName": "data"
+      },
+      "type": "CUSTOM.ifcPipeline",
+      "typeVersion": 1,
+      "position": [440, -80],
+      "id": "node-upload-ifc",
+      "name": "Upload IFC → MinIO",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "__SET_ME__",
+          "name": "IFC Pipeline API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "fileType": "ids",
+        "binaryPropertyName": "data"
+      },
+      "type": "CUSTOM.ifcPipeline",
+      "typeVersion": 1,
+      "position": [440, 160],
+      "id": "node-upload-ids",
+      "name": "Upload IDS → MinIO",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "__SET_ME__",
+          "name": "IFC Pipeline API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [700, 40],
+      "id": "node-merge-uploads",
+      "name": "Merge uploaded keys"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "ifc_key",
+              "value": "={{ $('Upload IFC → MinIO').item.json.storage_ref || $('Upload IFC → MinIO').item.json.object_key }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "ids_key",
+              "value": "={{ $('Upload IDS → MinIO').item.json.storage_ref || $('Upload IDS → MinIO').item.json.object_key }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [940, 40],
+      "id": "node-set-refs",
+      "name": "Pick storage refs"
+    },
+    {
+      "parameters": {
+        "operation": "exportToCsv",
+        "filename": "={{ $json.ifc_key }}",
+        "outputFilename": "output/csv/Building-Architecture_export.csv",
+        "options": {
+          "format": "csv",
+          "attributes": "Name,Description,GlobalId",
+          "query": "IfcWall"
+        },
+        "waitForCompletion": true,
+        "pollingInterval": 2,
+        "timeout": 300
+      },
+      "type": "CUSTOM.ifcCsv",
+      "typeVersion": 1,
+      "position": [1220, -140],
+      "id": "node-ifccsv",
+      "name": "IfcCsv: walls → CSV",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "__SET_ME__",
+          "name": "IFC Pipeline API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "validateIfc",
+        "ifcFilename": "={{ $json.ifc_key }}",
+        "idsFilename": "={{ $json.ids_key }}",
+        "outputFilename": "output/ids/validation_report.json",
+        "reportType": "json",
+        "waitForCompletion": true,
+        "pollingInterval": 2,
+        "timeout": 300
+      },
+      "type": "CUSTOM.ifcTester",
+      "typeVersion": 1,
+      "position": [1220, 40],
+      "id": "node-ifctester",
+      "name": "IfcTester: validate",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "__SET_ME__",
+          "name": "IFC Pipeline API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "convertToJson",
+        "filename": "={{ $json.ifc_key }}",
+        "outputFilename": "output/json/Building-Architecture.json",
+        "waitForCompletion": true,
+        "pollingInterval": 2,
+        "timeout": 300
+      },
+      "type": "CUSTOM.ifcToJson",
+      "typeVersion": 1,
+      "position": [1220, 220],
+      "id": "node-ifc2json",
+      "name": "IfcToJson: to JSON",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "__SET_ME__",
+          "name": "IFC Pipeline API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1520, 40],
+      "id": "node-merge-results",
+      "name": "All results"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "ifccsv_output_path",
+              "value": "={{ $('IfcCsv: walls → CSV').item.json.result.output_path }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "ifctester_output_path",
+              "value": "={{ $('IfcTester: validate').item.json.result.output_path }}",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "ifc2json_output_path",
+              "value": "={{ $('IfcToJson: to JSON').item.json.result.output_path }}",
+              "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "storage",
+              "value": "={{ $('IfcCsv: walls → CSV').item.json.result.storage }}",
+              "type": "string"
+            },
+            {
+              "id": "r5",
+              "name": "bucket",
+              "value": "={{ $('IfcCsv: walls → CSV').item.json.result.bucket }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1760, 40],
+      "id": "node-summary",
+      "name": "Smoke-test summary"
+    }
+  ],
+  "connections": {
+    "When clicking 'Test workflow'": {
+      "main": [
+        [
+          {"node": "Read sample IFC", "type": "main", "index": 0},
+          {"node": "Read sample IDS", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Read sample IFC": {
+      "main": [
+        [{"node": "Upload IFC → MinIO", "type": "main", "index": 0}]
+      ]
+    },
+    "Read sample IDS": {
+      "main": [
+        [{"node": "Upload IDS → MinIO", "type": "main", "index": 0}]
+      ]
+    },
+    "Upload IFC → MinIO": {
+      "main": [
+        [{"node": "Merge uploaded keys", "type": "main", "index": 0}]
+      ]
+    },
+    "Upload IDS → MinIO": {
+      "main": [
+        [{"node": "Merge uploaded keys", "type": "main", "index": 1}]
+      ]
+    },
+    "Merge uploaded keys": {
+      "main": [
+        [{"node": "Pick storage refs", "type": "main", "index": 0}]
+      ]
+    },
+    "Pick storage refs": {
+      "main": [
+        [
+          {"node": "IfcCsv: walls → CSV", "type": "main", "index": 0},
+          {"node": "IfcTester: validate", "type": "main", "index": 0},
+          {"node": "IfcToJson: to JSON", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "IfcCsv: walls → CSV": {
+      "main": [
+        [{"node": "All results", "type": "main", "index": 0}]
+      ]
+    },
+    "IfcTester: validate": {
+      "main": [
+        [{"node": "All results", "type": "main", "index": 1}]
+      ]
+    },
+    "IfcToJson: to JSON": {
+      "main": [
+        [{"node": "All results", "type": "main", "index": 2}]
+      ]
+    },
+    "All results": {
+      "main": [
+        [{"node": "Smoke-test summary", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

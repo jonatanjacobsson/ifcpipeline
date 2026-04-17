@@ -1,13 +1,27 @@
 import logging
 import os
+import tempfile
+import shutil
 import ifcopenshell
 import ifcopenshell.geom
 from ifc5d import qto
 from shared.classes import IfcQtoRequest
+from shared import object_storage as s3
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+WORKER_NAME = "ifc5d-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
 
 def run_qto_calculation(job_data: dict) -> dict:
     """
@@ -24,32 +38,35 @@ def run_qto_calculation(job_data: dict) -> dict:
         request = IfcQtoRequest(**job_data)
         logger.info(f"Starting QTO calculation job for input: {request.input_file}")
 
-        # Define paths within the container
-        models_dir = "/uploads"  # Assuming uploads are mounted here
-        output_dir = "/output/qto" # Specific directory for QTO outputs
-        input_file_path = os.path.join(models_dir, request.input_file)
-        
-        # Determine output path
-        if request.output_file:
-            # If an output filename is provided, use it in the standard output dir
-            output_file_path = os.path.join(output_dir, request.output_file)
-            logger.info(f"Output will be saved to specified file: {output_file_path}")
+        s3_ctx = None
+        if s3.is_enabled():
+            tmpdir = tempfile.mkdtemp(prefix="ifc5d-")
+            input_key = s3.normalize_input_key(request.input_file)
+            if request.output_file:
+                output_key = s3.normalize_output_key(request.output_file, "qto")
+            else:
+                base, ext = os.path.splitext(os.path.basename(request.input_file))
+                output_key = f"output/qto/{base}_qto{ext}"
+            input_file_path = os.path.join(tmpdir, os.path.basename(input_key) or "input.ifc")
+            output_file_path = os.path.join(tmpdir, os.path.basename(output_key))
+            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=input_key, Filename=input_file_path)
+            s3_ctx = {"tmpdir": tmpdir, "output_key": output_key, "input_key": input_key}
+            logger.info("[s3] staged ifc5d input, output → s3://%s/%s", s3.bucket_name(), output_key)
         else:
-            # If no output filename, modify in place (conceptually) but save to output dir
-            # To avoid modifying the original upload, we save to the output dir with a default name.
-            base, ext = os.path.splitext(request.input_file)
-            default_output_name = f"{base}_qto{ext}"
-            output_file_path = os.path.join(output_dir, default_output_name)
-            logger.info(f"No output file specified. Saving modified file to: {output_file_path}")
-            
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-        
-        # Validate input file existence
-        if not os.path.exists(input_file_path):
-            logger.error(f"Input IFC file not found: {input_file_path}")
-            raise FileNotFoundError(f"Input IFC file {request.input_file} not found")
-        logger.info(f"Input file found: {input_file_path}")
+            models_dir = "/uploads"
+            output_dir = "/output/qto"
+            input_file_path = os.path.join(models_dir, request.input_file)
+            if request.output_file:
+                output_file_path = os.path.join(output_dir, request.output_file)
+            else:
+                base, ext = os.path.splitext(request.input_file)
+                default_output_name = f"{base}_qto{ext}"
+                output_file_path = os.path.join(output_dir, default_output_name)
+            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+            if not os.path.exists(input_file_path):
+                logger.error(f"Input IFC file not found: {input_file_path}")
+                raise FileNotFoundError(f"Input IFC file {request.input_file} not found")
+            logger.info(f"Input file found: {input_file_path}")
 
         # Load the input IFC file
         logger.info("Loading IFC file...")
@@ -94,11 +111,39 @@ def run_qto_calculation(job_data: dict) -> dict:
             raise RuntimeError("Output IFC file was not created successfully.")
 
         logger.info(f"QTO calculation job completed successfully for {request.input_file}")
-        return {
+        result = {
             "success": True,
             "message": f"Quantities calculated and inserted. Results saved to {output_file_path}",
-            "output_path": output_file_path
+            "output_path": output_file_path,
         }
+        if s3_ctx is not None:
+            try:
+                audit = s3.upload_and_audit(
+                    output_file_path,
+                    key=s3_ctx["output_key"],
+                    operation="ifc5d",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[("input", s3_ctx["input_key"])],
+                    metadata={
+                        "rule": "IFC4QtoBaseQuantities",
+                        "element_count": len(elements),
+                        "qto_result_count": len(qto_results),
+                    },
+                    content_type="application/x-step",
+                )
+                result.update({
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "output_key": s3_ctx["output_key"],
+                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
+                    "sha256": audit["sha256"],
+                    "size_bytes": audit["size_bytes"],
+                    "audit_id": audit["audit_id"],
+                })
+            finally:
+                shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
+        return result
 
     except FileNotFoundError as e:
         logger.error(f"File not found error during QTO calculation: {str(e)}", exc_info=True)

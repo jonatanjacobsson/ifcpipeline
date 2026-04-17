@@ -1,0 +1,161 @@
+{
+  "id": "ObjStorPatchChain01",
+  "name": "ifcpipeline — patch chain & audit trail",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Patch chain & audit trail\n\nDerives **A1 → A2 → A3** from `uploads/Elec.ifc`:\n\n1. `IfcBuildingElement`\n2. `IfcDistributionElement` (from A1)\n3. `IfcFlowTerminal` (from A2)\n\nThen pulls the full lineage tree for **A3** and the **root** and composes a summary.\n\nEach `IFC Patch` node polls the `/jobs/{id}/status` endpoint internally (`Wait for Completion = true`) so no external Wait nodes are needed.",
+        "height": 280,
+        "width": 420
+      },
+      "id": "1c0d3b8e-0000-0000-0000-00000000ff01",
+      "name": "Readme",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-720, -80]
+    },
+    {
+      "parameters": {},
+      "id": "1c0d3b8e-0000-0000-0000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-720, 260]
+    },
+    {
+      "parameters": {
+        "inputFile": "=uploads/Elec.ifc",
+        "outputFile": "chain/n8n/A1-building-elements.ifc",
+        "recipeName": "ExtractElements",
+        "param_query": "IfcBuildingElement",
+        "waitForCompletion": true,
+        "pollingInterval": 2,
+        "timeout": 300
+      },
+      "id": "1c0d3b8e-0000-0000-0000-000000000010",
+      "name": "A1 — IfcBuildingElement",
+      "type": "CUSTOM.ifcPatch",
+      "typeVersion": 1,
+      "position": [-460, 260],
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "WjqK845xaxMGwf7u",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputFile": "={{ $json.result.output_key }}",
+        "outputFile": "chain/n8n/A2-distribution.ifc",
+        "recipeName": "ExtractElements",
+        "param_query": "IfcDistributionElement",
+        "waitForCompletion": true,
+        "pollingInterval": 2,
+        "timeout": 300
+      },
+      "id": "1c0d3b8e-0000-0000-0000-000000000020",
+      "name": "A2 — IfcDistributionElement (from A1)",
+      "type": "CUSTOM.ifcPatch",
+      "typeVersion": 1,
+      "position": [-200, 260],
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "WjqK845xaxMGwf7u",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputFile": "={{ $json.result.output_key }}",
+        "outputFile": "chain/n8n/A3-flow-terminals.ifc",
+        "recipeName": "ExtractElements",
+        "param_query": "IfcFlowTerminal",
+        "waitForCompletion": true,
+        "pollingInterval": 2,
+        "timeout": 300
+      },
+      "id": "1c0d3b8e-0000-0000-0000-000000000030",
+      "name": "A3 — IfcFlowTerminal (from A2)",
+      "type": "CUSTOM.ifcPatch",
+      "typeVersion": 1,
+      "position": [60, 260],
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "WjqK845xaxMGwf7u",
+          "name": "IFC Pipeline account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "ifcPipelineApi",
+        "url": "=http://api-gateway/lineage/{{ $json.result.output_key }}",
+        "options": {}
+      },
+      "id": "1c0d3b8e-0000-0000-0000-000000000040",
+      "name": "Lineage of A3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [320, 260],
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "WjqK845xaxMGwf7u",
+          "name": "IFC Pipeline account"
+        }
+      },
+      "notes": "Returns ancestors + descendants for the A3 leaf. Ancestors should list A2 → A1 → uploads/Elec.ifc."
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "ifcPipelineApi",
+        "url": "http://api-gateway/lineage/uploads/Elec.ifc",
+        "options": {}
+      },
+      "id": "1c0d3b8e-0000-0000-0000-000000000041",
+      "name": "Lineage of root",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [580, 260],
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "WjqK845xaxMGwf7u",
+          "name": "IFC Pipeline account"
+        }
+      },
+      "notes": "Descendants should include A1, A2, A3 (and any other patch derivatives of this root)."
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"chain\": [\n    {\n      \"step\": \"A1 IfcBuildingElement\",\n      \"job_id\":  \"{{ $('A1 — IfcBuildingElement').item.json.job_id }}\",\n      \"output_key\": \"{{ $('A1 — IfcBuildingElement').item.json.result.output_key }}\",\n      \"sha256\":     \"{{ $('A1 — IfcBuildingElement').item.json.result.sha256 }}\",\n      \"size_bytes\": {{ $('A1 — IfcBuildingElement').item.json.result.size_bytes }}\n    },\n    {\n      \"step\": \"A2 IfcDistributionElement\",\n      \"job_id\":  \"{{ $('A2 — IfcDistributionElement (from A1)').item.json.job_id }}\",\n      \"output_key\": \"{{ $('A2 — IfcDistributionElement (from A1)').item.json.result.output_key }}\",\n      \"sha256\":     \"{{ $('A2 — IfcDistributionElement (from A1)').item.json.result.sha256 }}\",\n      \"size_bytes\": {{ $('A2 — IfcDistributionElement (from A1)').item.json.result.size_bytes }}\n    },\n    {\n      \"step\": \"A3 IfcFlowTerminal\",\n      \"job_id\":  \"{{ $('A3 — IfcFlowTerminal (from A2)').item.json.job_id }}\",\n      \"output_key\": \"{{ $('A3 — IfcFlowTerminal (from A2)').item.json.result.output_key }}\",\n      \"sha256\":     \"{{ $('A3 — IfcFlowTerminal (from A2)').item.json.result.sha256 }}\",\n      \"size_bytes\": {{ $('A3 — IfcFlowTerminal (from A2)').item.json.result.size_bytes }}\n    }\n  ],\n  \"A3_ancestors\":    {{ JSON.stringify($('Lineage of A3').item.json.ancestors) }},\n  \"root_descendants\": {{ JSON.stringify($('Lineage of root').item.json.descendants) }}\n}",
+        "options": {}
+      },
+      "id": "1c0d3b8e-0000-0000-0000-000000000050",
+      "name": "Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [840, 260]
+    }
+  ],
+  "connections": {
+    "Manual Trigger":                         {"main": [[{"node": "A1 — IfcBuildingElement", "type": "main", "index": 0}]]},
+    "A1 — IfcBuildingElement":                {"main": [[{"node": "A2 — IfcDistributionElement (from A1)", "type": "main", "index": 0}]]},
+    "A2 — IfcDistributionElement (from A1)":  {"main": [[{"node": "A3 — IfcFlowTerminal (from A2)", "type": "main", "index": 0}]]},
+    "A3 — IfcFlowTerminal (from A2)":         {"main": [[{"node": "Lineage of A3", "type": "main", "index": 0}]]},
+    "Lineage of A3":                          {"main": [[{"node": "Lineage of root", "type": "main", "index": 0}]]},
+    "Lineage of root":                        {"main": [[{"node": "Summary", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {"name": "ifcpipeline"},
+    {"name": "object-storage"},
+    {"name": "audit-trail"}
+  ]
+}

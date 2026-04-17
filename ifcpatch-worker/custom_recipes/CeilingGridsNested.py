@@ -28,7 +28,6 @@ import time
 import ifcopenshell
 import ifcopenshell.api.nest
 import ifcopenshell.api.root
-import ifcopenshell.api.geometry
 import ifcopenshell.api.pset
 import ifcopenshell.api.style
 import ifcopenshell.api.unit
@@ -136,6 +135,18 @@ class Patcher:
         t_start = time.time()
         
         try:
+            unit_scale = self._get_project_unit_scale()
+            if unit_scale != 1.0:
+                fu = 1.0 / unit_scale
+                self.logger.info(
+                    f"Project length unit scale={unit_scale}, "
+                    f"converting mm dimensions to file units (factor={fu})"
+                )
+                self.profile_height *= fu
+                self.profile_width *= fu
+                self.profile_thickness *= fu
+                self.tolerance *= fu
+            
             ifcopenshell.api.unit.assign_unit(self.file)
             self.grid_covering_style = self._create_grid_covering_style()
             self._setup_contexts()
@@ -213,6 +224,7 @@ class Patcher:
             ProfileName="L Beam Profile (Perimeter)",
             Position=profile_placement,
             Depth=self.profile_width,
+            Width=self.profile_width,
             Thickness=self.profile_thickness,
             FilletRadius=0,
             EdgeRadius=0
@@ -290,6 +302,34 @@ class Patcher:
                 f, context_type="Model", context_identifier="Axis",
                 target_view="GRAPH_VIEW", parent=model_context
             )
+    
+    # ------------------------------------------------------------------ #
+    #  Source model helpers (read-only)                                   #
+    # ------------------------------------------------------------------ #
+    
+    def _get_project_unit_scale(self) -> float:
+        """
+        Get the project's length unit scale factor to convert to millimeters.
+        Returns 1.0 if unit is already mm, 1000.0 if unit is meters, etc.
+        """
+        try:
+            units = self.file.by_type("IfcUnitAssignment")
+            if units:
+                for unit in units[0].Units:
+                    if hasattr(unit, 'UnitType') and unit.UnitType == 'LENGTHUNIT':
+                        if hasattr(unit, 'Name'):
+                            unit_name = unit.Name.upper()
+                            if 'METRE' in unit_name or 'METER' in unit_name:
+                                if hasattr(unit, 'Prefix'):
+                                    if unit.Prefix == 'MILLI':
+                                        return 1.0
+                                    elif unit.Prefix == 'CENTI':
+                                        return 10.0
+                                return 1000.0
+            return 1000.0
+        except Exception as e:
+            self.logger.warning(f"Could not determine project units, assuming meters: {str(e)}")
+            return 1000.0
     
     # ------------------------------------------------------------------ #
     #  Footprint extraction and segment processing                       #

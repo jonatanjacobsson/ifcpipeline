@@ -1,12 +1,25 @@
 import subprocess
 import os
 import logging
+import tempfile
 from shared.classes import IfcConvertRequest
 from shared.db_client import save_conversion_result
+from shared import object_storage as s3
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+WORKER_NAME = "ifcconvert-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
 
 def run_ifcconvert(job_data: dict) -> dict:
     """
@@ -43,9 +56,37 @@ def run_ifcconvert(job_data: dict) -> dict:
         logger.info(f"Request parsed successfully. Input: {request.input_filename}, Output: {request.output_filename}")
         
         # Define paths (assuming they are absolute within the container context)
-        input_path = request.input_filename 
+        input_path = request.input_filename
         output_path = request.output_filename
         log_file_path = request.log_file
+
+        # --- Object-storage staging --------------------------------------
+        # In S3 mode, rewrite input/output/log paths to a per-job tempdir,
+        # download the input from the bucket, and defer upload until success.
+        s3_ctx = None
+        if s3.is_enabled():
+            s3_ctx = {
+                "tmpdir": tempfile.mkdtemp(prefix="ifcconvert-"),
+                "input_key": s3.normalize_input_key(request.input_filename),
+                "output_key": s3.normalize_output_key(request.output_filename, "converted"),
+                "log_key": s3.normalize_output_key(request.log_file, "converted") if request.log_file else None,
+            }
+            logger.info(
+                "[s3] staging ifcconvert: input=s3://%s/%s output=s3://%s/%s",
+                s3.bucket_name(), s3_ctx["input_key"],
+                s3.bucket_name(), s3_ctx["output_key"],
+            )
+            in_name = os.path.basename(s3_ctx["input_key"]) or "input.ifc"
+            out_name = os.path.basename(s3_ctx["output_key"]) or "output.bin"
+            input_path = os.path.join(s3_ctx["tmpdir"], in_name)
+            output_path = os.path.join(s3_ctx["tmpdir"], out_name)
+            if s3_ctx["log_key"]:
+                log_file_path = os.path.join(s3_ctx["tmpdir"], os.path.basename(s3_ctx["log_key"]))
+            else:
+                log_file_path = os.path.join(s3_ctx["tmpdir"], f"{os.path.splitext(in_name)[0]}_convert.txt")
+            s3.get_client().download_file(
+                Bucket=s3.bucket_name(), Key=s3_ctx["input_key"], Filename=input_path
+            )
         
         logger.info(f"Processing paths:")
         logger.info(f"  Input path:  {input_path}")
@@ -508,11 +549,57 @@ def run_ifcconvert(job_data: dict) -> dict:
             "input_size_bytes": input_size,
             "output_size_bytes": output_size
         }
-        
-        # Add database ID if available
+
+        # Upload artifacts when S3 staging is active, then clean up.
+        if s3_ctx is not None:
+            try:
+                job_id = _current_job_id()
+                out_audit = s3.upload_and_audit(
+                    output_path,
+                    key=s3_ctx["output_key"],
+                    operation="ifcconvert",
+                    worker=WORKER_NAME,
+                    job_id=job_id,
+                    parents=[("input", s3_ctx["input_key"])],
+                    metadata={
+                        "input_size_bytes": input_size,
+                        "output_size_bytes": output_size,
+                        "execution_time": execution_time,
+                        "output_filename": os.path.basename(s3_ctx["output_key"]),
+                    },
+                )
+                result_dict.update({
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "output_key": s3_ctx["output_key"],
+                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
+                    "log_key": s3_ctx.get("log_key"),
+                    "sha256": out_audit["sha256"],
+                    "size_bytes": out_audit["size_bytes"],
+                    "audit_id": out_audit["audit_id"],
+                })
+                if os.path.exists(log_file_path) and s3_ctx.get("log_key"):
+                    log_audit = s3.upload_and_audit(
+                        log_file_path,
+                        key=s3_ctx["log_key"],
+                        operation="ifcconvert_log",
+                        worker=WORKER_NAME,
+                        job_id=job_id,
+                        parents=[
+                            ("input", s3_ctx["input_key"]),
+                            ("sibling", s3_ctx["output_key"]),
+                        ],
+                        metadata={"kind": "convert-log"},
+                        content_type="text/plain",
+                    )
+                    result_dict["log_audit_id"] = log_audit["audit_id"]
+            finally:
+                import shutil as _shutil
+                _shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
+
         if db_id:
             result_dict["db_id"] = db_id
-            
+
         return result_dict
 
     except FileNotFoundError as e:

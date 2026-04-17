@@ -2,4 +2,7 @@
 rq>=2.0.0,<3.0.0
 pydantic>=2.9.0,<3.0.0
 
-# Note: No ifcopenshell needed as it uses an external .NET tool (ConvertIfc2Json) 
+# Object storage
+boto3>=1.34,<2
+
+# Note: No ifcopenshell needed as it uses an external .NET tool (ConvertIfc2Json)

@@ -2,6 +2,10 @@
 shared/uploads/*
 shared/output/*/*
 
+# Large prod test fixtures (IFC files) - not meant for git
+prod-fixtures/*.ifc
+prod-fixtures/*.ids
+
 # Don't ignore .gitkeep files in any subdirectory
 !**/.gitkeep
 
@@ -41,4 +45,4 @@ api-gateway/config.json
 # Uncomment the line above if you want to ignore the config file
 # Make sure to use a template or example config file for version control# Environment variables
 .env
-ifc-pipeline.code-workspace
+ifc-pipeline.code-workspaceprod-fixtures/

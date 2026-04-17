@@ -1,15 +1,29 @@
 import logging
 import os
 import json
+import tempfile
+import shutil
 import ifcopenshell
 from ifcdiff import IfcDiff
 from shared.classes import IfcDiffRequest
 from shared.db_client import save_diff_result
+from shared import object_storage as s3
 from collections.abc import Set, Sequence
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+WORKER_NAME = "ifcdiff-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
 
 class IfcDiffJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle IFC objects that are not natively JSON serializable."""
@@ -191,25 +205,41 @@ def run_ifcdiff(job_data: dict) -> dict:
     try:
         request = IfcDiffRequest(**job_data)
         logger.info(f"Starting ifcdiff job: old='{request.old_file}', new='{request.new_file}', output='{request.output_file}'")
-        
-        models_dir = "/uploads" # Standard mount point
-        output_dir = "/output/diff" # Standard diff output directory
-        old_file_path = os.path.join(models_dir, request.old_file)
-        new_file_path = os.path.join(models_dir, request.new_file)
-        output_path = os.path.join(output_dir, request.output_file)
-        
-        # Ensure output directory exists
-        os.makedirs(output_dir, exist_ok=True)
 
-        # Validate input file existence
-        logger.info(f"Checking existence: old='{old_file_path}', new='{new_file_path}'")
-        if not os.path.exists(old_file_path):
-            logger.error(f"Old IFC file not found: {old_file_path}")
-            raise FileNotFoundError(f"Old IFC file {request.old_file} not found")
-        if not os.path.exists(new_file_path):
-            logger.error(f"New IFC file not found: {new_file_path}")
-            raise FileNotFoundError(f"New IFC file {request.new_file} not found")
-        logger.info("Input files found.")
+        s3_ctx = None
+        if s3.is_enabled():
+            tmpdir = tempfile.mkdtemp(prefix="ifcdiff-")
+            old_key = s3.normalize_input_key(request.old_file)
+            new_key = s3.normalize_input_key(request.new_file)
+            output_key = s3.normalize_output_key(request.output_file, "diff")
+            old_file_path = os.path.join(tmpdir, "old_" + (os.path.basename(old_key) or "old.ifc"))
+            new_file_path = os.path.join(tmpdir, "new_" + (os.path.basename(new_key) or "new.ifc"))
+            output_path = os.path.join(tmpdir, os.path.basename(output_key) or "diff.json")
+            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=old_key, Filename=old_file_path)
+            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=new_key, Filename=new_file_path)
+            s3_ctx = {
+                "tmpdir": tmpdir,
+                "output_key": output_key,
+                "old_key": old_key,
+                "new_key": new_key,
+            }
+            logger.info("[s3] staged ifcdiff inputs into %s, output → s3://%s/%s", tmpdir, s3.bucket_name(), output_key)
+        else:
+            models_dir = "/uploads"
+            output_dir = "/output/diff"
+            old_file_path = os.path.join(models_dir, request.old_file)
+            new_file_path = os.path.join(models_dir, request.new_file)
+            output_path = os.path.join(output_dir, request.output_file)
+            os.makedirs(output_dir, exist_ok=True)
+
+            logger.info(f"Checking existence: old='{old_file_path}', new='{new_file_path}'")
+            if not os.path.exists(old_file_path):
+                logger.error(f"Old IFC file not found: {old_file_path}")
+                raise FileNotFoundError(f"Old IFC file {request.old_file} not found")
+            if not os.path.exists(new_file_path):
+                logger.error(f"New IFC file not found: {new_file_path}")
+                raise FileNotFoundError(f"New IFC file {request.new_file} not found")
+            logger.info("Input files found.")
 
         # Open IFC files
         logger.info("Opening IFC files...")
@@ -257,17 +287,53 @@ def run_ifcdiff(job_data: dict) -> dict:
             diff_data=diff_data
         )
         
-        # The ifcdiff library writes the file directly, return success and path
         result = {
             "success": True,
             "message": f"IFC diff completed. Results saved to {output_path}",
             "output_path": output_path
         }
-        
-        # Add database ID if available
+
+        if s3_ctx is not None:
+            try:
+                diff_count = 0
+                if isinstance(diff_data, dict):
+                    for cat in ("added", "deleted", "changed", "modified"):
+                        val = diff_data.get(cat)
+                        if isinstance(val, (list, dict)):
+                            diff_count += len(val)
+                audit = s3.upload_and_audit(
+                    output_path,
+                    key=s3_ctx["output_key"],
+                    operation="ifcdiff",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[
+                        ("input", s3_ctx["old_key"]),
+                        ("reference", s3_ctx["new_key"]),
+                    ],
+                    metadata={
+                        "diff_count": diff_count,
+                        "relationships": request.relationships,
+                        "is_shallow": request.is_shallow,
+                        "filter_elements": request.filter_elements,
+                    },
+                    content_type="application/json",
+                )
+                result.update({
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "output_key": s3_ctx["output_key"],
+                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
+                    "sha256": audit["sha256"],
+                    "size_bytes": audit["size_bytes"],
+                    "audit_id": audit["audit_id"],
+                })
+            finally:
+                shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
+
         if db_id:
             result["db_id"] = db_id
-            
+
         return result
 
     except FileNotFoundError as e:

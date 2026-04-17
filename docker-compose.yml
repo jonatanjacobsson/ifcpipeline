@@ -12,9 +12,11 @@ services:
     depends_on:
       - ifccsv-worker
       - ifctester-worker
+      - ifclite-worker
       - ifcdiff-worker
       - ifcpatch-worker
       - redis
+      - postgres
       - ifc-viewer
       - minio-setup
     environment:
@@ -26,12 +28,18 @@ services:
       - IFC_PIPELINE_EXTERNAL_URL=${IFC_PIPELINE_EXTERNAL_URL}
       - IFC_PIPELINE_PREVIEW_EXTERNAL_URL=${IFC_PIPELINE_PREVIEW_EXTERNAL_URL}
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_PUBLIC_ENDPOINT_URL=${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
     volumes:
       - ./shared/uploads:/uploads
       - ./shared/output:/output
@@ -185,8 +193,21 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
+      - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       resources:
@@ -209,8 +230,21 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
+      - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -238,9 +272,16 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
       - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       resources:
@@ -267,9 +308,16 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
       - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -293,6 +341,11 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -301,6 +354,7 @@ services:
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
+      - postgres
       - minio-setup
     restart: unless-stopped
     deploy:
@@ -346,6 +400,44 @@ services:
           memory: 1G
   # -------------------------------------------
 
+  ifclite-worker:
+    build:
+      context: .
+      dockerfile: ifclite-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      # DOMParser polyfill + Node heap (keep below container memory limit)
+      - NODE_OPTIONS=--require /app/node-dom-polyfill.cjs --max-old-space-size=6144
+    depends_on:
+      - redis
+      - postgres
+      - minio-setup
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 8G
+
   ifcdiff-worker:
     build:
       context: .
@@ -365,9 +457,16 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
       - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -390,8 +489,21 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
       - redis
+      - postgres
+      - minio-setup
     restart: unless-stopped
     deploy:
       resources:
@@ -437,20 +549,33 @@ services:
       - N8N_SECURE_COOKIE=false
       - GENERIC_TIMEZONE=Europe/Stockholm
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
-      - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED}
+      - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED:-true}
       - NODES_EXCLUDE="[]"
       - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples
+      # n8n database: defaults to postgresdb (Phase 2 restores prod dump into it).
+      # DB_TYPE must be postgresdb, not postgres.
+      - DB_TYPE=${N8N_DB_TYPE:-postgresdb}
+      - DB_POSTGRESDB_HOST=${POSTGRES_HOST:-postgres}
+      - DB_POSTGRESDB_PORT=${POSTGRES_PORT:-5432}
+      - DB_POSTGRESDB_DATABASE=${N8N_POSTGRESDB_DATABASE:-n8n}
+      - DB_POSTGRESDB_USER=${N8N_POSTGRESDB_USER:-ifcpipeline}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      # Required for credential decryption; MUST match the value that encrypted the prod DB.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      # PostgreSQL SSL settings (n8n → Postgres on Docker network; SSL usually off)
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - PGSSLMODE=disable
     depends_on:
-      - api-gateway
-      - postgres
+      api-gateway:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
+          cpus: '2'
+          memory: 6G
 
   postgres:
     image: postgres:14
@@ -460,16 +585,36 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-ifcpipeline}
+      # Used by postgres/init/01-n8n-database.sh (n8n dedicated DB name)
+      N8N_POSTGRESDB_DATABASE: ${N8N_POSTGRESDB_DATABASE:-n8n}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=1536MB"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "max_wal_size=512MB"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
     networks:
       - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ifcpipeline}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '1'
+          memory: 2G
 
   cleanup-service:
     image: alpine

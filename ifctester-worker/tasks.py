@@ -13,6 +13,17 @@ from ifctester import reporter
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+WORKER_NAME = "ifctester-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
+
 
 def run_ifctester_validation(job_data: dict) -> dict:
     try:
@@ -91,7 +102,21 @@ def _run_s3(request: IfcTesterRequest) -> dict:
             payload, test_results, passed, failed = _validate_and_report(
                 ifc_tmp, ids_tmp, out_tmp, request.report_type
             )
-            s3.upload_from_path(out_tmp, out_key)
+            audit = s3.upload_and_audit(
+                out_tmp,
+                key=out_key,
+                operation="ifctester",
+                worker=WORKER_NAME,
+                job_id=_current_job_id(),
+                parents=[("input", ifc_key), ("reference", ids_key)],
+                metadata={
+                    "report_type": request.report_type,
+                    "pass_count": passed,
+                    "fail_count": failed,
+                    "total_specifications": passed + failed,
+                },
+                content_type="application/json" if request.report_type == "json" else "text/html",
+            )
         finally:
             try:
                 os.remove(out_tmp)
@@ -103,6 +128,9 @@ def _run_s3(request: IfcTesterRequest) -> dict:
         "bucket": s3.bucket_name(),
         "output_key": out_key,
         "output_path": f"s3://{s3.bucket_name()}/{out_key}",
+        "sha256": audit["sha256"],
+        "size_bytes": audit["size_bytes"],
+        "audit_id": audit["audit_id"],
     })
 
     db_id = save_tester_result(

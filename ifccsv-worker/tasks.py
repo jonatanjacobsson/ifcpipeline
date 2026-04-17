@@ -9,6 +9,17 @@ from shared import object_storage as s3
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+WORKER_NAME = "ifccsv-worker"
+
+
+def _current_job_id():
+    try:
+        from rq import get_current_job
+        job = get_current_job()
+        return job.id if job else None
+    except Exception:
+        return None
+
 
 def run_ifc_to_csv_conversion(job_data: dict) -> dict:
     """Convert IFC → CSV/XLSX/ODS.
@@ -64,7 +75,22 @@ def _run_export_s3(request: IfcCsvRequest) -> dict:
                 converter.export_xlsx(out_tmp)
             else:
                 raise ValueError(f"Unsupported format: {request.format}")
-            s3.upload_from_path(out_tmp, output_key)
+            audit = s3.upload_and_audit(
+                out_tmp,
+                key=output_key,
+                operation="ifccsv",
+                worker=WORKER_NAME,
+                job_id=_current_job_id(),
+                parents=[("input", input_key)],
+                metadata={
+                    "format": request.format,
+                    "query": request.query,
+                    "delimiter": request.delimiter,
+                    "attribute_count": len(request.attributes or []),
+                    "element_count": len(elements),
+                },
+                content_type=_csv_content_type(request.format),
+            )
         finally:
             try:
                 os.remove(out_tmp)
@@ -78,7 +104,18 @@ def _run_export_s3(request: IfcCsvRequest) -> dict:
         "bucket": s3.bucket_name(),
         "output_key": output_key,
         "output_path": f"s3://{s3.bucket_name()}/{output_key}",
+        "sha256": audit["sha256"],
+        "size_bytes": audit["size_bytes"],
+        "audit_id": audit["audit_id"],
     }
+
+
+def _csv_content_type(fmt: str) -> str:
+    return {
+        "csv": "text/csv",
+        "ods": "application/vnd.oasis.opendocument.spreadsheet",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }.get(fmt, "application/octet-stream")
 
 
 def _run_export_filesystem(request: IfcCsvRequest) -> dict:
@@ -171,7 +208,19 @@ def _run_import_s3(request: IfcCsvImportRequest) -> dict:
         os.close(fd)
         try:
             model.write(out_tmp)
-            s3.upload_from_path(out_tmp, out_key)
+            audit = s3.upload_and_audit(
+                out_tmp,
+                key=out_key,
+                operation="ifccsv_import",
+                worker=WORKER_NAME,
+                job_id=_current_job_id(),
+                parents=[("input", ifc_key), ("reference", csv_key)],
+                metadata={
+                    "ifc_filename": request.ifc_filename,
+                    "csv_filename": request.csv_filename,
+                },
+                content_type="application/x-step",
+            )
         finally:
             try:
                 os.remove(out_tmp)
@@ -185,6 +234,9 @@ def _run_import_s3(request: IfcCsvImportRequest) -> dict:
         "bucket": s3.bucket_name(),
         "output_key": out_key,
         "output_path": f"s3://{s3.bucket_name()}/{out_key}",
+        "sha256": audit["sha256"],
+        "size_bytes": audit["size_bytes"],
+        "audit_id": audit["audit_id"],
     }
 
 

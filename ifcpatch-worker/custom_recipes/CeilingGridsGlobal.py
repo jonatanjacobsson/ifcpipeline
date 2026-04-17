@@ -28,7 +28,6 @@ import time
 import numpy as np
 import ifcopenshell
 import ifcopenshell.api.root
-import ifcopenshell.api.geometry
 import ifcopenshell.api.pset
 import ifcopenshell.api.style
 import ifcopenshell.api.unit
@@ -75,7 +74,7 @@ class Patcher:
         profile_height: Height of T-profile in mm (default: 40.0)
         profile_width: Width of profiles in mm (default: 20.0)
         profile_thickness: Thickness of profiles in mm (default: 5.0)
-        tolerance: Connection tolerance in mm (default: 10.0)
+        tolerance: Connection tolerance in mm (default: 50.0)
         output_path: Path for extracted beams file (default: auto-generated)
     
     Example:
@@ -94,7 +93,7 @@ class Patcher:
                  profile_height: str = "40.0",
                  profile_width: str = "20.0", 
                  profile_thickness: str = "5.0",
-                 tolerance: str = "10.0",
+                 tolerance: str = "50.0",
                  output_path: str = ""):
         self.file = file
         self.logger = logger
@@ -128,7 +127,6 @@ class Patcher:
         self.body_context = None
         self.axis_context = None
         self.spatial_container = None
-        self.unit_scale = 1.0
         
         self._dir_z = None
         self._dir_x = None
@@ -149,7 +147,17 @@ class Patcher:
         t_start = time.time()
         
         try:
-            self.unit_scale = self._get_project_unit_scale()
+            unit_scale = self._get_project_unit_scale()
+            if unit_scale != 1.0:
+                fu = 1.0 / unit_scale
+                self.logger.info(
+                    f"Project length unit scale={unit_scale}, "
+                    f"converting mm dimensions to file units (factor={fu})"
+                )
+                self.profile_height *= fu
+                self.profile_width *= fu
+                self.profile_thickness *= fu
+                self.tolerance *= fu
             
             covering_elements = self.file.by_type("IfcCovering")
             if not covering_elements:
@@ -298,6 +306,7 @@ class Patcher:
             ProfileName="L Beam Profile (Perimeter)",
             Position=profile_placement,
             Depth=self.profile_width,
+            Width=self.profile_width,
             Thickness=self.profile_thickness,
             FilletRadius=0,
             EdgeRadius=0
@@ -315,7 +324,9 @@ class Patcher:
         self._perimeter_offset_pt = f.createIfcCartesianPoint(
             (self.profile_width / 2, 0.0, self.profile_thickness)
         )
-        self._interior_offset_pt = f.createIfcCartesianPoint((0.0, 0.0, 15.0))
+        self._interior_offset_pt = f.createIfcCartesianPoint(
+            (0.0, 0.0, self.profile_width + self.profile_thickness)
+        )
         
         if self.grid_covering_style:
             schema = f.schema
@@ -438,13 +449,14 @@ class Patcher:
         return segments
     
     # ------------------------------------------------------------------ #
-    #  Perimeter detection with spatial hash (replaces O(n^2) brute force)#
+    #  Perimeter detection with spatial hash (degree-based classification)#
     # ------------------------------------------------------------------ #
     
     def _find_closed_loop_segments(self, all_segments: List[Dict[str, Any]]) -> Set[int]:
         """
-        Find segments that form a closed loop (perimeter) using spatial hashing
-        for connectivity building, then recursive loop tracing.
+        Find perimeter segments using spatial hashing for fast connectivity,
+        then degree-based classification: perimeter if at least one endpoint
+        has <= 2 connections, interior if both endpoints have 3+ connections.
         """
         if not all_segments:
             return set()
@@ -456,75 +468,56 @@ class Patcher:
         def _cell(p):
             return (int(p[0] // cell_size), int(p[1] // cell_size), int(p[2] // cell_size))
         
-        # Spatial index: grid cell -> [(segment_idx, endpoint_type, point)]
         grid = defaultdict(list)
         for idx, seg in enumerate(all_segments):
-            for ep in ('start', 'end'):
-                p = seg[ep + '_point']
-                grid[_cell(p)].append((idx, ep, p))
+            for ep_key in ('start_point', 'end_point'):
+                p = seg[ep_key]
+                grid[_cell(p)].append((idx, p))
         
-        # Build connectivity using spatial hash (check 27 neighboring cells)
-        connectivity = [{'start': [], 'end': []} for _ in range(len(all_segments))]
-        seen_pairs = set()
+        endpoint_groups: List[List[int]] = []
+        point_to_group: Dict[Tuple[int, str], int] = {}
         
         for idx, seg in enumerate(all_segments):
-            for ep in ('start', 'end'):
-                p = seg[ep + '_point']
+            for ep_key in ('start_point', 'end_point'):
+                key = (idx, ep_key)
+                if key in point_to_group:
+                    continue
+                
+                p = seg[ep_key]
                 cx, cy, cz = _cell(p)
+                group_segments = set()
+                
                 for dx in (-1, 0, 1):
                     for dy in (-1, 0, 1):
                         for dz in (-1, 0, 1):
-                            for o_idx, o_ep, o_p in grid.get((cx+dx, cy+dy, cz+dz), ()):
-                                if o_idx == idx:
-                                    continue
-                                pair = (min(idx, o_idx), max(idx, o_idx))
-                                if pair in seen_pairs:
-                                    continue
+                            for o_idx, o_p in grid.get((cx+dx, cy+dy, cz+dz), ()):
                                 d_sq = (p[0]-o_p[0])**2 + (p[1]-o_p[1])**2 + (p[2]-o_p[2])**2
                                 if d_sq < tol_sq:
-                                    connectivity[idx][ep].append(o_idx)
-                                    connectivity[o_idx][o_ep].append(idx)
-                                    seen_pairs.add(pair)
-        
-        # Trace closed loops
-        def _points_close(p1, p2):
-            return ((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2 + (p1[2]-p2[2])**2) < tol_sq
-        
-        def _trace_loop(start_idx, visited, current_endpoint):
-            if len(visited) > 1 and start_idx in connectivity[visited[-1]][current_endpoint]:
-                return True, visited
-            
-            current_seg_idx = visited[-1]
-            for next_idx in connectivity[current_seg_idx][current_endpoint]:
-                if next_idx in visited and next_idx != start_idx:
-                    continue
-                if next_idx == start_idx and len(visited) < 3:
-                    continue
+                                    group_segments.add(o_idx)
                 
-                next_seg = all_segments[next_idx]
-                cur_pt = all_segments[current_seg_idx][current_endpoint + '_point']
-                next_endpoint = 'end' if _points_close(cur_pt, next_seg['start_point']) else 'start'
+                gid = len(endpoint_groups)
+                endpoint_groups.append(sorted(group_segments))
                 
-                success, path = _trace_loop(start_idx, visited + [next_idx], next_endpoint)
-                if success:
-                    return True, path
+                for s_idx in group_segments:
+                    s_seg = all_segments[s_idx]
+                    for s_ep in ('start_point', 'end_point'):
+                        sp = s_seg[s_ep]
+                        d_sq = (p[0]-sp[0])**2 + (p[1]-sp[1])**2 + (p[2]-sp[2])**2
+                        if d_sq < tol_sq:
+                            point_to_group[(s_idx, s_ep)] = gid
+        
+        perimeter_indices = set()
+        for idx in range(len(all_segments)):
+            start_gid = point_to_group.get((idx, 'start_point'))
+            end_gid = point_to_group.get((idx, 'end_point'))
             
-            return False, visited
+            start_conns = len(endpoint_groups[start_gid]) if start_gid is not None else 0
+            end_conns = len(endpoint_groups[end_gid]) if end_gid is not None else 0
+            
+            if start_conns < 3 or end_conns < 3:
+                perimeter_indices.add(idx)
         
-        best_loop = set()
-        candidates = [(idx, len(c['start']) + len(c['end'])) for idx, c in enumerate(connectivity)]
-        candidates.sort(key=lambda x: (0 if x[1] == 2 else 1, x[0]))
-        
-        for start_idx, _ in candidates:
-            if start_idx in best_loop:
-                continue
-            for start_endpoint in ('start', 'end'):
-                if connectivity[start_idx][start_endpoint]:
-                    success, loop_path = _trace_loop(start_idx, [start_idx], start_endpoint)
-                    if success and len(loop_path) > len(best_loop):
-                        best_loop = set(loop_path)
-        
-        return best_loop
+        return perimeter_indices
     
     # ------------------------------------------------------------------ #
     #  Beam data extraction (with transform caching)                     #

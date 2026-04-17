@@ -33,6 +33,21 @@ import ifcopenshell.util.selector
 
 logger = logging.getLogger(__name__)
 
+# Valid IFC instances only; avoids C++ binding errors / segfaults from bad inverses
+_EI = ifcopenshell.entity_instance
+
+
+def _safe_is_a(inst, class_name: str) -> bool:
+    """Call ``is_a`` only on real entity instances; never on wrong Python types."""
+    if inst is None:
+        return False
+    if not isinstance(inst, _EI):
+        return False
+    try:
+        return inst.is_a(class_name)
+    except (AttributeError, TypeError, RuntimeError, SystemError):
+        return False
+
 
 class Patcher:
     """
@@ -379,6 +394,56 @@ class Patcher:
         owner_history = self.file.create_entity("IfcOwnerHistory",
                                                 person_org, app, None, None, None, None, None, 0)
         return owner_history
+
+    @staticmethod
+    def _relating_property_definitions(related_props):
+        """
+        Normalize RelatingPropertyDefinition to a list of entity instances.
+        Some broken exports expose non-entities or aggregates; skip those safely.
+        """
+        if related_props is None:
+            return []
+        if isinstance(related_props, _EI):
+            return [related_props]
+        if isinstance(related_props, (list, tuple)):
+            return [x for x in related_props if isinstance(x, _EI)]
+        return []
+
+    def _find_property_set_via_relationship_scan(self, element, pset_name: str):
+        """
+        Fallback when element.IsDefinedBy is missing or unusable: scan
+        IfcRelDefinesByProperties in the file for this element's id.
+        Costly on huge models but avoids relying on broken inverse lists.
+        """
+        try:
+            eid = element.id()
+        except Exception:
+            return None, None
+        for rel in self.file.by_type("IfcRelDefinesByProperties"):
+            if not _safe_is_a(rel, "IfcRelDefinesByProperties"):
+                continue
+            try:
+                objs = getattr(rel, "RelatedObjects", None) or []
+            except Exception:
+                continue
+            if isinstance(objs, _EI):
+                candidates = [objs]
+            elif isinstance(objs, (list, tuple)):
+                candidates = list(objs)
+            else:
+                continue
+            if not any(
+                isinstance(o, _EI) and o.id() == eid for o in candidates
+            ):
+                continue
+            try:
+                related_props = getattr(rel, "RelatingPropertyDefinition", None)
+            except Exception:
+                continue
+            for cand in self._relating_property_definitions(related_props):
+                if _safe_is_a(cand, "IfcPropertySet") and cand.Name == pset_name:
+                    return cand, rel
+        return None, None
     
     def _find_property_set(self, element, pset_name: str):
         """
@@ -391,16 +456,37 @@ class Patcher:
         Returns:
             Tuple of (IfcPropertySet entity or None, IfcRelDefinesByProperties or None)
         """
-        # Get all property sets for the element
-        if not hasattr(element, 'IsDefinedBy') or not element.IsDefinedBy:
-            return None, None
-        
-        for rel in element.IsDefinedBy:
-            if rel.is_a('IfcRelDefinesByProperties'):
-                related_props = rel.RelatingPropertyDefinition
-                if related_props.is_a('IfcPropertySet') and related_props.Name == pset_name:
-                    return related_props, rel
-        
+        rels = None
+        try:
+            raw = getattr(element, "IsDefinedBy", None)
+            if raw:
+                rels = list(raw)
+        except (TypeError, AttributeError) as e:
+            self.logger.debug(f"IsDefinedBy not iterable for element {getattr(element, 'GlobalId', '?')}: {e}")
+            rels = None
+
+        # Missing or empty inverse: some exports break the inverse list; scan by relationship
+        if not rels:
+            return self._find_property_set_via_relationship_scan(element, pset_name)
+
+        for rel in rels:
+            if not isinstance(rel, _EI):
+                continue
+            try:
+                if not _safe_is_a(rel, "IfcRelDefinesByProperties"):
+                    continue
+                try:
+                    related_props = getattr(rel, "RelatingPropertyDefinition", None)
+                except Exception as e:
+                    self.logger.debug(f"RelatingPropertyDefinition unreadable: {e}")
+                    continue
+                for cand in self._relating_property_definitions(related_props):
+                    if _safe_is_a(cand, "IfcPropertySet") and cand.Name == pset_name:
+                        return cand, rel
+            except Exception as e:
+                self.logger.debug(f"Skipping bad IsDefinedBy relation: {e}")
+                continue
+
         return None, None
     
     def _find_property_in_set(self, property_set, property_name: str):
@@ -414,12 +500,22 @@ class Patcher:
         Returns:
             IfcPropertySingleValue entity or None
         """
-        if not hasattr(property_set, 'HasProperties') or not property_set.HasProperties:
+        if not isinstance(property_set, _EI):
+            return None
+        try:
+            props = getattr(property_set, "HasProperties", None) or []
+            prop_list = list(props)
+        except (TypeError, AttributeError):
             return None
         
-        for prop in property_set.HasProperties:
-            if prop.is_a('IfcPropertySingleValue') and prop.Name == property_name:
-                return prop
+        for prop in prop_list:
+            if not isinstance(prop, _EI):
+                continue
+            try:
+                if _safe_is_a(prop, "IfcPropertySingleValue") and prop.Name == property_name:
+                    return prop
+            except Exception:
+                continue
         
         return None
     
