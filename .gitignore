@@ -43,6 +43,14 @@ Thumbs.db
 api-gateway/config.json
 
 # Uncomment the line above if you want to ignore the config file
-# Make sure to use a template or example config file for version control# Environment variables
+# Make sure to use a template or example config file for version control
+
+# Environment variables
 .env
-ifc-pipeline.code-workspaceprod-fixtures/
+ifc-pipeline.code-workspace
+prod-fixtures/
+
+# One-off DB / migration helper scripts (keep .cursor/rules and .cursor/skills tracked)
+.cursor/*.py
+.cursor/debug-*.log
+
