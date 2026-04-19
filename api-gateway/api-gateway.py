@@ -912,16 +912,49 @@ def _resolve_download_path(file_path: str) -> tuple[str, str | None]:
     return file_path, None
 
 
+# Legacy-FS download jail: realpath(file_path) must live under one of these
+# roots. Prevents /create_download_link from turning the api-gateway into an
+# arbitrary-file-read primitive for anyone who has API key / allow-listed IP.
+_DOWNLOAD_ROOTS = ("/uploads", "/output", "/examples")
+
+
+def _is_path_under_allowed_roots(file_path: str) -> bool:
+    try:
+        real = os.path.realpath(file_path)
+    except Exception:
+        return False
+    for root in _DOWNLOAD_ROOTS:
+        root_real = os.path.realpath(root)
+        if real == root_real or real.startswith(root_real + os.sep):
+            return True
+    return False
+
+
 @app.post("/create_download_link", tags=["File Operations"])
 async def create_download_link(request: DownloadRequest, _: str = Depends(verify_access)):
     """Create a temporary download link for a file. When the file lives in
     object storage, the token is backed by an S3 key and the `/download/{token}`
-    endpoint will redirect to a short-lived presigned URL."""
+    endpoint will redirect to a short-lived presigned URL.
+
+    Security: in legacy-filesystem mode the resolved path must live under
+    /uploads, /output or /examples. In S3 mode the caller must either pass a
+    bucket-relative key or an s3:// URI that resolves inside our bucket;
+    arbitrary host paths are rejected.
+    """
     file_path = request.file_path
     _, s3_key = _resolve_download_path(file_path)
 
-    if s3_key is None and not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+    if s3_key is None:
+        # Legacy filesystem mode (or S3 mode with a path not in the bucket).
+        # Reject paths that escape the allowed roots before we even check
+        # existence — we don't want to leak whether /etc/shadow exists.
+        if not _is_path_under_allowed_roots(file_path):
+            raise HTTPException(
+                status_code=400,
+                detail="file_path must live under /uploads, /output or /examples",
+            )
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
 
     token = secrets.token_urlsafe(32)
     expiry = datetime.now() + timedelta(minutes=30)
@@ -972,24 +1005,94 @@ async def download_file(token: str):
 
     return FileResponse(target, filename=os.path.basename(target))
 
+class _PinnedResolver(aiohttp.abc.AbstractResolver):
+    """aiohttp resolver that serves a fixed (hostname, [ips]) mapping.
+
+    Used to defeat DNS-rebinding TOCTOU in /download-from-url: we resolve the
+    URL's hostname once, validate every returned IP is public, then force the
+    outbound HTTP connection to use exactly those IPs. Any other hostname
+    lookup (e.g. from a redirect we didn't disable) raises OSError.
+    """
+
+    def __init__(self, hostname: str, ips: list[str]) -> None:
+        self._hostname = hostname
+        self._ips = ips
+
+    async def resolve(self, host, port=0, family=socket.AF_INET):
+        if host != self._hostname:
+            raise OSError(f"resolver is pinned to {self._hostname}, got {host}")
+        return [
+            {
+                "hostname": host,
+                "host": ip,
+                "port": port,
+                "family": family,
+                "proto": 0,
+                "flags": socket.AI_NUMERICHOST,
+            }
+            for ip in self._ips
+        ]
+
+    async def close(self) -> None:
+        pass
+
+
+def _resolve_and_validate_public(url: str) -> tuple[str, list[str]]:
+    """Parse `url`, resolve its hostname once, and return (hostname, ips).
+
+    Raises HTTPException(400) if the URL is malformed, the scheme is not
+    HTTP(S), or any resolved IP is not globally routable. Caller should use
+    the returned IPs to pin the connection so a later DNS lookup (rebinding)
+    can't redirect the fetch to an internal address.
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid URL")
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Only HTTP(S) URLs allowed")
+    host = parsed.hostname
+    if not host:
+        raise HTTPException(status_code=400, detail="URL must have a valid host")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Cannot resolve hostname")
+    ips: list[str] = []
+    for info in infos:
+        ip_str = info[4][0]
+        ip_obj = ipaddress.ip_address(ip_str)
+        if not ip_obj.is_global:
+            raise HTTPException(status_code=400, detail="URL points to restricted network")
+        if ip_str not in ips:
+            ips.append(ip_str)
+    if not ips:
+        raise HTTPException(status_code=400, detail="Cannot resolve hostname")
+    return host, ips
+
+
 @app.post("/download-from-url", tags=["File Operations"])
 async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify_access)):
     """
     Download a file from a URL and save it to the uploads directory.
-    
+
     Args:
         request (DownloadUrlRequest): The request containing the download URL.
-    
+
     Returns:
         dict: A message indicating success or failure, and the path to the downloaded file.
     """
-    validate_url_for_ssrf(str(request.url))
+    # DNS-pin to defeat rebinding TOCTOU: resolve once, validate every IP is
+    # public, then force aiohttp to use those exact IPs for the connection.
+    hostname, resolved_ips = _resolve_and_validate_public(str(request.url))
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        
-        async with await get_aiohttp_session() as session:
+
+        connector = aiohttp.TCPConnector(resolver=_PinnedResolver(hostname, resolved_ips))
+        timeout = ClientTimeout(total=3600)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with session.get(request.url, headers=headers, allow_redirects=False) as response:
                 if response.status != 200:
                     raise HTTPException(
@@ -1324,8 +1427,20 @@ async def upload_revit_log(
         dict: A dictionary containing the file path where the log was saved.
     """
     try:
-        # Validate log_type: alphanumeric, hyphens and underscores only
         import re as _re
+        # Validate job_id: RQ emits canonical UUIDs; accept that shape only so
+        # a malicious caller can't smuggle a traversal segment through
+        # f"{job_id}-{log_type}" into os.path.join below.
+        if not _re.match(
+            r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+            job_id,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid job_id. Must be a canonical UUID (the RQ job id).",
+            )
+
+        # Validate log_type: alphanumeric, hyphens and underscores only
         if not _re.match(r'^[\w\-]{1,128}$', log_type):
             raise HTTPException(
                 status_code=400,
@@ -1570,13 +1685,40 @@ async def viewer_with_token_direct(token: str):
         raise HTTPException(status_code=503, detail="Viewer service unavailable")
 
 
+# Static-asset extensions the viewer SPA legitimately requests from
+# /assets/* and /node_modules/*. These routes are intentionally unauthenticated
+# because a browser following a public `/{token}` download link needs to fetch
+# them without an API key. We restrict the extension set so only bundle files
+# can be served — no `.env`, `.py`, `.json` configs, etc. leak through.
+_VIEWER_ASSET_EXTS = (
+    ".js", ".mjs", ".cjs", ".css", ".map", ".wasm", ".data",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".html", ".txt",
+)
+
+
+def _assert_viewer_asset(path: str) -> None:
+    """Raise 404 unless `path` ends with an allow-listed viewer-bundle
+    extension. Called after _sanitize_proxy_path so path-traversal is already
+    blocked."""
+    lower = path.lower().split("?", 1)[0]
+    if not lower.endswith(_VIEWER_ASSET_EXTS):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
 @app.get("/assets/{path:path}")
 async def viewer_assets(path: str):
     """
-    Serve viewer assets (CSS, JS, etc.)
+    Serve viewer assets (CSS, JS, etc.).
+
+    Intentionally unauthenticated: the ifc-viewer SPA is loaded by browsers
+    following a public `/{token}` download link and cannot carry an API key.
+    `_assert_viewer_asset` caps the surface to known bundle extensions.
     """
     try:
         _sanitize_proxy_path(path)
+        _assert_viewer_asset(path)
         async with httpx.AsyncClient(follow_redirects=True) as client:
             req = client.build_request(
                 "GET",
@@ -1613,10 +1755,13 @@ async def viewer_assets(path: str):
 @app.get("/node_modules/{path:path}")
 async def viewer_node_modules(path: str):
     """
-    Serve node_modules assets (including WebWorkers)
+    Serve node_modules assets (including WebWorkers).
+
+    Same rationale + extension cap as /assets/ above.
     """
     try:
         _sanitize_proxy_path(path)
+        _assert_viewer_asset(path)
         async with httpx.AsyncClient(follow_redirects=True) as client:
             req = client.build_request(
                 "GET",
