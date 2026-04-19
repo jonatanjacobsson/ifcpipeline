@@ -102,11 +102,13 @@ services:
     image: quay.io/minio/minio:latest
     command: ["server", "/data", "--console-address", ":9001"]
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      # Host-local only. Use an SSH tunnel or authenticated reverse proxy
+      # for remote access; never expose MinIO directly to the internet.
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Web console
     environment:
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:?S3_SECRET_KEY must be set in .env}
     volumes:
       - minio-data:/data
     healthcheck:

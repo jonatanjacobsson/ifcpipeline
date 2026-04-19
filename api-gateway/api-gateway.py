@@ -832,14 +832,21 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
     upload_config = ALLOWED_UPLOADS[file_type]
     if not any(file.filename.endswith(ext) for ext in upload_config["extensions"]):
         raise HTTPException(status_code=400, detail=f"File must have one of these extensions: {', '.join(upload_config['extensions'])}")
-    
+
+    # Strip any directory components from the client-supplied filename so a
+    # value like "../etc/cron.d/evil.ifc" can't traverse out of the uploads
+    # directory (legacy FS mode) or produce an S3 key with "../" segments.
+    filename = os.path.basename(file.filename)
+    if not filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     upload_dir = upload_config["dir"]
-    file_path = os.path.join(upload_dir, file.filename)
+    file_path = os.path.join(upload_dir, filename)
 
     try:
         if s3.is_enabled():
             s3.ensure_bucket()
-            key = s3.build_upload_key(file.filename)
+            key = s3.build_upload_key(filename)
             content_type = file.content_type or None
             sha256, size_bytes = s3.upload_fileobj_and_hash(
                 file.file, key, content_type=content_type
@@ -852,11 +859,11 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
                 content_type=content_type,
                 metadata={
                     "file_type": file_type,
-                    "original_filename": file.filename,
+                    "original_filename": filename,
                 },
             )
             return {
-                "message": f"{file_type.upper()} file {file.filename} uploaded successfully",
+                "message": f"{file_type.upper()} file {filename} uploaded successfully",
                 "storage": "s3",
                 "bucket": s3.bucket_name(),
                 "object_key": key,
@@ -872,13 +879,13 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
             shutil.copyfileobj(file.file, buffer)
 
         return {
-            "message": f"{file_type.upper()} file {file.filename} uploaded successfully",
+            "message": f"{file_type.upper()} file {filename} uploaded successfully",
             "file_path": file_path,
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Upload failed for {file.filename}: {e}", exc_info=True)
+        logger.error(f"Upload failed for {filename}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
 def _resolve_download_path(file_path: str) -> tuple[str, str | None]:
