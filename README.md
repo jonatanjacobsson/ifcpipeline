@@ -281,6 +281,74 @@ REDIS_URL=redis://redis:6379/0
 
 > 💡 **Tip**: IP ranges in CIDR format can bypass API key authentication for trusted networks
 
+## Object Storage (MinIO)
+
+Starting with this release, IFC files and worker outputs live in a MinIO-backed S3 bucket instead of shared host volumes. Every worker streams its input from `s3://<bucket>/uploads/…` and writes results to `s3://<bucket>/output/<format>/…`; the audit DB in Postgres records lineage so you can trace a derived artefact all the way back to the original upload, byte-identical on sha256.
+
+### Flag
+
+`USE_OBJECT_STORAGE=true` is the new default. Set it to `false` to fall back to the legacy bind-mount (`shared/uploads` + `shared/output`) stack for A/B comparison while you migrate workflows.
+
+### Required environment variables
+
+```bash
+USE_OBJECT_STORAGE=true
+S3_ENDPOINT_URL=http://minio:9000      # in-cluster endpoint
+S3_PUBLIC_ENDPOINT_URL=http://localhost:9000   # what the browser / n8n sees
+S3_ACCESS_KEY=<required, no default>
+S3_SECRET_KEY=<required, no default>
+S3_BUCKET=ifcpipeline
+S3_REGION=us-east-1
+S3_CHECKSUM_MODE=app                   # or "native" to use MinIO's native sha256
+GUID_INDEX_MODE=off                    # or "sync" / "async" if the guid-index-worker is running
+```
+
+Do **not** rely on the `minioadmin` fallback; the compose stack refuses to start without `S3_ACCESS_KEY` / `S3_SECRET_KEY` set.
+
+### Bucket layout
+
+```
+s3://ifcpipeline/
+├── uploads/<filename>.ifc           # root uploads (from /upload, /download-from-url, n8n)
+└── output/
+    ├── converted/                   # ifcconvert outputs (GLB/STEP/DAE/...)
+    ├── csv/                         # ifccsv exports
+    ├── ids/                         # ifctester reports
+    ├── diff/                        # ifcdiff reports
+    ├── ifc/                         # ifcpatch outputs + chain derivatives
+    ├── json/                        # ifc2json outputs
+    └── patch/                       # legacy patch outputs (pre-chain)
+```
+
+Bucket versioning is enabled by `minio-setup` on first run so every overwrite is retained as a new version. All lineage edges in `audit_db` are version-pinned.
+
+### MinIO service
+
+The `minio` container binds S3 API / console to `127.0.0.1:9000` / `127.0.0.1:9001` so the endpoints are never exposed to the internet. Use an SSH tunnel or a reverse proxy (with TLS + auth) if you need remote access.
+
+- Bucket bootstrap: `minio-setup` (mc client) creates `ifcpipeline` and enables versioning on first start.
+- Health: `http://localhost:9000/minio/health/live`.
+
+### Smoke tests
+
+- `./smoke-test.sh` — brings up the stack, uploads sample IFC+IDS, runs ifccsv + ifctester + ifc2json, confirms objects land in the bucket.
+- `./chain-patch-test.sh` — exercises a 3-deep ifcpatch derivation + audit-trail lineage query.
+- `./prod-test.sh` — prod-scale test with ~190 MB of fixtures in `prod-fixtures/` (gitignored).
+
+### Audit trail
+
+New Postgres tables (`object_versions`, `object_lineage`, `object_guids`, …) power these endpoints:
+
+- `GET /lineage/{object_key}` — full ancestor/descendant graph of any version.
+- `GET /lineage/job/{job_id}` — lineage for a specific job's inputs/outputs.
+- `GET /audit/history/{object_key}` — every recorded version of a key.
+- `GET /audit/dedupe/{sha256}` — find every key that ever held these bytes.
+- `GET /guid/{ifc_guid}`, `/guid/{ifc_guid}/path|diffs|clashes|tester` — trace an `IfcGloballyUniqueId` through the pipeline (requires the optional `guid-index-worker`).
+
+See [`OBJECT_STORAGE.md`](./OBJECT_STORAGE.md) for full design rationale, per-worker status, and the migration path from the legacy filesystem stack.
+
+> **Note**: helper scripts under `.cursor/` (e.g. `fix_readwritefile.py`, `refactor_write.py`) are one-off DB-migration helpers that contain unparameterized f-string SQL. They are gitignored, should only be run against your own controlled workflow IDs, and are not part of the deployed surface.
+
 ## Usage
 
 ### API Endpoints
