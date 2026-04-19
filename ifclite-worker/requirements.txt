@@ -1,6 +1,0 @@
-# Queue and validation
-rq>=2.0.0,<3.0.0
-pydantic>=2.9.0,<3.0.0
-
-# Object storage (S3-compatible, MinIO)
-boto3>=1.34,<2
