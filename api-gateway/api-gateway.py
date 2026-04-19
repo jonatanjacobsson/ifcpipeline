@@ -965,10 +965,18 @@ async def create_download_link(request: DownloadRequest, _: str = Depends(verify
     )
 
     external = os.environ.get("IFC_PIPELINE_PREVIEW_EXTERNAL_URL")
-    if external and external.strip():
-        base_url = external.strip().rstrip('/')
-    else:
-        base_url = "https://ifcpipeline.byggstyrning.se"
+    if not external or not external.strip():
+        # No deployment-specific fallback: leaking a hardcoded production
+        # hostname (ifcpipeline.byggstyrning.se, or any similar) would
+        # deanonymise every fork that imports the code. Fail loud instead.
+        logger.error(
+            "IFC_PIPELINE_PREVIEW_EXTERNAL_URL not configured; cannot mint preview link"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Preview URL not configured (set IFC_PIPELINE_PREVIEW_EXTERNAL_URL in .env)",
+        )
+    base_url = external.strip().rstrip('/')
 
     response = {"preview_url": f"{base_url}/{token}", "download_token": token, "expiry": expiry}
     if s3_key:

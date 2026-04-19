@@ -10,18 +10,26 @@ services:
     ports:
       - "8100:80"
     depends_on:
-      - ifccsv-worker
-      - ifctester-worker
-      - ifcdiff-worker
-      - ifcpatch-worker
-      - redis
-      - postgres
-      - ifc-viewer
-      - minio-setup
+      ifccsv-worker:
+        condition: service_started
+      ifctester-worker:
+        condition: service_started
+      ifcdiff-worker:
+        condition: service_started
+      ifcpatch-worker:
+        condition: service_started
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      ifc-viewer:
+        condition: service_started
+      minio-setup:
+        condition: service_started
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
-      - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY:?IFC_PIPELINE_API_KEY must be set in .env}
       - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
       - DOCKER_GATEWAY_IP=${DOCKER_GATEWAY_IP:-172.18.0.1}
       - IFC_PIPELINE_EXTERNAL_URL=${IFC_PIPELINE_EXTERNAL_URL}
@@ -31,7 +39,7 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -192,13 +200,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -206,9 +214,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -229,13 +240,13 @@ services:
       - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -243,9 +254,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -266,13 +280,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -280,9 +294,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -302,13 +319,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -316,9 +333,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -340,13 +360,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -354,9 +374,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -376,13 +399,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -390,9 +413,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -413,13 +439,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -427,9 +453,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       replicas: 1
@@ -450,13 +479,13 @@ services:
       - ./shared/examples:/examples
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://redis:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
@@ -464,9 +493,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
     depends_on:
-      - redis
-      - postgres
-      - minio-setup
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
@@ -481,7 +513,7 @@ services:
     platform: linux/amd64
     environment:
       - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
       - ./ifc-classifier-service/models:/app/models
     restart: unless-stopped
