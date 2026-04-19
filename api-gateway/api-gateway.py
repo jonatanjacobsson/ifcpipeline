@@ -70,7 +70,6 @@ ifcconvert_queue = Queue('ifcconvert', connection=redis_conn)
 ifccsv_queue = Queue('ifccsv', connection=redis_conn)
 ifcclash_queue = Queue('ifcclash', connection=redis_conn)
 ifctester_queue = Queue('ifctester', connection=redis_conn)
-ifclite_queue = Queue('ifclite', connection=redis_conn)
 ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
 ifc2json_queue = Queue('ifc2json', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
@@ -271,7 +270,6 @@ async def health_check():
         "ifcclash_queue": "waiting",
         "ifccsv_queue": "waiting",
         "ifctester_queue": "waiting",
-        "ifclite_queue": "waiting",
         "ifcdiff_queue": "waiting",
         "ifc5d_queue": "waiting",
         "ifc2json_queue": "waiting",
@@ -300,7 +298,6 @@ async def health_check():
         "ifcclash_queue": ifcclash_queue,
         "ifccsv_queue": ifccsv_queue,
         "ifctester_queue": ifctester_queue,
-        "ifclite_queue": ifclite_queue,
         "ifcdiff_queue": ifcdiff_queue,
         "ifc5d_queue": ifc5d_queue,
         "ifc2json_queue": ifc2json_queue,
@@ -590,29 +587,6 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
         return {"job_id": job.id}
     except Exception as e:
         logger.error(f"Error enqueueing ifctester job: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/ifclite/ids", tags=["Validation"])
-async def ifclite_ids(request: IfcTesterRequest, _: str = Depends(verify_access)):
-    """
-    Validate an IFC file against IDS rules using the IFClite CLI (`ifc-lite ids ... --json`).
-    Request body matches `/ifctester`; output is written under `/output/ids-ifclite/`
-    (filesystem mode) or `output/ids-ifclite/<filename>` in the S3 bucket.
-    """
-    try:
-        validate_input_file_exists(request.ifc_filename)
-        validate_input_file_exists(request.ids_filename)
-        job = ifclite_queue.enqueue(
-            "tasks.run_ifclite_ids_validation",
-            request.dict(),
-            job_timeout="6h",
-            result_ttl=JOB_RESULT_TTL,
-        )
-        logger.info(f"Enqueued ifclite IDS job with ID: {job.id}")
-        return {"job_id": job.id}
-    except Exception as e:
-        logger.error(f"Error enqueueing ifclite IDS job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

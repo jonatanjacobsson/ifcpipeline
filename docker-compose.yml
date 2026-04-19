@@ -12,7 +12,6 @@ services:
     depends_on:
       - ifccsv-worker
       - ifctester-worker
-      - ifclite-worker
       - ifcdiff-worker
       - ifcpatch-worker
       - redis
@@ -399,44 +398,6 @@ services:
           cpus: '0.5'
           memory: 1G
   # -------------------------------------------
-
-  ifclite-worker:
-    build:
-      context: .
-      dockerfile: ifclite-worker/Dockerfile
-    platform: linux/amd64
-    user: "1000:1000"
-    volumes:
-      - ./shared/uploads:/uploads
-      - ./shared/output:/output
-      - ./shared/examples:/examples
-    environment:
-      - PYTHONUNBUFFERED=1
-      - LOG_LEVEL=DEBUG
-      - REDIS_URL=redis://redis:6379/0
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
-      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
-      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
-      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
-      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
-      - S3_REGION=${S3_REGION:-us-east-1}
-      # DOMParser polyfill + Node heap (keep below container memory limit)
-      - NODE_OPTIONS=--require /app/node-dom-polyfill.cjs --max-old-space-size=6144
-    depends_on:
-      - redis
-      - postgres
-      - minio-setup
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 8G
 
   ifcdiff-worker:
     build:
