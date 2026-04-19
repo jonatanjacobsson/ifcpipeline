@@ -447,8 +447,8 @@ class RevitExecuteRequest(BaseModel):
                 },
                 {
                     "command_type": "rtv",
-                    "script_path": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\A\\Batch\\Run-RTVXporterBatch.ps1",
-                    "batch_file": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\A\\Batch\\sample.rbxml",
+                    "script_path": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\Discipline\\Batch\\Run-RTVXporterBatch.ps1",
+                    "batch_file": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\Discipline\\Batch\\sample.rbxml",
                     "timeout_seconds": 7200
                 }
             ]

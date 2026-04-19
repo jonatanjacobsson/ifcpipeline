@@ -41,13 +41,13 @@
             {
               "id": "cfg-script-path",
               "name": "script_path",
-              "value": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\A\\Batch\\Run-RTVXporterBatch.ps1",
+              "value": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\Discipline\\Batch\\Run-RTVXporterBatch.ps1",
               "type": "string"
             },
             {
               "id": "cfg-batch-file",
               "name": "batch_file",
-              "value": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\A\\Batch\\sample.rbxml",
+              "value": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\Discipline\\Batch\\sample.rbxml",
               "type": "string"
             },
             {
