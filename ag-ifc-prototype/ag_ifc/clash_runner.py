@@ -42,3 +42,27 @@ def clashes_list(result: dict[str, Any]) -> list[dict[str, Any]]:
             item["position"] = [(pos[0][i] + pos[1][i]) / 2 for i in range(3)]
         out.append(item)
     return out
+
+
+def run_clash_set_prefiltered(
+    clash_set: dict[str, Any],
+    logger: logging.Logger | None = None,
+    *,
+    tiers: tuple[str, ...] = ("solve",),
+    verify_ag: bool = False,
+    vendor: Any = None,
+    clash_mode: str | None = None,
+) -> dict[str, Any]:
+    """Run IfcClash and return result with solve-tier prefilter applied."""
+    from ag_ifc.clash_prefilter import prefilter_ifcclash_result
+
+    raw = run_clash_set(clash_set, logger)
+    mode = clash_mode or clash_set.get("mode", "intersection")
+    return prefilter_ifcclash_result(
+        raw,
+        tiers=tiers,  # type: ignore[arg-type]
+        verify_ag=verify_ag,
+        vendor=vendor,
+        clash_mode=mode,
+        move_side=clash_set.get("move_side", "auto"),
+    )

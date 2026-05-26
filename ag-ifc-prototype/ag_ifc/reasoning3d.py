@@ -14,6 +14,7 @@ import numpy as np
 
 from ag_ifc.ag2_runner import ProveResult, prove_problem
 from ag_ifc.clash_runner import clash_count, run_clash_set
+from ag_ifc.clash_prefilter import assess_clash_suitability
 from ag_ifc.clash_sorter import ScoredClash, sort_clashes
 from ag_ifc.compiler import clash_to_ag2_multiplane, route_segments_to_ag2_problems
 from ag_ifc.ifc_geometry import element_geom, obstacle_aabbs_for_clash
@@ -103,6 +104,7 @@ def run_workflow3d_resolution(
     grid_step_m: float = 0.1,
     move_side: Literal["a", "b", "auto"] = "auto",
     verify_ag: bool = True,
+    prefilter_solve_only: bool = True,
     vendor: Path | None = None,
     logger: logging.Logger | None = None,
 ) -> Workflow3DResult:
@@ -179,6 +181,22 @@ def run_workflow3d_resolution(
             move_side=move_side,
             clash_mode=clash_mode,
         )
+        if prefilter_solve_only:
+            ranked = [
+                s
+                for s in ranked
+                if assess_clash_suitability(
+                    s.clash_key,
+                    s.clash,
+                    clash_mode=clash_mode,
+                    move_side=move_side,
+                    clearance_m=clearance_m,
+                    verify_ag=False,
+                ).tier
+                == "solve"
+            ]
+            if not ranked:
+                ranked = sort_clashes(clashes, move_side=move_side, clash_mode=clash_mode)[:1]
         if iteration == 0:
             triage_snapshot = [
                 {
@@ -334,6 +352,7 @@ def run_workflow_case(
         grid_step_m=case.get("grid_step_m", 0.1),
         move_side=case.get("move_side", "auto"),
         verify_ag=case.get("verify_ag", True),
+        prefilter_solve_only=case.get("prefilter_solve_only", True),
         vendor=vendor,
         logger=logger,
     )

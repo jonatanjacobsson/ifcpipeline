@@ -18,6 +18,26 @@ This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.curso
 
 
 
+
+
+## AG suitability evaluation & IfcClash pre-filter
+
+Evaluates **every clash** from the IFC scenario matrix with heuristics + optional DDAR proofs, then classifies into:
+
+| Tier | Meaning |
+|------|---------|
+| **solve** | Suitable for auto-fix / workflow3d retest |
+| **review** | AG may certify but coordination judgment needed |
+| **exclude** | Poor candidate (dual structural, huge penetration, civil assemblies) |
+
+```bash
+./scripts/run_ag_suitability_eval.sh          # full eval → reports/ag_suitability_latest.json
+PYTHONPATH=. python3 -m ag_ifc.run_prefilter clash.json -o candidates.json
+```
+
+Static rules: `scenarios/ag_prefilter_rules.json` (updated from eval).  
+`run_clash_set_prefiltered()` in `clash_runner.py` applies the filter right after IfcClash.
+
 ## 3D clash routing + AEC reasoning workflow
 
 Sorts clashes (severity, discipline, spatial cluster), plans an **orthogonal 3D polyline** around obstacle AABBs, applies the net translation to the movable element, and certifies with **multi-plane AlphaGeometry** (plan XY + section stubs + per-segment proofs).

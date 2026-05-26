@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "description": "Derived from ag_suitability eval on PCERT/infra IFC scenarios",
+  "solve_tier_requires": [
+    "confidence >= 0.65",
+    "at most one soft blocker",
+    "movable MEP preferred, or landscape vs architecture",
+    "penetration <= 0.75 m (configurable)"
+  ],
+  "ag_role": {
+    "certifies": [
+      "para parallel offsets",
+      "orthogonal route segments",
+      "plan/section abstractions"
+    ],
+    "does_not_replace": [
+      "IfcClash solid intersection",
+      "cong metric clearance",
+      "volume-optimal routing"
+    ]
+  },
+  "high_confidence_class_pairs": [
+    "IfcGeographicElement|IfcWall",
+    "IfcBuildingElementProxy|IfcFooting",
+    "IfcAirTerminal|IfcChimney",
+    "IfcDuctSegment|IfcChimney",
+    "IfcDuctSegment|IfcBeam",
+    "IfcPipeSegment|IfcBeam"
+  ],
+  "low_confidence_class_pairs": [
+    "IfcSlab|IfcFooting",
+    "IfcSlab|IfcBeam",
+    "IfcGeographicElement|IfcColumn",
+    "IfcFooting|IfcGeographicElement",
+    "IfcElementAssembly|IfcCourse"
+  ],
+  "eval_snapshot": {
+    "total_clashes": 46,
+    "solve_tier_pct": 41.3,
+    "ag_proven_pct": 100.0,
+    "note": "AG multiplane para proves on all sampled clashes; heuristics gate auto-fix attempts."
+  }
+}
