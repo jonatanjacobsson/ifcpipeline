@@ -1,0 +1,21 @@
+{
+  "name": "MEP vs Structure (sample)",
+  "clash_id": "sample-001",
+  "a_global_id": "2O2Fr$t4X7Zf8NOew3FNrX",
+  "b_global_id": "3cUkl32yn9AJkGH$qDwcGv",
+  "p1": [12.4, 8.1, 3.05],
+  "p2": [12.45, 8.12, 3.08],
+  "position": [12.425, 8.11, 3.065],
+  "element_a": {
+    "ifc_type": "IfcDuctSegment",
+    "name": "Supply Duct 12in",
+    "discipline": "HVAC"
+  },
+  "element_b": {
+    "ifc_type": "IfcBeam",
+    "name": "W310x52",
+    "discipline": "Structure"
+  },
+  "clearance_required_m": 0.05,
+  "notes": "Synthetic clash record for prototype formalization; GUIDs are placeholders."
+}

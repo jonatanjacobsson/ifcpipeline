@@ -359,7 +359,21 @@ Never skip Level 0 for sign-off.
 
 ---
 
-## 10. Recommended next actions for this repo
+## 10. Prototype lab (`ag-ifc-prototype/`)
+
+A minimal evaluation environment is available at [`ag-ifc-prototype/`](../ag-ifc-prototype/README.md):
+
+```bash
+cd ag-ifc-prototype && ./scripts/setup_ag2.sh && pip install -r requirements.txt
+./scripts/run_evaluation.sh   # → reports/eval_report.json
+```
+
+See also [`GITHUB_AG_LANDSCAPE.md`](../ag-ifc-prototype/GITHUB_AG_LANDSCAPE.md) for the GitHub survey.
+
+---
+
+## 11. Recommended next actions for this repo
+
 
 1. **Add `agclash-worker` scaffold** — job schema, no DDAR yet; consumes existing PostgreSQL clash rows.
 2. **Implement Phase 0 manual pipeline** script under `scripts/ag_ifc_spike/`.
@@ -369,7 +383,7 @@ Never skip Level 0 for sign-off.
 
 ---
 
-## 11. References
+## 12. References
 
 - Trinh et al., *Solving Olympiad Geometry without Human Demonstrations*, Nature 2024 — [paper](https://www.nature.com/articles/s41586-023-06747-5)
 - Chervonyi et al., *Gold-medalist Performance in Solving Olympiad Geometry with AlphaGeometry2*, JMLR 2025 — [paper](https://www.jmlr.org/papers/v26/25-1654.html)

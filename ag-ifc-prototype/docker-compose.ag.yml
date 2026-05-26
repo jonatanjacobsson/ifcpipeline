@@ -1,0 +1,16 @@
+# Standalone AG-IFC evaluation environment (not part of main ifcpipeline stack).
+services:
+  ag-ifc-eval:
+    image: python:3.11-slim-bookworm
+    platform: linux/amd64
+    working_dir: /app
+    volumes:
+      - .:/app
+      - ../shared/examples:/examples:ro
+    command: >
+      bash -c "
+        apt-get update -qq && apt-get install -y -qq git > /dev/null &&
+        ./scripts/setup_ag2.sh &&
+        pip install -q -r requirements.txt &&
+        ./scripts/run_evaluation.sh
+      "

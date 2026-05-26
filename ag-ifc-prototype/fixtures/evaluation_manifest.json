@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0",
+  "description": "AG-IFC prototype evaluation manifest",
+  "ag2_vendor": "vendor/alphageometry2",
+  "fixture_problems": "fixtures/problems.json",
+  "clash_sample": "fixtures/clash_sample.json",
+  "ifc_examples_glob": "../shared/examples/*.ifc",
+  "ifc_clash_sets": [
+    {
+      "name": "Architecture vs Structural",
+      "a": [{"file": "Building-Architecture.ifc"}],
+      "b": [{"file": "Building-Structural.ifc", "selector": "IfcBeam"}]
+    }
+  ]
+}

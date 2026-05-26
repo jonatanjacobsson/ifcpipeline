@@ -1,0 +1,25 @@
+{
+  "problems": [
+    {
+      "id": "bim_plan_parallel_duct",
+      "description": "Plan-view abstraction: duct centerline parallel to beam axis after coordination offset.",
+      "ag2": "a@0.0_0.0 = ; b@4.0_0.0 = ; c@0.0_0.15 = ; d@4.0_0.15 = para a b c d ? para c d a b",
+      "tags": ["bim", "plan", "parallel"],
+      "required": true
+    },
+    {
+      "id": "bim_plan_second_run",
+      "description": "Second coordinated run at different plan coordinates (regression variety).",
+      "ag2": "a@10.0_5.0 = ; b@14.0_5.0 = ; c@10.0_5.2 = ; d@14.0_5.2 = para a b c d ? para c d a b",
+      "tags": ["bim", "plan", "parallel"],
+      "required": true
+    },
+    {
+      "id": "reference_imo_2004_p5_excerpt",
+      "description": "Excerpt from AG2 IMO 2004 P5 (upstream test.py) — validates vendor wiring.",
+      "ag2": "a@0.0_0.0 = ; b@1.0_0.0 = ; c@-0.24938856912238253_0.6547036984730146 = ; o@0.5_0.5653092857516873 = ; d@0.7037641142060632_1.2919830600953754 = ; p@1.9602382123421425_1.1215406301036281 = cong a o b o, cong b o c o, cong a o o d, eqangle b a b d b p b c, eqangle d a d b d p d c ? cong a p c p",
+      "tags": ["reference", "upstream"],
+      "required": true
+    }
+  ]
+}
