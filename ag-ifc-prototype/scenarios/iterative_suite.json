@@ -1,0 +1,90 @@
+{
+  "version": "1.0.0",
+  "description": "Iterative clash → fix → re-clash until pass (AG evaluation suite)",
+  "ifc_clash_defaults": {
+    "mode": "intersection",
+    "tolerance": 0.01,
+    "check_all": false,
+    "allow_touching": false,
+    "clearance": 0
+  },
+  "defaults": {
+    "max_iterations": 8,
+    "clearance_m": 0.05,
+    "step_m": 0.15,
+    "move_side": "auto",
+    "verify_ag": true
+  },
+  "cases": [
+    {
+      "id": "iter_arch_vs_beams",
+      "model_set": "pcert-building",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "aec_use_case": "Slab/floor vs foundation/beam — single clash, translation fix",
+      "expect_pass": true
+    },
+    {
+      "id": "iter_arch_vs_struct_all",
+      "model_set": "pcert-building",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "aec_use_case": "Architecture vs full structural model",
+      "expect_pass": true
+    },
+    {
+      "id": "iter_arch_vs_columns",
+      "model_set": "pcert-building",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcColumn",
+      "aec_use_case": "Architecture vs columns",
+      "expect_pass": true
+    },
+    {
+      "id": "iter_plumbing_vs_road",
+      "model_set": "pcert-infra",
+      "a_file": "Infra-Plumbing.ifc",
+      "b_file": "Infra-Road.ifc",
+      "move_side": "a",
+      "step_m": 0.25,
+      "max_iterations": 12,
+      "aec_use_case": "Underground plumbing vs road — multiple clashes",
+      "expect_pass": true
+    },
+    {
+      "id": "iter_landscape_vs_arch",
+      "model_set": "pcert-building",
+      "a_file": "Building-Landscaping.ifc",
+      "b_file": "Building-Architecture.ifc",
+      "move_side": "a",
+      "max_iterations": 15,
+      "aec_use_case": "Landscape vs architecture — several clashes",
+      "expect_pass": true
+    },
+    {
+      "id": "iter_hvac_vs_beams",
+      "model_set": "pcert-building",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "aec_use_case": "HVAC vs beams — expect zero initial clashes (control)",
+      "expect_pass": true,
+      "expect_initial_clashes": 0
+    },
+    {
+      "id": "iter_clearance_hvac_beams",
+      "model_set": "pcert-building",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "clash_options": {
+        "mode": "clearance",
+        "clearance": 0.05
+      },
+      "aec_use_case": "Clearance mode soft clash on MEP",
+      "expect_pass": true
+    }
+  ]
+}

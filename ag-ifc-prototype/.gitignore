@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 .pytest_cache/
 scenarios/ifc_models/downloaded/
+reports/iterative_work/
