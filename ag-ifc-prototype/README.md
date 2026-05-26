@@ -15,6 +15,29 @@ This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.curso
 
 
 
+
+## Iterative evaluation (clash → fix → re-clash until pass)
+
+Primary **AG evaluation suite** for clash resolution:
+
+```bash
+./scripts/run_iterative_suite.sh
+```
+
+Loop per case:
+1. **IfcClash** — detect clashes
+2. **Fix** — translate movable element (MEP priority) along separation vector
+3. **AG2 DDAR** — certify parallel-offset relation for the fix (optional)
+4. **Re-clash** — repeat until zero clashes or `max_iterations`
+
+Reports: `reports/iterative_suite_latest.json` and `.md`
+
+Run a single case:
+
+```bash
+python3 -m ag_ifc.run_iterative_suite --case iter_arch_vs_beams
+```
+
 ## IFC scenarios (real multi-discipline models)
 
 ```bash

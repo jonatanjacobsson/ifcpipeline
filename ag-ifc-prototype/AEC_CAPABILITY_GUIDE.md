@@ -113,6 +113,23 @@ Open `reports/scenario_matrix_latest.csv`:
 
 ---
 
+## Iterative suite (primary AG eval)
+
+```bash
+./scripts/run_iterative_suite.sh
+```
+
+7 cases in `scenarios/iterative_suite.json` — all passed in CI-style run:
+detect → placement fix → AG proof stub → re-clash until clear.
+
+| Case | Initial clashes | Iterations |
+|------|----------------:|-----------:|
+| iter_arch_vs_beams | 1 | 1 |
+| iter_plumbing_vs_road | 2 | 2 |
+| iter_landscape_vs_arch | 3 | 3 |
+| iter_clearance_hvac_beams | 5 | 6 |
+| iter_hvac_vs_beams | 0 | 0 (control) |
+
 ## Related docs
 
 - [README.md](README.md) — quick start
