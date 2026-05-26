@@ -13,6 +13,32 @@ Minimal, self-contained environment to **evaluate** AlphaGeometry2 (DDAR), proto
 
 This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.cursor/ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md).
 
+
+## Scenario matrix (bulk AEC evaluation)
+
+Run **179+ scenarios** to discover where AG2 helps in clash coordination:
+
+```bash
+./scripts/run_scenarios.sh
+```
+
+This generates parametric catalogs (offsets, spans, crossings) and writes:
+
+- `reports/scenario_matrix_latest.json` — full results
+- `reports/scenario_matrix_latest.md` — category summary
+- `reports/scenario_matrix_latest.csv` — for Excel/BI
+
+Read **[AEC_CAPABILITY_GUIDE.md](AEC_CAPABILITY_GUIDE.md)** for interpreted findings.
+
+Options:
+
+```bash
+python3 -m ag_ifc.run_scenarios --base-only      # 19 hand-authored scenarios only
+python3 scripts/generate_scenarios.py            # regenerate parametric catalog only
+python3 -m ag_ifc.run_scenarios --fail-on-regression
+```
+
+
 ## Quick start
 
 ```bash

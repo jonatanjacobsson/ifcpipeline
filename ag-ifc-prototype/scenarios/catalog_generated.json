@@ -1,0 +1,2682 @@
+{
+  "version": "1.0.0",
+  "description": "Auto-generated parametric AEC scenarios",
+  "generated_count": 160,
+  "scenarios": [
+    {
+      "id": "gen_parallel_offset_0p01m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.01 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.01 = ; d@20.0_0.01 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p02m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.02 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.02 = ; d@20.0_0.02 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p03m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.03 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.03 = ; d@20.0_0.03 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p04m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.04 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.04 = ; d@20.0_0.04 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p05m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.05 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.05 = ; d@20.0_0.05 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p06m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.06 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.06 = ; d@20.0_0.06 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p07m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.07 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.07 = ; d@20.0_0.07 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p08m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.08 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.08 = ; d@20.0_0.08 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p09m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.09 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.09 = ; d@20.0_0.09 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p1m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.1 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.1 = ; d@20.0_0.1 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p11m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.11 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.11 = ; d@20.0_0.11 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p12m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.12 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.12 = ; d@20.0_0.12 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p13m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.13 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.13 = ; d@20.0_0.13 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p14m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.14 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.14 = ; d@20.0_0.14 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p15m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.15 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.15 = ; d@20.0_0.15 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p16m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.16 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.16 = ; d@20.0_0.16 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p17m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.17 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.17 = ; d@20.0_0.17 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p18m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.18 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.18 = ; d@20.0_0.18 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p19m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.19 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.19 = ; d@20.0_0.19 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p2m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.2 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.2 = ; d@20.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p21m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.21 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.21 = ; d@20.0_0.21 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p22m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.22 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.22 = ; d@20.0_0.22 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p23m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.23 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.23 = ; d@20.0_0.23 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p24m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.24 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.24 = ; d@20.0_0.24 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p25m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.25 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.25 = ; d@20.0_0.25 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p26m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.26 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.26 = ; d@20.0_0.26 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p27m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.27 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.27 = ; d@20.0_0.27 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p28m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.28 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.28 = ; d@20.0_0.28 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p29m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.29 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.29 = ; d@20.0_0.29 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p3m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.3 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.3 = ; d@20.0_0.3 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p31m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.31 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.31 = ; d@20.0_0.31 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p32m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.32 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.32 = ; d@20.0_0.32 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p33m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.33 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.33 = ; d@20.0_0.33 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p34m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.34 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.34 = ; d@20.0_0.34 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p35m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.35 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.35 = ; d@20.0_0.35 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p36m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.36 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.36 = ; d@20.0_0.36 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p37m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.37 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.37 = ; d@20.0_0.37 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p38m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.38 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.38 = ; d@20.0_0.38 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p39m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.39 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.39 = ; d@20.0_0.39 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p4m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.4 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.4 = ; d@20.0_0.4 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p41m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.41 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.41 = ; d@20.0_0.41 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p42m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.42 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.42 = ; d@20.0_0.42 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p43m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.43 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.43 = ; d@20.0_0.43 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p44m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.44 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.44 = ; d@20.0_0.44 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p45m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.45 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.45 = ; d@20.0_0.45 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p46m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.46 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.46 = ; d@20.0_0.46 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p47m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.47 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.47 = ; d@20.0_0.47 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p48m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.48 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.48 = ; d@20.0_0.48 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p49m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.49 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.49 = ; d@20.0_0.49 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p5m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.5 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.5 = ; d@20.0_0.5 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p51m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.51 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.51 = ; d@20.0_0.51 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p52m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.52 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.52 = ; d@20.0_0.52 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p53m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.53 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.53 = ; d@20.0_0.53 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p54m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.54 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.54 = ; d@20.0_0.54 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p55m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.55 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.55 = ; d@20.0_0.55 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p56m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.56 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.56 = ; d@20.0_0.56 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p57m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.57 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.57 = ; d@20.0_0.57 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p58m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.58 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.58 = ; d@20.0_0.58 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p59m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.59 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.59 = ; d@20.0_0.59 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p6m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.6 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.6 = ; d@20.0_0.6 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p61m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.61 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.61 = ; d@20.0_0.61 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p62m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.62 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.62 = ; d@20.0_0.62 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p63m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.63 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.63 = ; d@20.0_0.63 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p64m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.64 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.64 = ; d@20.0_0.64 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p65m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.65 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.65 = ; d@20.0_0.65 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p66m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.66 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.66 = ; d@20.0_0.66 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p67m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.67 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.67 = ; d@20.0_0.67 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p68m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.68 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.68 = ; d@20.0_0.68 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p69m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.69 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.69 = ; d@20.0_0.69 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p7m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.7 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.7 = ; d@20.0_0.7 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p71m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.71 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.71 = ; d@20.0_0.71 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p72m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.72 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.72 = ; d@20.0_0.72 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p73m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.73 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.73 = ; d@20.0_0.73 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p74m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.74 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.74 = ; d@20.0_0.74 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p75m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.75 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.75 = ; d@20.0_0.75 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p76m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.76 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.76 = ; d@20.0_0.76 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p77m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.77 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.77 = ; d@20.0_0.77 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p78m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.78 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.78 = ; d@20.0_0.78 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p79m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.79 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.79 = ; d@20.0_0.79 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p8m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.8 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.8 = ; d@20.0_0.8 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p81m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.81 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.81 = ; d@20.0_0.81 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p82m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.82 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.82 = ; d@20.0_0.82 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p83m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.83 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.83 = ; d@20.0_0.83 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p84m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.84 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.84 = ; d@20.0_0.84 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p85m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.85 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.85 = ; d@20.0_0.85 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p86m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.86 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.86 = ; d@20.0_0.86 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p87m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.87 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.87 = ; d@20.0_0.87 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p88m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.88 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.88 = ; d@20.0_0.88 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p89m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.89 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.89 = ; d@20.0_0.89 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p9m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.9 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.9 = ; d@20.0_0.9 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p91m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.91 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.91 = ; d@20.0_0.91 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p92m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.92 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.92 = ; d@20.0_0.92 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p93m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.93 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.93 = ; d@20.0_0.93 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p94m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.94 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.94 = ; d@20.0_0.94 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p95m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.95 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.95 = ; d@20.0_0.95 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p96m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.96 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.96 = ; d@20.0_0.96 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p97m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.97 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.97 = ; d@20.0_0.97 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p98m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.98 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.98 = ; d@20.0_0.98 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_0p99m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 0.99 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.99 = ; d@20.0_0.99 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_1m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 1 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_1 = ; d@20.0_1 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_1p25m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 1.25 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_1.25 = ; d@20.0_1.25 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_1p5m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 1.5 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_1.5 = ; d@20.0_1.5 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_1p75m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 1.75 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_1.75 = ; d@20.0_1.75 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_2m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 2 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_2 = ; d@20.0_2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_2p5m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 2.5 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_2.5 = ; d@20.0_2.5 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_offset_3m",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run_parametric",
+      "aec_use_case": "Parametric: duct offset 3 m parallel to beam axis",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_3 = ; d@20.0_3 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "parametric",
+        "parallel"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_2m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 2 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@2.0_0.0 = ; c@0.0_0.2 = ; d@2.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_4m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 4 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@4.0_0.0 = ; c@0.0_0.2 = ; d@4.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_6m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 6 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.2 = ; d@6.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_8m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 8 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@8.0_0.0 = ; c@0.0_0.2 = ; d@8.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_10m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 10 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@10.0_0.0 = ; c@0.0_0.2 = ; d@10.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_12m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 12 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@12.0_0.0 = ; c@0.0_0.2 = ; d@12.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_14m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 14 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@14.0_0.0 = ; c@0.0_0.2 = ; d@14.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_16m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 16 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@16.0_0.0 = ; c@0.0_0.2 = ; d@16.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_18m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 18 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@18.0_0.0 = ; c@0.0_0.2 = ; d@18.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_20m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 20 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@0.0_0.2 = ; d@20.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_22m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 22 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@22.0_0.0 = ; c@0.0_0.2 = ; d@22.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_24m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 24 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@24.0_0.0 = ; c@0.0_0.2 = ; d@24.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_26m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 26 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@26.0_0.0 = ; c@0.0_0.2 = ; d@26.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_28m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 28 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@28.0_0.0 = ; c@0.0_0.2 = ; d@28.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_30m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 30 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@30.0_0.0 = ; c@0.0_0.2 = ; d@30.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_32m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 32 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@32.0_0.0 = ; c@0.0_0.2 = ; d@32.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_34m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 34 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@34.0_0.0 = ; c@0.0_0.2 = ; d@34.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_36m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 36 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@36.0_0.0 = ; c@0.0_0.2 = ; d@36.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_38m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 38 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@38.0_0.0 = ; c@0.0_0.2 = ; d@38.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_40m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 40 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@40.0_0.0 = ; c@0.0_0.2 = ; d@40.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_42m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 42 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@42.0_0.0 = ; c@0.0_0.2 = ; d@42.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_44m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 44 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@44.0_0.0 = ; c@0.0_0.2 = ; d@44.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_46m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 46 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@46.0_0.0 = ; c@0.0_0.2 = ; d@46.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_48m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 48 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@48.0_0.0 = ; c@0.0_0.2 = ; d@48.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_parallel_span_50m",
+      "category": "mep_coordination",
+      "subcategory": "span_length",
+      "aec_use_case": "Parallel run over 50 m span at 200 mm offset",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@50.0_0.0 = ; c@0.0_0.2 = ; d@50.0_0.2 = para a b c d ? para c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "span"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p025m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.025 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.025 = ; d@6.0_0.025 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p05m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.05 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.05 = ; d@6.0_0.05 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p075m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.075 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.075 = ; d@6.0_0.075 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p1m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.1 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.1 = ; d@6.0_0.1 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p125m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.125 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.125 = ; d@6.0_0.125 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p15m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.15 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.15 = ; d@6.0_0.15 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p2m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.2 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.2 = ; d@6.0_0.2 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p25m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.25 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.25 = ; d@6.0_0.25 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_clearance_cong_0p3m",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong_parametric",
+      "aec_use_case": "Attempt exact cong clearance 0.3 m (often numerical failure)",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@0.0_0.3 = ; d@6.0_0.3 = cong a c a d ? cong a c a d",
+      "expected": {
+        "setup": "setup_error",
+        "proven": false
+      },
+      "tags": [
+        "generated",
+        "clearance",
+        "metric"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_1m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 1 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@1.0_0.0 = ; d@1.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_2m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 2 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@2.0_0.0 = ; d@2.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_3m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 3 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@3.0_0.0 = ; d@3.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_4m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 4 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@4.0_0.0 = ; d@4.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_5m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 5 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@5.0_0.0 = ; d@5.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_6m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 6 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@6.0_0.0 = ; d@6.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_7m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 7 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@7.0_0.0 = ; d@7.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_8m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 8 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@8.0_0.0 = ; d@8.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_9m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 9 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@9.0_0.0 = ; d@9.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_10m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 10 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@10.0_0.0 = ; d@10.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_11m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 11 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@11.0_0.0 = ; d@11.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_12m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 12 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@12.0_0.0 = ; d@12.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_13m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 13 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@13.0_0.0 = ; d@13.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_14m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 14 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@14.0_0.0 = ; d@14.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_15m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 15 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@15.0_0.0 = ; d@15.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_16m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 16 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@16.0_0.0 = ; d@16.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_17m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 17 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@17.0_0.0 = ; d@17.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_18m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 18 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@18.0_0.0 = ; d@18.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_19m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 19 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@19.0_0.0 = ; d@19.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    },
+    {
+      "id": "gen_perp_crossing_station_20m",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing_parametric",
+      "aec_use_case": "Perpendicular riser at 20 m along corridor beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@25.0_0.0 = ; c@20.0_0.0 = ; d@20.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {
+        "setup": "ok",
+        "proven": true
+      },
+      "tags": [
+        "generated",
+        "perpendicular"
+      ]
+    }
+  ]
+}

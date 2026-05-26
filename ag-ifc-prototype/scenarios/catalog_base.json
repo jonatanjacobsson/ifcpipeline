@@ -1,0 +1,196 @@
+{
+  "version": "1.0.0",
+  "description": "Hand-authored AEC coordination scenarios for AlphaGeometry2 DDAR capability discovery",
+  "scenarios": [
+    {
+      "id": "mep_parallel_beam_duct_150mm",
+      "category": "mep_coordination",
+      "subcategory": "parallel_run",
+      "aec_use_case": "After raising duct 150 mm, verify centerline parallel to beam axis in plan",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@10.0_0.0 = ; c@0.0_0.15 = ; d@10.0_0.15 = para a b c d ? para c d a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["hvac", "structure", "plan"]
+    },
+    {
+      "id": "mep_perp_crossing_riser",
+      "category": "mep_coordination",
+      "subcategory": "perpendicular_crossing",
+      "aec_use_case": "Riser segment perpendicular to corridor beam run at crossing",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@12.0_0.0 = ; c@6.0_0.0 = ; d@6.0_2.5 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["riser", "plan_section"]
+    },
+    {
+      "id": "mep_rack_collinear_three",
+      "category": "mep_coordination",
+      "subcategory": "collinearity",
+      "aec_use_case": "Three tray endpoints collinear on coordinated rack line",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; c@12.0_0.0 = coll a b c ? coll a b c",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["electrical", "rack"]
+    },
+    {
+      "id": "mep_dual_parallel_runs",
+      "category": "mep_coordination",
+      "subcategory": "multi_run",
+      "aec_use_case": "Two parallel MEP runs maintain parallelism (supply/return)",
+      "aec_utility_hypothesis": "medium",
+      "ag2": "a@0.0_0.0 = ; b@10.0_0.0 = ; c@0.0_0.3 = ; d@10.0_0.3 = ; e@0.0_0.6 = ; f@10.0_0.6 = para a b c d, para c d e f ? para a e b f",
+      "expected": {"setup": "ok", "proven": false},
+      "tags": ["hvac", "dual"]
+    },
+    {
+      "id": "struct_grid_collinear_columns",
+      "category": "structural_grid",
+      "subcategory": "collinearity",
+      "aec_use_case": "Column centers collinear along grid axis A",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@8.0_0.0 = ; c@16.0_0.0 = coll a b c ? coll a b c",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["structure", "grid"]
+    },
+    {
+      "id": "struct_perp_grid_intersection",
+      "category": "structural_grid",
+      "subcategory": "perpendicular",
+      "aec_use_case": "Grid lines A and B perpendicular at origin",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@10.0_0.0 = ; c@0.0_0.0 = ; d@0.0_8.0 = coll a b c, perp a b c d ? perp a b c d",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["structure", "grid"]
+    },
+    {
+      "id": "clearance_cong_vertical_50mm",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong",
+      "aec_use_case": "Prove exact 50 mm vertical offset via segment congruence",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@4.0_0.0 = ; c@0.0_0.05 = ; d@4.0_0.05 = cong a c a d ? cong a c a d",
+      "expected": {"setup": "setup_error", "proven": false},
+      "tags": ["clearance", "metric"]
+    },
+    {
+      "id": "clearance_cong_vertical_150mm",
+      "category": "clearance_distance",
+      "subcategory": "metric_cong",
+      "aec_use_case": "Prove exact 150 mm vertical offset via segment congruence",
+      "aec_utility_hypothesis": "low",
+      "ag2": "a@0.0_0.0 = ; b@4.0_0.0 = ; c@0.0_0.15 = ; d@4.0_0.15 = cong a c a d ? cong a c a d",
+      "expected": {"setup": "setup_error", "proven": false},
+      "tags": ["clearance", "metric"]
+    },
+    {
+      "id": "clearance_parallel_implies_offset",
+      "category": "clearance_distance",
+      "subcategory": "relational",
+      "aec_use_case": "Parallel runs with stated parallel premise (offset certified relationally)",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@8.0_0.0 = ; c@0.0_0.05 = ; d@8.0_0.05 = para a b c d ? para c d a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["clearance", "relational"]
+    },
+    {
+      "id": "vertical_drop_perp_to_slab",
+      "category": "vertical_section",
+      "subcategory": "perpendicular",
+      "aec_use_case": "Vertical drop perpendicular to horizontal slab edge in section",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@6.0_0.0 = ; h@3.0_0.0 = coll h a b ; p@3.0_2.0 = perp h p a b ? perp h p a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["section", "plumbing"]
+    },
+    {
+      "id": "routing_eqangle_parallel",
+      "category": "routing_angles",
+      "subcategory": "eqangle",
+      "aec_use_case": "Derive parallelism from equal corresponding angles (duct vs reference)",
+      "aec_utility_hypothesis": "medium",
+      "ag2": "a@0.0_0.0 = ; b@10.0_0.0 = ; c@0.0_0.2 = ; d@10.0_0.2 = eqangle a b a c c d c b ? para a b c d",
+      "expected": {"setup": "setup_error", "proven": false},
+      "tags": ["routing", "angles"]
+    },
+    {
+      "id": "clash_fix_offset_parallel",
+      "category": "clash_resolution",
+      "subcategory": "post_move_verify",
+      "aec_use_case": "Post-clash fix: duct shifted parallel to structural beam",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@12.425_8.11 = ; b@16.425_8.11 = ; c@12.425_8.26 = ; d@16.425_8.26 = para a b c d ? para c d a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["clash", "fix"]
+    },
+    {
+      "id": "clash_fix_perp_crossing_ok",
+      "category": "clash_resolution",
+      "subcategory": "post_move_verify",
+      "aec_use_case": "Post-fix: maintain perpendicular crossing at corridor",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@20.0_0.0 = ; c@10.0_0.0 = ; d@10.0_3.0 = coll c a b, perp c d a b ? perp c d a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["clash", "fix"]
+    },
+    {
+      "id": "negative_false_parallel_claim",
+      "category": "negative_control",
+      "subcategory": "invalid_goal",
+      "aec_use_case": "Coordinator claims parallel runs but duct is skewed — should not prove",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@4.0_0.0 = ; c@0.0_0.15 = ; d@4.0_0.5 = ? para c d a b",
+      "expected": {"setup": "ok", "proven": false},
+      "tags": ["negative"]
+    },
+    {
+      "id": "negative_contradictory_parallel_premise",
+      "category": "negative_control",
+      "subcategory": "bad_premise",
+      "aec_use_case": "Premise forces parallel on non-parallel geometry (setup should fail)",
+      "aec_utility_hypothesis": "medium",
+      "ag2": "a@0.0_0.0 = ; b@4.0_0.0 = ; c@0.0_0.15 = ; d@4.0_0.5 = para a b c d ? para c d a b",
+      "expected": {"setup": "setup_error", "proven": false},
+      "tags": ["negative"]
+    },
+    {
+      "id": "reference_imo_2000_p1_excerpt",
+      "category": "reference_imo",
+      "subcategory": "upstream",
+      "aec_use_case": "Upstream AG2 sanity (not AEC-specific)",
+      "aec_utility_hypothesis": "unknown",
+      "ag2": "a@-0.5224995081800106_0.10855387073174794 = ; b@-0.18661048092098675_0.19019216505952974 = ; g1@-0.4843181580129312_-0.04853780631339801 = ; g2@-0.12022634032706143_-0.08293583930559657 = ; m@-0.3631425485390431_0.05847659536258823 = ; n@-0.3853283338800269_-0.17635261459308932 = ; c@-0.6410940637479596_-0.009079906237506334 = ; d@0.030683990770088265_0.15419668241805734 = ; e@-0.4039049526120616_0.22618764770100208 = ; p@-0.48422076136091424_0.029048367665792673 = ; q@-0.242064335717172_0.08790482305938377 = perp a b a g1, perp a b b g2, cong a g1 g1 m, cong b g2 g2 m, cong a g1 g1 n, cong b g2 g2 n, cong a g1 g1 c, para a b m c, cong b g2 g2 d, para a b m d, coll a c e, coll b d e, coll a n p, coll c d p, coll b n q, coll c d q ? cong e p e q",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["reference"]
+    },
+    {
+      "id": "reference_imo_2004_p5",
+      "category": "reference_imo",
+      "subcategory": "upstream",
+      "aec_use_case": "Circle/angle construction — stress DDAR (AEC analogy: radial equipment)",
+      "aec_utility_hypothesis": "medium",
+      "ag2": "a@0.0_0.0 = ; b@1.0_0.0 = ; c@-0.24938856912238253_0.6547036984730146 = ; o@0.5_0.5653092857516873 = ; d@0.7037641142060632_1.2919830600953754 = ; p@1.9602382123421425_1.1215406301036281 = cong a o b o, cong b o c o, cong a o o d, eqangle b a b d b p b c, eqangle d a d b d p d c ? cong a p c p",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["reference"]
+    },
+    {
+      "id": "fire_separation_parallel_runs",
+      "category": "code_coordination",
+      "subcategory": "separation",
+      "aec_use_case": "Two penetrations on parallel offset lines (relational separation check)",
+      "aec_utility_hypothesis": "high",
+      "ag2": "a@0.0_0.0 = ; b@5.0_0.0 = ; c@0.0_1.0 = ; d@5.0_1.0 = para a b c d ? para c d a b",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["fire", "separation"]
+    },
+    {
+      "id": "plumbing_slope_not_provable",
+      "category": "code_coordination",
+      "subcategory": "slope",
+      "aec_use_case": "Pipe slope 1:100 — not native AG2 (needs numeric slope solver)",
+      "aec_utility_hypothesis": "unsuitable",
+      "ag2": "a@0.0_0.0 = ; b@10.0_0.1 = coll a b a ? coll a b a",
+      "expected": {"setup": "ok", "proven": true},
+      "tags": ["plumbing", "slope", "limitation"]
+    }
+  ]
+}
