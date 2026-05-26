@@ -170,3 +170,68 @@ def obstacle_aabbs_for_clash(
             if geom is not None:
                 obstacles.append(geom.aabb.inflated(inflate_m))
     return obstacles
+
+@dataclass
+class IndexedElement:
+    guid: str
+    ifc_class: str
+    discipline: str
+    aabb: Aabb
+    source_file: str
+
+
+def aabb_intersects(a: Aabb, b: Aabb) -> bool:
+    return bool(
+        np.all(a.max_corner >= b.min_corner) and np.all(b.max_corner >= a.min_corner)
+    )
+
+
+def aabb_union(a: Aabb, b: Aabb) -> Aabb:
+    return Aabb(np.minimum(a.min_corner, b.min_corner), np.maximum(a.max_corner, b.max_corner))
+
+
+def translate_aabb(aabb: Aabb, delta: np.ndarray) -> Aabb:
+    d = np.asarray(delta, dtype=float)
+    return Aabb(aabb.min_corner + d, aabb.max_corner + d)
+
+
+def build_model_aabb_index(
+    ifc_path: str,
+    *,
+    skip_types: set[str] | None = None,
+) -> list[IndexedElement]:
+    """Index product AABBs for fast neighbourhood clash screening."""
+    import ifcopenshell
+
+    skip = skip_types or {"IfcOpeningElement", "IfcSpace", "IfcAnnotation"}
+    ifc = ifcopenshell.open(ifc_path)
+    out: list[IndexedElement] = []
+    for prod in ifc.by_type("IfcProduct"):
+        if prod.is_a() in skip:
+            continue
+        gid = getattr(prod, "GlobalId", None)
+        if not gid:
+            continue
+        ifc_class = prod.is_a()
+        aabb = _shape_aabb(ifc, prod)
+        if aabb is None:
+            origin = _placement_origin(prod)
+            half = 0.2
+            aabb = Aabb(origin - half, origin + half)
+        out.append(
+            IndexedElement(
+                guid=gid,
+                ifc_class=ifc_class,
+                discipline=discipline_from_class(ifc_class),
+                aabb=aabb,
+                source_file=ifc_path,
+            )
+        )
+    return out
+
+
+def merge_indices(indices: list[list[IndexedElement]]) -> list[IndexedElement]:
+    merged: list[IndexedElement] = []
+    for part in indices:
+        merged.extend(part)
+    return merged

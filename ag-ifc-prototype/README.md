@@ -22,6 +22,20 @@ This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.curso
 
 
 
+
+
+### MEP reasoning (bends vs parallel translation)
+
+`mep_reasoning.py` scores routes by **coordination cost**, not clash count alone:
+
+- **Parallel translation** — preferred (no bends, certifiable with AG `para`)
+- **Bends** — allowed but penalized (`bend_penalty` in routing A*)
+- **Wrong target** — warns when moving structure instead of MEP
+
+### Fast bbox global regression
+
+`bbox_regression.py` indexes federated model AABBs and, after each fix, checks for **new overlaps** near the moved element without running full IfcClash every time. Set `full_clash_every_n_rounds: 2` to alternate bbox screen / solid clash sign-off.
+
 ## Multi-attempt clashes, global regression, and BCF export
 
 Each clash can be retried up to `max_attempts_per_clash` (cumulative moves). After every clash round a **full IfcClash** run checks for **new global clashes** (regression) vs the baseline snapshot.

@@ -72,34 +72,61 @@ def route_orthogonal(
     clearance_m: float = 0.05,
     grid_step_m: float = 0.1,
     max_cells: int = 12000,
+    bend_penalty: float = 0.0,
 ) -> Route3D:
     step = max(grid_step_m, 0.05)
     origin = np.minimum(start, goal) - step * 4
     start_cell = _snap(start, origin, step)
     goal_cell = _snap(goal, origin, step)
 
-    open_set: list[tuple[float, tuple[int, int, int]]] = []
-    heapq.heappush(open_set, (0.0, start_cell))
-    came_from: dict[tuple[int, int, int], tuple[int, int, int] | None] = {start_cell: None}
-    g_score: dict[tuple[int, int, int], float] = {start_cell: 0.0}
+    # State: grid cell; optional last direction index 0..5 for bend penalty
+    Dir = tuple[int, int, int]
+    start_state = (start_cell, (0, 0, 0))
+    open_set: list[tuple[float, tuple[tuple[int, int, int], Dir]]] = []
+    heapq.heappush(open_set, (0.0, start_state))
+    came_from: dict[tuple[tuple[int, int, int], Dir], tuple[tuple[int, int, int], Dir] | None] = {
+        start_state: None
+    }
+    g_score: dict[tuple[tuple[int, int, int], Dir], float] = {start_state: 0.0}
     visited = 0
+    goal_state: tuple[tuple[int, int, int], Dir] | None = None
+
+    def dir_between(a: tuple[int, int, int], b: tuple[int, int, int]) -> Dir:
+        return (b[0] - a[0], b[1] - a[1], b[2] - a[2])
 
     while open_set and visited < max_cells:
-        _, current = heapq.heappop(open_set)
+        _, state = heapq.heappop(open_set)
+        current, last_dir = state
         visited += 1
         if current == goal_cell:
+            goal_state = state
             break
         for neighbor in _manhattan_neighbors(current):
             if _cell_blocked(neighbor, origin, step, obstacles):
                 continue
-            tentative = g_score[current] + 1.0
-            if tentative < g_score.get(neighbor, float("inf")):
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative
+            ndir = dir_between(current, neighbor)
+            step_cost = 1.0
+            if bend_penalty > 0 and last_dir != (0, 0, 0) and ndir != last_dir:
+                step_cost += bend_penalty
+            tentative = g_score[state] + step_cost
+            nstate = (neighbor, ndir)
+            if tentative < g_score.get(nstate, float("inf")):
+                came_from[nstate] = state
+                g_score[nstate] = tentative
                 f = tentative + _heuristic(neighbor, goal_cell)
-                heapq.heappush(open_set, (f, neighbor))
+                heapq.heappush(open_set, (f, nstate))
 
-    if goal_cell not in came_from:
+    if goal_state is None and goal_cell not in {s[0] for s in came_from.keys()}:
+        pass
+    elif goal_state is None:
+        # reach goal cell with any direction
+        for st in came_from:
+            if st[0] == goal_cell:
+                goal_state = st
+                break
+
+
+    if goal_state is None:
         delta = goal - start
         if np.linalg.norm(delta) < 1e-9:
             delta = np.array([0.0, 0.0, clearance_m])
@@ -113,10 +140,10 @@ def route_orthogonal(
         )
 
     path_cells: list[tuple[int, int, int]] = []
-    cell: tuple[int, int, int] | None = goal_cell
-    while cell is not None:
-        path_cells.append(cell)
-        cell = came_from.get(cell)
+    st: tuple[tuple[int, int, int], Dir] | None = goal_state
+    while st is not None:
+        path_cells.append(st[0])
+        st = came_from.get(st)
     path_cells.reverse()
 
     waypoints = [_unsnap(c, origin, step) for c in path_cells]

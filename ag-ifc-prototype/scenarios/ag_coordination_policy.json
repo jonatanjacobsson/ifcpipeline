@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "objective": "Minimize MEP coordination cost while resolving clashes; do not optimize clash count alone",
+  "cost_model": {
+    "per_metre": 1.0,
+    "per_bend": 4.0,
+    "non_parallel_penalty": 2.5,
+    "moving_non_mep_for_mep_clash": 8.0
+  },
+  "strategy_preference": [
+    "parallel_translate",
+    "reroute_minimal",
+    "reroute_with_bends",
+    "review_manual"
+  ],
+  "regression": {
+    "bbox_screen": "Fast AABB neighbourhood check after each fix attempt",
+    "ifcclash_signoff": "Full solid clash on baseline compare; interval via full_clash_every_n_rounds"
+  }
+}

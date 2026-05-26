@@ -24,6 +24,11 @@ from ag_ifc.clash_resolve import ClashResolution, resolve_clash_with_retries
 from ag_ifc.clash_runner import clash_count, run_clash_set
 from ag_ifc.clash_sorter import ScoredClash, sort_clashes
 from ag_ifc.compiler import clash_to_ag2_multiplane, route_segments_to_ag2_problems
+from ag_ifc.bbox_regression import (
+    baseline_overlap_keys,
+    build_federated_index,
+    check_bbox_regression,
+)
 from ag_ifc.ifc_geometry import element_geom
 from ag_ifc.iterative_clash import _prepare_work_copies
 from ag_ifc.workflow_types import AgProofRecord, Workflow3DResult, WorkflowFix, prove_stubs
@@ -42,6 +47,11 @@ class PipelineOptions:
     global_regression: bool = True
     export_bcf: bool = True
     stop_on_regression_failure: bool = True
+    use_bbox_regression: bool = True
+    full_clash_every_n_rounds: int = 1
+    bbox_cell_m: float = 2.0
+    bend_penalty: float = 4.0
+    extra_regression_ifc_paths: list[str] | None = None
 
 
 def run_resolve_pipeline(
@@ -79,6 +89,14 @@ def run_resolve_pipeline(
                     guid_to_file[prod.GlobalId] = path
 
     refresh_guid_map()
+
+    bbox_index = build_federated_index(
+        ifc_paths,
+        extra_paths=opts.extra_regression_ifc_paths,
+        cell_m=opts.bbox_cell_m,
+    )
+    bbox_baseline_keys: dict[str, set[str]] = {}
+
     output_json = str(work_dir / "clash_out.json")
     clash_mode = clash_set_options.get("mode", "intersection")
 
@@ -197,19 +215,38 @@ def run_resolve_pipeline(
             if opts.verify_ag and vendor is not None:
                 pass  # AG on final attempt below
 
+        if guid not in bbox_baseline_keys:
+            bbox_baseline_keys[guid] = baseline_overlap_keys(
+                bbox_index, guid, clearance_m=opts.clearance_m
+            )
+
+        def bbox_check(delta: np.ndarray) -> dict[str, Any] | None:
+            if not opts.use_bbox_regression:
+                return None
+            report = check_bbox_regression(
+                bbox_index,
+                guid,
+                delta,
+                bbox_baseline_keys[guid],
+                clearance_m=opts.clearance_m,
+            )
+            return report.to_dict()
+
         resolution: ClashResolution = resolve_clash_with_retries(
             scored.clash_key,
             clash,
             guid=guid,
+            movable_class=scored.movable_class,
             target_path=target_path,
             work_ifc_paths=ifc_paths,
-            make_clash_set=make_clash_set,
             run_clash=run_clash,
             clash_count_fn=clash_count,
             max_attempts_per_clash=opts.max_attempts_per_clash,
             clearance_m=opts.clearance_m,
             step_m=opts.step_m,
             grid_step_m=opts.grid_step_m,
+            bend_penalty=opts.bend_penalty,
+            bbox_check=bbox_check,
         )
         refresh_guid_map()
 
@@ -232,12 +269,44 @@ def run_resolve_pipeline(
 
         ag_ok = any(r.proven for r in ag_records) if ag_records else False
 
-        current_snap = ClashSnapshot.from_clash_result(run_clash())
-        reg = compare_regression(
-            baseline,
-            current_snap,
-            target_resolved={stable} if resolution.resolved else None,
+        if opts.use_bbox_regression:
+            bbox_reg = check_bbox_regression(
+                bbox_index,
+                guid,
+                np.array(resolution.total_translation, dtype=float),
+                bbox_baseline_keys[guid],
+                clearance_m=opts.clearance_m,
+            )
+            regression_reports.append({"bbox": bbox_reg.to_dict()})
+            if not bbox_reg.passed and opts.stop_on_regression_failure:
+                regression_failed = True
+
+        run_full = (
+            not opts.use_bbox_regression
+            or opts.full_clash_every_n_rounds <= 1
+            or (clash_round + 1) % opts.full_clash_every_n_rounds == 0
+            or regression_failed
         )
+        if run_full:
+            current_snap = ClashSnapshot.from_clash_result(run_clash())
+            reg = compare_regression(
+                baseline,
+                current_snap,
+                target_resolved={stable} if resolution.resolved else None,
+            )
+        else:
+            from ag_ifc.clash_regression import RegressionReport
+
+            reg = RegressionReport(
+                passed=bbox_reg.passed if opts.use_bbox_regression else True,
+                baseline_count=baseline.count,
+                current_count=baseline.count,
+                resolved_stable_ids=[stable] if resolution.resolved else [],
+                remaining_stable_ids=[] if resolution.resolved else [stable],
+                new_global_clashes=[],
+                message="bbox-only interim (IfcClash skipped this round)",
+            )
+            current_snap = baseline
         regression_reports.append(reg.to_dict())
         save_snapshot(work_dir / f"regression_round_{clash_round}.json", current_snap)
 

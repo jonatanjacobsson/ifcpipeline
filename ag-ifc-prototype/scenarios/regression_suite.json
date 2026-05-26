@@ -19,7 +19,10 @@
     "global_regression": true,
     "export_bcf": true,
     "stop_on_regression_failure": true,
-    "prefilter_solve_only": true
+    "prefilter_solve_only": true,
+    "bend_penalty": 4.0,
+    "use_bbox_regression": true,
+    "full_clash_every_n_rounds": 1
   },
   "cases": [
     {

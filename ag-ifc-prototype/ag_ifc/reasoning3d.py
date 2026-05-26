@@ -53,6 +53,9 @@ def run_workflow3d_resolution(
     global_regression: bool = True,
     export_bcf: bool = True,
     stop_on_regression_failure: bool = True,
+    use_bbox_regression: bool = True,
+    full_clash_every_n_rounds: int = 1,
+    bend_penalty: float = 4.0,
     vendor: Path | None = None,
     logger: logging.Logger | None = None,
 ) -> Workflow3DResult:
@@ -68,6 +71,9 @@ def run_workflow3d_resolution(
         global_regression=global_regression,
         export_bcf=export_bcf,
         stop_on_regression_failure=stop_on_regression_failure,
+        use_bbox_regression=use_bbox_regression,
+        full_clash_every_n_rounds=full_clash_every_n_rounds,
+        bend_penalty=bend_penalty,
     )
     return run_resolve_pipeline(
         case_id,
@@ -125,6 +131,9 @@ def run_workflow_case(
         global_regression=case.get("global_regression", True),
         export_bcf=case.get("export_bcf", True),
         stop_on_regression_failure=case.get("stop_on_regression_failure", True),
+        use_bbox_regression=case.get("use_bbox_regression", True),
+        full_clash_every_n_rounds=case.get("full_clash_every_n_rounds", 1),
+        bend_penalty=case.get("bend_penalty", 4.0),
         vendor=vendor,
         logger=logger,
     )
