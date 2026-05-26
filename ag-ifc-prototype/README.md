@@ -16,6 +16,28 @@ This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.curso
 
 
 
+
+
+## 3D clash routing + AEC reasoning workflow
+
+Sorts clashes (severity, discipline, spatial cluster), plans an **orthogonal 3D polyline** around obstacle AABBs, applies the net translation to the movable element, and certifies with **multi-plane AlphaGeometry** (plan XY + section stubs + per-segment proofs).
+
+```bash
+./scripts/run_workflow3d.sh
+# or
+PYTHONPATH=. python3 -m ag_ifc.run_workflow3d
+```
+
+Reports: `reports/workflow3d_suite_latest.json` and `.md`.
+
+| Module | Role |
+|--------|------|
+| `ag_ifc/clash_sorter.py` | AEC triage / fix order |
+| `ag_ifc/routing3d.py` | Manhattan A* voxel routing |
+| `ag_ifc/ifc_geometry.py` | IFC AABB + discipline extraction |
+| `ag_ifc/reasoning3d.py` | Detect → sort → route → AG → fix → re-clash |
+| `ag_ifc/compiler.py` | `clash_to_ag2_multiplane`, `route_segments_to_ag2_problems` |
+
 ## Iterative evaluation (clash → fix → re-clash until pass)
 
 Primary **AG evaluation suite** for clash resolution:

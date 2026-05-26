@@ -1,0 +1,65 @@
+{
+  "version": "1.0.0",
+  "description": "3D orthogonal routing + AEC clash triage + multi-plane AG certification",
+  "ifc_clash_defaults": {
+    "mode": "intersection",
+    "tolerance": 0.01,
+    "check_all": false,
+    "allow_touching": false,
+    "clearance": 0
+  },
+  "defaults": {
+    "max_iterations": 10,
+    "clearance_m": 0.05,
+    "step_m": 0.15,
+    "grid_step_m": 0.1,
+    "move_side": "auto",
+    "verify_ag": true
+  },
+  "cases": [
+    {
+      "id": "wf3d_arch_vs_beams",
+      "model_set": "pcert-building",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "aec_use_case": "Sorted clash + 3D route + AG segment proofs"
+    },
+    {
+      "id": "wf3d_plumbing_vs_road",
+      "model_set": "pcert-infra",
+      "a_file": "Infra-Plumbing.ifc",
+      "b_file": "Infra-Road.ifc",
+      "move_side": "a",
+      "step_m": 0.25,
+      "max_iterations": 12
+    },
+    {
+      "id": "wf3d_landscape_vs_arch",
+      "model_set": "pcert-building",
+      "a_file": "Building-Landscaping.ifc",
+      "b_file": "Building-Architecture.ifc",
+      "move_side": "a",
+      "max_iterations": 15
+    },
+    {
+      "id": "wf3d_clearance_hvac_beams",
+      "model_set": "pcert-building",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "clash_options": {
+        "mode": "clearance",
+        "clearance": 0.05
+      }
+    },
+    {
+      "id": "wf3d_hvac_vs_beams_control",
+      "model_set": "pcert-building",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "aec_use_case": "Zero-clash control"
+    }
+  ]
+}
