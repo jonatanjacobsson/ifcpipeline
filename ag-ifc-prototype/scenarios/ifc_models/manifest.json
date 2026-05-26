@@ -1,0 +1,79 @@
+{
+  "version": "1.0.0",
+  "description": "Open-source multi-discipline IFC model catalog for AG-IFC clash scenarios",
+  "license_note": "buildingSMART PCERT samples are CC BY 4.0. See IFC_MODELS.md for full attribution.",
+  "download_base": "https://github.com/buildingSMART/Sample-Test-Files/raw/refs/heads/main/IFC%204.3.2.0%20(IFC4X3_ADD2)/PCERT-Sample-Scene",
+  "model_sets": [
+    {
+      "id": "pcert-building",
+      "name": "PCERT Sample Building (IFC4X3)",
+      "source": "buildingSMART Sample-Test-Files",
+      "source_url": "https://github.com/buildingSMART/Sample-Test-Files/tree/main/IFC%204.3.2.0%20(IFC4X3_ADD2)/PCERT-Sample-Scene",
+      "license": "CC BY 4.0",
+      "schema": "IFC4X3_ADD2",
+      "disciplines": ["architecture", "structural", "hvac", "landscaping"],
+      "files": [
+        {"id": "arch", "filename": "Building-Architecture.ifc", "discipline": "architecture"},
+        {"id": "struct", "filename": "Building-Structural.ifc", "discipline": "structural"},
+        {"id": "hvac", "filename": "Building-Hvac.ifc", "discipline": "hvac"},
+        {"id": "landscape", "filename": "Building-Landscaping.ifc", "discipline": "landscaping"}
+      ],
+      "local_fallback": "../../shared/examples"
+    },
+    {
+      "id": "pcert-infra",
+      "name": "PCERT Sample Infrastructure (IFC4X3)",
+      "source": "buildingSMART Sample-Test-Files",
+      "source_url": "https://github.com/buildingSMART/Sample-Test-Files/tree/main/IFC%204.3.2.0%20(IFC4X3_ADD2)/PCERT-Sample-Scene",
+      "license": "CC BY 4.0",
+      "schema": "IFC4X3_ADD2",
+      "disciplines": ["bridge", "road", "rail", "plumbing", "landscaping"],
+      "files": [
+        {"id": "bridge", "filename": "Infra-Bridge.ifc", "discipline": "structural"},
+        {"id": "road", "filename": "Infra-Road.ifc", "discipline": "civil"},
+        {"id": "rail", "filename": "Infra-Rail.ifc", "discipline": "civil"},
+        {"id": "plumbing", "filename": "Infra-Plumbing.ifc", "discipline": "plumbing"},
+        {"id": "landscape", "filename": "Infra-Landscaping.ifc", "discipline": "landscaping"}
+      ],
+      "local_fallback": null
+    },
+    {
+      "id": "bsi-duplex",
+      "name": "buildingSMART Duplex Apartment (IFC2x3)",
+      "source": "buildingsmart-community/Community-Sample-Test-Files",
+      "source_url": "https://github.com/buildingsmart-community/Community-Sample-Test-Files/tree/main/IFC%202.3.0.1%20(IFC%202x3)/Duplex%20Apartment",
+      "license": "CC BY 4.0",
+      "schema": "IFC2X3",
+      "disciplines": ["architecture", "mep", "plumbing", "electrical"],
+      "lfs_required": true,
+      "lfs_note": "Git LFS budget on upstream may block CI fetch; run git lfs pull locally.",
+      "files": [
+        {"id": "arch", "filename": "Duplex_A_20110907.ifc", "discipline": "architecture"},
+        {"id": "mep", "filename": "Duplex_MEP_20110907.ifc", "discipline": "mep"},
+        {"id": "plumbing", "filename": "Duplex_Plumbing_20121113.ifc", "discipline": "plumbing"},
+        {"id": "electrical", "filename": "Duplex_Electrical_20121207.ifc", "discipline": "electrical"}
+      ],
+      "download_base": "https://github.com/buildingsmart-community/Community-Sample-Test-Files/raw/refs/heads/main/IFC%202.3.0.1%20(IFC%202x3)/Duplex%20Apartment",
+      "optional": true
+    },
+    {
+      "id": "bsi-clinic",
+      "name": "buildingSMART Medical-Dental Clinic (IFC2x3)",
+      "source": "buildingsmart-community/Community-Sample-Test-Files",
+      "source_url": "https://github.com/buildingsmart-community/Community-Sample-Test-Files/tree/main/IFC%202.3.0.1%20(IFC%202x3)/Medical-Dental%20Clinic",
+      "license": "CC BY 4.0",
+      "schema": "IFC2X3",
+      "disciplines": ["architecture", "structural", "hvac", "plumbing", "electrical"],
+      "lfs_required": true,
+      "optional": true,
+      "files": [
+        {"id": "arch", "filename": "Clinic_Architectural.ifc", "discipline": "architecture"},
+        {"id": "struct", "filename": "Clinic_Structural.ifc", "discipline": "structural"},
+        {"id": "hvac", "filename": "Clinic_HVAC.ifc", "discipline": "hvac"},
+        {"id": "plumbing", "filename": "Clinic_Plumbing.ifc", "discipline": "plumbing"},
+        {"id": "electrical", "filename": "Clinic_Electrical.ifc", "discipline": "electrical"}
+      ],
+      "download_base": "https://github.com/buildingsmart-community/Community-Sample-Test-Files/raw/refs/heads/main/IFC%202.3.0.1%20(IFC%202x3)/Medical-Dental%20Clinic"
+    }
+  ]
+}

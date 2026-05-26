@@ -1,0 +1,154 @@
+{
+  "version": "1.0.0",
+  "defaults": {
+    "mode": "intersection",
+    "tolerance": 0.01,
+    "check_all": false,
+    "allow_touching": false,
+    "clearance": 0
+  },
+  "scenarios": [
+    {
+      "id": "pcert_arch_vs_struct_all",
+      "model_set": "pcert-building",
+      "name": "Architecture vs Structural (all)",
+      "aec_use_case": "Classic federated coordination: architectural fabric vs full structural model",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "tags": ["federated", "hard_clash"]
+    },
+    {
+      "id": "pcert_arch_vs_beams",
+      "model_set": "pcert-building",
+      "name": "Architecture vs Beams only",
+      "aec_use_case": "Targeted structural steel/beam interference with walls/slabs",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "tags": ["structural", "selector"]
+    },
+    {
+      "id": "pcert_arch_vs_columns",
+      "model_set": "pcert-building",
+      "name": "Architecture vs Columns",
+      "aec_use_case": "Column penetrations through architectural elements",
+      "a_file": "Building-Architecture.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcColumn",
+      "tags": ["structural", "selector"]
+    },
+    {
+      "id": "pcert_hvac_vs_struct",
+      "model_set": "pcert-building",
+      "name": "HVAC vs Structural",
+      "aec_use_case": "MEP duct/pipe clashes with structure (primary coordination)",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "tags": ["mep", "hvac"]
+    },
+    {
+      "id": "pcert_hvac_vs_beams",
+      "model_set": "pcert-building",
+      "name": "HVAC vs Beams",
+      "aec_use_case": "Duct routing vs steel beams",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "tags": ["mep", "hvac", "steel"]
+    },
+    {
+      "id": "pcert_hvac_vs_arch",
+      "model_set": "pcert-building",
+      "name": "HVAC vs Architecture",
+      "aec_use_case": "MEP vs ceilings/walls",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Architecture.ifc",
+      "tags": ["mep", "hvac", "arch"]
+    },
+    {
+      "id": "pcert_landscape_vs_arch",
+      "model_set": "pcert-building",
+      "name": "Landscaping vs Architecture",
+      "aec_use_case": "External works vs building envelope",
+      "a_file": "Building-Landscaping.ifc",
+      "b_file": "Building-Architecture.ifc",
+      "tags": ["landscape", "external"]
+    },
+    {
+      "id": "pcert_struct_vs_landscape",
+      "model_set": "pcert-building",
+      "name": "Structural vs Landscaping",
+      "aec_use_case": "Foundations/structure vs site elements",
+      "a_file": "Building-Structural.ifc",
+      "b_file": "Building-Landscaping.ifc",
+      "tags": ["landscape", "structural"]
+    },
+    {
+      "id": "pcert_clearance_hvac_beams",
+      "model_set": "pcert-building",
+      "name": "HVAC vs Beams (clearance)",
+      "aec_use_case": "Soft clash / clearance check for duct-to-beam",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Building-Structural.ifc",
+      "b_selector": "IfcBeam",
+      "mode": "clearance",
+      "clearance": 0.05,
+      "tags": ["clearance", "mep"]
+    },
+    {
+      "id": "infra_plumbing_vs_road",
+      "model_set": "pcert-infra",
+      "name": "Plumbing vs Road",
+      "aec_use_case": "Underground utilities vs road corridor",
+      "a_file": "Infra-Plumbing.ifc",
+      "b_file": "Infra-Road.ifc",
+      "tags": ["infra", "civil", "utilities"]
+    },
+    {
+      "id": "infra_plumbing_vs_bridge",
+      "model_set": "pcert-infra",
+      "name": "Plumbing vs Bridge",
+      "aec_use_case": "Utilities vs bridge structure",
+      "a_file": "Infra-Plumbing.ifc",
+      "b_file": "Infra-Bridge.ifc",
+      "tags": ["infra", "bridge"]
+    },
+    {
+      "id": "infra_rail_vs_road",
+      "model_set": "pcert-infra",
+      "name": "Rail vs Road",
+      "aec_use_case": "Multi-modal corridor coordination",
+      "a_file": "Infra-Rail.ifc",
+      "b_file": "Infra-Road.ifc",
+      "tags": ["infra", "rail", "road"]
+    },
+    {
+      "id": "infra_bridge_vs_road",
+      "model_set": "pcert-infra",
+      "name": "Bridge vs Road",
+      "aec_use_case": "Bridge structure vs road alignment",
+      "a_file": "Infra-Bridge.ifc",
+      "b_file": "Infra-Road.ifc",
+      "tags": ["infra", "bridge", "road"]
+    },
+    {
+      "id": "infra_landscape_vs_bridge",
+      "model_set": "pcert-infra",
+      "name": "Landscaping vs Bridge",
+      "aec_use_case": "Site vs bridge structure",
+      "a_file": "Infra-Landscaping.ifc",
+      "b_file": "Infra-Bridge.ifc",
+      "tags": ["infra", "landscape"]
+    },
+    {
+      "id": "cross_building_hvac_vs_infra_road",
+      "model_set": "pcert-building",
+      "name": "Building HVAC vs Infra Road (cross-project)",
+      "aec_use_case": "Illustrates cross-file federation (different model sets)",
+      "a_file": "Building-Hvac.ifc",
+      "b_file": "Infra-Road.ifc",
+      "b_model_set": "pcert-infra",
+      "tags": ["federated", "cross_set", "negative_expected"]
+    }
+  ]
+}

@@ -14,6 +14,18 @@ Minimal, self-contained environment to **evaluate** AlphaGeometry2 (DDAR), proto
 This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.cursor/ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md).
 
 
+
+## IFC scenarios (real multi-discipline models)
+
+```bash
+pip install -r requirements-ifc.txt
+./scripts/fetch_ifc_models.sh       # PCERT building + infrastructure (~7 MB)
+./scripts/run_ifc_scenarios.sh      # 15 IfcClash scenarios
+./scripts/run_ifc_scenarios.sh --formalize-ag
+```
+
+See **[IFC_MODELS.md](IFC_MODELS.md)** for open-source model catalog (buildingSMART, Duplex, Clinic, BIM4LCA, etc.).
+
 ## Scenario matrix (bulk AEC evaluation)
 
 Run **179+ scenarios** to discover where AG2 helps in clash coordination:
