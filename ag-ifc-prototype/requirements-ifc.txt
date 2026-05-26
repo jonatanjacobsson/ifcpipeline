@@ -1,3 +1,4 @@
 -r requirements.txt
 ifcopenshell==0.8.0
 ifcclash==0.8.0
+bcf-client==0.8.5

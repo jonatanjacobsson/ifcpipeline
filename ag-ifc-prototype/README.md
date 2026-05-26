@@ -20,6 +20,29 @@ This implements **Phase 0** from [ALPHAGEOMETRY_IFC_CLASH_RESEARCH.md](../.curso
 
 
 
+
+
+## Multi-attempt clashes, global regression, and BCF export
+
+Each clash can be retried up to `max_attempts_per_clash` (cumulative moves). After every clash round a **full IfcClash** run checks for **new global clashes** (regression) vs the baseline snapshot.
+
+```bash
+./scripts/run_regression_suite.sh
+```
+
+Outputs per case under `reports/regression_work/<case_id>/`:
+
+- `baseline_snapshot.json` — all clash pairs before fixes
+- `regression_round_*.json` — snapshots after each clash
+- `<case>_validated_fixes.bcf` — BCF 2.1 topics with viewpoints (clash location + proposed position)
+- `<case>_validated_fixes.json` — manifest of validated fixes
+
+Pre-filter IfcClash JSON before solve:
+
+```bash
+PYTHONPATH=. python3 -m ag_ifc.run_prefilter clash.json -o candidates.json --tiers solve
+```
+
 ## AG suitability evaluation & IfcClash pre-filter
 
 Evaluates **every clash** from the IFC scenario matrix with heuristics + optional DDAR proofs, then classifies into:

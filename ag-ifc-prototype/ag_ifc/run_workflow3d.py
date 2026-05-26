@@ -35,6 +35,9 @@ def _result_to_dict(r: Workflow3DResult) -> dict:
         "skip_reason": r.skip_reason,
         "work_dir": r.work_dir,
         "elapsed_ms": round(r.elapsed_ms, 2),
+        "regression_passed": getattr(r, "regression_passed", True),
+        "bcf_export": getattr(r, "bcf_export", None),
+        "validated_fix_count": len(getattr(r, "validated_fixes", [])),
         "triage_order": r.triage_order,
         "fixes": [
             {
