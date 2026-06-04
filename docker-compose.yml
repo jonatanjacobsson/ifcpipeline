@@ -18,6 +18,8 @@ services:
         condition: service_started
       ifcpatch-worker:
         condition: service_started
+      ifccoord-worker:
+        condition: service_started
       redis:
         condition: service_started
       postgres:
@@ -348,6 +350,29 @@ services:
           memory: '4G'
 
   # ---- Converted to object storage (PoC) ----
+
+  ifccoord-worker:
+    build:
+      context: .
+      dockerfile: ifccoord-worker/Dockerfile
+      args:
+        - IFCCOORD_TAG=${IFCCOORD_TAG:-latest}
+    platform: linux/amd64
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
   ifccsv-worker:
     build:
       context: .

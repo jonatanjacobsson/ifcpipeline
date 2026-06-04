@@ -418,7 +418,6 @@ class IfcPatchListRecipesResponse(BaseModel):
     builtin_count: int
     custom_count: int
 
-
 class RevitCommandType(str, Enum):
     PYREVIT = "pyrevit"
     RTV = "rtv"
@@ -453,3 +452,16 @@ class RevitExecuteRequest(BaseModel):
                 }
             ]
         }
+
+# IfcCoord Worker Classes
+class IfcCoordRequest(BaseModel):
+    """Request model for IfcCoord operations"""
+    path_a: str = Field(..., description="First federated IFC filename under /uploads")
+    path_b: str = Field(..., description="Second federated IFC filename under /uploads")
+    mode: str = Field(default="propose_only", description="propose_only or propose_and_apply")
+    policy_path: Optional[str] = Field(default=None, description="Optional path to policy JSON inside /uploads or scenarios")
+    policy_inline: Optional[Dict[str, Any]] = Field(default=None, description="Optional inline policy JSON")
+    clash_options: Optional[Dict[str, Any]] = Field(default=None, description="Optional custom clash_options dictionary override")
+    max_rounds: int = Field(default=10, description="Maximum coordination/fixing rounds")
+    max_auto_apply: Optional[int] = Field(default=None, description="Hard cap of auto-applied fixes")
+    output_subdir: Optional[str] = Field(default=None, description="Optional custom output subdirectory name under /output/coord")

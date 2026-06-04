@@ -37,6 +37,7 @@ from shared.classes import (
     IfcPatchListRecipesRequest,
     IfcPatchListRecipesResponse,
     RevitExecuteRequest,
+    IfcCoordRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -75,6 +76,7 @@ ifc2json_queue = Queue('ifc2json', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 revit_queue = Queue('revit', connection=redis_conn)
+ifccoord_queue = Queue('ifccoord', connection=redis_conn)
 
 # Define job status response model
 class JobStatusResponse(BaseModel):
@@ -275,6 +277,7 @@ async def health_check():
         "ifc2json_queue": "waiting",
         "ifcpatch_queue": "waiting",
         "revit_queue": "waiting",
+        "ifccoord_queue": "waiting",
         "default_queue": "waiting",
     }
 
@@ -303,6 +306,7 @@ async def health_check():
         "ifc2json_queue": ifc2json_queue,
         "ifcpatch_queue": ifcpatch_queue,
         "revit_queue": revit_queue,
+        "ifccoord_queue": ifccoord_queue,
         "default_queue": default_queue
     }
     
@@ -559,6 +563,31 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
         return {"job_id": job.id}
     except Exception as e:
         logger.error(f"Error enqueueing ifcclash job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ifccoord", tags=["Coordination"])
+async def ifccoord(request: IfcCoordRequest, _: str = Depends(verify_access)):
+    """
+    Coordinate and fix clashes between federated IFC models.
+    
+    Args:
+        request (IfcCoordRequest): The request body containing the coordination parameters.
+    
+    Returns:
+        dict: A dictionary containing the job ID.
+    """
+    try:
+        job = ifccoord_queue.enqueue(
+            "tasks.run_coordination_task",  # Points directly to tasks.py in /app/tasks.py inside worker
+            request.dict(),
+            job_timeout="4h",  # Coordination can be time-consuming
+            result_ttl=JOB_RESULT_TTL
+        )
+        
+        logger.info(f"Enqueued ifccoord job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifccoord job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifctester", tags=["Validation"])
