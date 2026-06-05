@@ -1,34 +1,58 @@
-# Ignore contents of specific folders in ifcpipeline, but keep the folders
+# ifcpipeline/.gitignore
+#
+# Tier 1 (track by default): source, tests, docs/*.md, docs/, ifc-coord/research/,
+#   example n8n exports, .cursor/rules + .cursor/skills, mapping *.example.py
+# Tier 2 (below): regenerable artifacts, secrets, large binaries, client data
+
+# --- Secrets & local config -----------------------------------------
+.env
+.env.*
+!.env.example
+!.env.*.example
+api-gateway/config.json
+ifc-pipeline.code-workspace
+
+# --- Runtime / job I/O (large; not reproducible from git) ------------
 shared/uploads/*
 shared/output/*/*
+prod-fixtures/
+/n8n-data/*
+!n8n-data/.gitkeep
+/tfmgen/*
 
-# Large prod test fixtures (IFC files) - not meant for git
-prod-fixtures/*.ifc
-prod-fixtures/*.ids
+# --- Regenerable eval & hunt artifacts ------------------------------
+# Durable write-ups live at repo root: HUNT_REPORT_*.md, IFCOPENSHELL_*.md
+hunt-evidence/
+parity-reports/
 
-# Don't ignore .gitkeep files in any subdirectory
-!**/.gitkeep
+reports/
 
-# Ignore .NET build output
+# --- Live n8n instance (use example n8n workflows/ for exports) -----
+n8n-workflows/*
+
+# --- Client / project-specific mapping tables -----------------------
+# See ifcpatch-worker/custom_recipes/mappings/README.md
+ifcpatch-worker/custom_recipes/mappings/nobel_a1_*.py
+!ifcpatch-worker/custom_recipes/mappings/nobel_a1_*.example.py
+
+# --- One-off Cursor helpers (keep .cursor/rules and .cursor/skills) -
+.cursor/*.py
+.cursor/debug-*.log
+
+# --- Build & toolchain ----------------------------------------------
 bin/
 obj/
 publish/
 revit-worker/RevitWorkerApp.exe
-
-# Ignore Python cache files
 __pycache__/
 *.pyc
-
-# Ignore virtual environment
 venv/
-.env
+.pytest_cache/
 
-# Ignore IDE-specific files
+# --- IDE & OS -------------------------------------------------------
 .vscode/
 .idea/
 digitalocean*
-
-# Ignore system files
 .DS_Store
 Thumbs.db
 
@@ -70,3 +94,5 @@ ifcpatch-worker/tests/fixtures/magicad/*.ifc
 shared/shared.egg-info/
 shared/output/debug-*.log
 
+# --- Always keep empty-dir placeholders -----------------------------
+!**/.gitkeep

@@ -1,0 +1,170 @@
+DIN 276:2018-12 — KG 300 Bauwerk Baukonstruktionen (WEKA/SIRADOS extract)
+========================================================================
+Generated: 2026-05-26
+Source: din276_weka_sirados_2018_full.txt (filter code 300–399)
+Codes: 78
+
+FORMAT: code\tlevel\tparent\ttitle
+
+--- tab-separated ---
+
+code	level	parent	title
+300	1		Bauwerk – Baukonstruktionen
+310	2	300	Baugrube/Erdbau
+320	2	300	Gründung, Unterbau
+330	2	300	Außenwände/Vertikale
+340	2	300	Innenwände/Vertikale
+350	2	300	Decken/Horizontale
+360	2	300	Dächer
+370	2	300	Infrastrukturanlagen
+380	2	300	Baukonstruktive Einbauten
+390	2	300	Sonstige Maßnahmen für Baukonstruktionen
+311	3	310	Herstellung
+312	3	310	Umschließung
+313	3	310	Wasserhaltung
+314	3	310	Vortrieb
+319	3	310	Sonstiges zur KG 310
+321	3	320	Baugrundverbesserung
+322	3	320	Flachgründungen und Bodenplatten
+323	3	320	Tiefgründungen
+324	3	320	Gründungsbeläge
+325	3	320	Abdichtungen und Bekleidungen
+326	3	320	Dränagen
+329	3	320	Sonstiges zur KG 320
+331	3	330	Tragende Außenwände
+332	3	330	Nichttragende Außenwände
+333	3	330	Außenstützen
+334	3	330	Außenwandöffnungen
+335	3	330	Außenwandbekleidungen, außen
+336	3	330	Außenwandbekleidungen, innen
+337	3	330	Elementierte
+338	3	330	Lichtschutz zur KG 330
+339	3	330	Sonstiges zur KG 330
+341	3	340	Tragende Innenwände
+342	3	340	Nichttragende Innenwände
+343	3	340	Innenstützen
+344	3	340	Innenwandöffnungen
+345	3	340	Innenwandbekleidungen
+346	3	340	Elementierte
+347	3	340	Lichtschutz zur KG 340
+349	3	340	Sonstiges zur KG 340
+351	3	350	Deckenkonstruktionen
+352	3	350	Deckenöffnungen
+353	3	350	Deckenbeläge
+354	3	350	Deckenbekleidungen
+355	3	350	Elementierte Deckenkonstruktionen
+359	3	350	Sonstiges zur KG 350
+361	3	360	Dachkonstruktionen
+362	3	360	Dachöffnungen
+363	3	360	Dachbeläge
+364	3	360	Dachbekleidungen
+365	3	360	Elementierte Dachkonstruktionen
+366	3	360	Lichtschutz zur KG 360
+369	3	360	Sonstiges zur KG 360
+371	3	370	Anlagen für den Straßenverkehr
+372	3	370	Anlagen für den Schienenverkehr
+373	3	370	Anlagen für den Flugverkehr
+374	3	370	Anlagen des Wasserbaus
+375	3	370	Anlagen der Abwasserentsorgung
+376	3	370	Anlagen der Wasserversorgung
+377	3	370	Anlagen der Energie- und
+378	3	370	Anlagen der Abfallentsorgung
+379	3	370	Sonstiges zur KG 370
+381	3	380	Allgemeine Einbauten
+382	3	380	Besondere Einbauten
+383	3	380	Landschaftsgestalterische Einbauten
+384	3	380	Mechanische Einbauten
+385	3	380	Einbauten in Konstruktionen des
+386	3	380	Orientierungs- und
+387	3	380	Schutzeinbauten
+389	3	380	Sonstiges zur KG 380
+391	3	390	Baustelleneinrichtung
+392	3	390	Gerüste
+393	3	390	Sicherungsmaßnahmen
+394	3	390	Abbruchmaßnahmen
+395	3	390	Instandsetzungen
+396	3	390	Materialentsorgung
+397	3	390	Zusätzliche Maßnahmen
+398	3	390	Provisorische Baukonstruktionen
+399	3	390	Sonstiges zur KG 390
+
+--- tree (2018.12) ---
+
+300  Bauwerk – Baukonstruktionen
+  310  Baugrube/Erdbau
+    311  Herstellung
+    312  Umschließung
+    313  Wasserhaltung
+    314  Vortrieb
+    319  Sonstiges zur KG 310
+  320  Gründung, Unterbau
+    321  Baugrundverbesserung
+    322  Flachgründungen und Bodenplatten
+    323  Tiefgründungen
+    324  Gründungsbeläge
+    325  Abdichtungen und Bekleidungen
+    326  Dränagen
+    329  Sonstiges zur KG 320
+  330  Außenwände/Vertikale
+    331  Tragende Außenwände
+    332  Nichttragende Außenwände
+    333  Außenstützen
+    334  Außenwandöffnungen
+    335  Außenwandbekleidungen, außen
+    336  Außenwandbekleidungen, innen
+    337  Elementierte
+    338  Lichtschutz zur KG 330
+    339  Sonstiges zur KG 330
+  340  Innenwände/Vertikale
+    341  Tragende Innenwände
+    342  Nichttragende Innenwände
+    343  Innenstützen
+    344  Innenwandöffnungen
+    345  Innenwandbekleidungen
+    346  Elementierte
+    347  Lichtschutz zur KG 340
+    349  Sonstiges zur KG 340
+  350  Decken/Horizontale
+    351  Deckenkonstruktionen
+    352  Deckenöffnungen
+    353  Deckenbeläge
+    354  Deckenbekleidungen
+    355  Elementierte Deckenkonstruktionen
+    359  Sonstiges zur KG 350
+  360  Dächer
+    361  Dachkonstruktionen
+    362  Dachöffnungen
+    363  Dachbeläge
+    364  Dachbekleidungen
+    365  Elementierte Dachkonstruktionen
+    366  Lichtschutz zur KG 360
+    369  Sonstiges zur KG 360
+  370  Infrastrukturanlagen
+    371  Anlagen für den Straßenverkehr
+    372  Anlagen für den Schienenverkehr
+    373  Anlagen für den Flugverkehr
+    374  Anlagen des Wasserbaus
+    375  Anlagen der Abwasserentsorgung
+    376  Anlagen der Wasserversorgung
+    377  Anlagen der Energie- und
+    378  Anlagen der Abfallentsorgung
+    379  Sonstiges zur KG 370
+  380  Baukonstruktive Einbauten
+    381  Allgemeine Einbauten
+    382  Besondere Einbauten
+    383  Landschaftsgestalterische Einbauten
+    384  Mechanische Einbauten
+    385  Einbauten in Konstruktionen des
+    386  Orientierungs- und
+    387  Schutzeinbauten
+    389  Sonstiges zur KG 380
+  390  Sonstige Maßnahmen für Baukonstruktionen
+    391  Baustelleneinrichtung
+    392  Gerüste
+    393  Sicherungsmaßnahmen
+    394  Abbruchmaßnahmen
+    395  Instandsetzungen
+    396  Materialentsorgung
+    397  Zusätzliche Maßnahmen
+    398  Provisorische Baukonstruktionen
+    399  Sonstiges zur KG 390

@@ -834,24 +834,30 @@ def run_ifcclash_detection(job_data: dict) -> dict:
 
             seen: Dict[str, str] = {}
             input_keys: List[str] = []
+            input_pins: Dict[str, str] = {}
             for clash_set in request.clash_sets:
                 for cf in clash_set.a + clash_set.b:
                     if cf.file in seen:
                         cf.file = seen[cf.file]
                         continue
-                    key = s3.normalize_input_key(cf.file)
+                    raw = cf.file
+                    key = s3.normalize_input_key(raw)
                     input_keys.append(key)
+                    pin = s3.pin_for(request, raw)
+                    if pin:
+                        input_pins[key] = pin
                     local_name = os.path.basename(key) or f"clash-in-{len(seen)}.ifc"
                     local_path = os.path.join(tmp_models, local_name)
                     if not os.path.exists(local_path):
-                        s3.download_to_path(key, local_path)
-                    seen[cf.file] = local_name
+                        s3.download_to_path(key, local_path, version_id=pin)
+                    seen[raw] = local_name
                     cf.file = local_name  # ClashFile.file is now relative to models_dir
             s3_ctx = {
                 "tmp_models": tmp_models,
                 "tmp_out": tmp_out,
                 "output_key": output_key,
                 "input_keys": input_keys,
+                "input_pins": input_pins,
             }
             logger.info(
                 "[s3] staged %d clash input file(s) under %s, output → s3://%s/%s",
@@ -988,6 +994,7 @@ def run_ifcclash_detection(job_data: dict) -> dict:
                     worker=WORKER_NAME,
                     job_id=_current_job_id(),
                     parents=[("input", k) for k in s3_ctx["input_keys"]],
+                    parent_version_ids=s3_ctx.get("input_pins") or None,
                     metadata={
                         "clash_count": clash_count,
                         "clash_set_name": clash_set_name,
@@ -996,6 +1003,9 @@ def run_ifcclash_detection(job_data: dict) -> dict:
                         "smart_grouping": request.smart_grouping,
                     },
                     content_type="application/json",
+                    # Clash reports do not go through object_guids. We write
+                    # per-pair rows into clash_pairs directly below.
+                    guid_role=None,
                 )
                 if audit.get("audit_id"):
                     try:

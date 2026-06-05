@@ -1,0 +1,28 @@
+source	kind	code	parent	key	title	notes
+ocerp_dach_pack	l1	300			Bauwerk — Baukonstruktionen	backend/app/modules/dach_pack/config.py
+ocerp_dach_pack	l2	310	300		Baugrube/Erdbau	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	320	300		Gründung, Unterbau	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	330	300		Außenwände/Vertikale Baukonstruktionen, außen	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	340	300		Innenwände/Vertikale Baukonstruktionen, innen	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	350	300		Decken/Horizontale Baukonstruktionen	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	360	300		Dächer	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	370	300		Infrastrukturelle Baukonstruktionen	L2 only; no L3 in OCERP config
+ocerp_dach_pack	l2	390	300		Sonstige Maßnahmen für Baukonstruktionen	L2 only; no L3 in OCERP config
+ocerp_de_template	ui_section	300			Bauwerk \u2014 Baukonstruktionen	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	310	300		Baugrube/Erdbau	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	320	300		Gründung	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	330	300		Außenwände	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	340	300		Innenwände	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	350	300		Decken	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	360	300		Dächer	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	370	300		Baukonstruktive Einbauten	frontend de-din276-exchange/deTemplate.ts
+ocerp_de_template	ui_section	390	300		Sonstige Baukonstruktionen	frontend de-din276-exchange/deTemplate.ts
+ocerp_seed_demo	boq_example	312				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	326				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	331				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	332				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	333				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	334				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	336				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	341				seed_demo.py BOQ line example
+ocerp_seed_demo	boq_example	345				seed_demo.py BOQ line example

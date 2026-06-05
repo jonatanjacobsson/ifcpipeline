@@ -1,0 +1,673 @@
+DIN 276:2018-12 — Kostengruppen (WEKA/SIRADOS overview PDF)
+========================================================================
+
+SOURCE: https://www.weka.de/bi/sirados/download/Download_DIN276.pdf
+PARSED: 2026-05-26
+TOOL:   ifcpatch-worker/scripts/parse_din276_weka_pdf.py
+
+NOTE: This is a marketing/overview extract (comparison table 2008→2018),
+      not the authoritative Beuth DIN 276 norm text. Use for mapping
+      discussions and IFC Kostengruppe prefix lookup (3-digit codes).
+
+TOTAL 2018 codes in table: 320
+
+FORMAT
+------
+  <code>\t<level>\t<parent>\t<title>
+
+LEVELS: 1 = x00 (Hauptgruppe), 2 = xy0, 3 = xyz
+
+------------------------------------------------------------------------
+ALL CODES (2018.12) — tab-separated
+------------------------------------------------------------------------
+
+# Level 1
+100	1		Grundstück
+200	1		Vorbereitende Maßnahmen
+300	1		Bauwerk – Baukonstruktionen
+400	1		Bauwerk – Technische Anlagen
+500	1		Außenanlagen und Freiflächen
+600	1		Ausstattung und Kunstwerke
+700	1		Baunebenkosten
+800	1		Finanzierung
+
+# Level 2
+110	2	100	Grundstückswert
+120	2	100	Grundstücksnebenkosten
+130	2	100	Rechte Dritter
+210	2	200	Herrichten
+220	2	200	Öffentliche Erschließung
+230	2	200	Nichtöffentliche Erschließung
+240	2	200	Ausgleichsmaßnahmen und
+250	2	200	Übergangsmaßnahmen
+310	2	300	Baugrube/Erdbau
+320	2	300	Gründung, Unterbau
+330	2	300	Außenwände/Vertikale
+340	2	300	Innenwände/Vertikale
+350	2	300	Decken/Horizontale
+360	2	300	Dächer
+370	2	300	Infrastrukturanlagen
+380	2	300	Baukonstruktive Einbauten
+390	2	300	Sonstige Maßnahmen für Baukonstruktionen
+410	2	400	Abwasser-, Wasser-, Gasanlagen
+420	2	400	Wärmeversorgungsanlagen
+430	2	400	Raumlufttechnische Anlagen
+440	2	400	Elektrische Anlagen
+450	2	400	Kommunikations-, sicherheits- und
+460	2	400	Förderanlagen
+470	2	400	Nutzungsspezifische und verfahrenstechnische Anlagen
+480	2	400	Gebäude- und Anlagenautomation
+510	2	500	Erdbau
+520	2	500	Gründung, Unterbau
+530	2	500	Oberbau, Deckschichten
+540	2	500	Baukonstruktionen
+550	2	500	Technische Anlagen
+560	2	500	Einbauten in Außenanlagen und
+570	2	500	Vegetationsflächen
+580	2	500	Wasserflächen
+590	2	500	Sonstige Maßnahmen für
+610	2	600	Allgemeine Ausstattung
+620	2	600	Besondere Ausstattung
+630	2	600	Informationstechnische Ausstattung
+640	2	600	Künstlerische Ausstattung
+690	2	600	Sonstige Ausstattung
+710	2	700	Bauherrenaufgaben
+720	2	700	Vorbereitung der Objektplanung
+740	2	700	Fachplanung
+750	2	700	Künstlerische Leistungen
+760	2	700	Allgemeine Baunebenkosten
+790	2	700	Sonstige Baunebenkosten
+810	2	800	Finanzierungsnebenkosten
+820	2	800	Fremdkapitalzinsen
+830	2	800	Eigenkapitalzinsen
+840	2	800	Bürgschaften
+890	2	800	Sonstige Finanzierungskosten
+
+# Level 3
+121	3	120	Vermessungsgebühren
+122	3	120	Gerichtsgebühren
+123	3	120	Notargebühren
+124	3	120	Grunderwerbsteuer
+125	3	120	Untersuchungen
+126	3	120	Wertermittlungen
+127	3	120	Genehmigungsgebühren
+128	3	120	Bodenordnung
+129	3	120	Sonstiges zur KG 120
+131	3	130	Abfindungen
+132	3	130	Ablösen dinglicher Rechte
+139	3	130	Sonstiges zur KG 130
+211	3	210	Sicherungsmaßnahmen
+212	3	210	Abbruchmaßnahmen
+213	3	210	Altlastenbeseitigung
+214	3	210	Herrichten der Geländeoberfläche
+215	3	210	Kampfmittelräumung
+216	3	210	Kulturhistorische Funde
+219	3	210	Sonstiges zur KG 210
+221	3	220	Abwasserentsorgung
+222	3	220	Wasserversorgung
+223	3	220	Gasversorgung
+224	3	220	Fernwärmeversorgung
+225	3	220	Stromversorgung
+226	3	220	Telekommunikation
+227	3	220	Verkehrserschließung
+228	3	220	Abfallentsorgung
+229	3	220	Sonstiges zur KG 220
+241	3	240	Ausgleichsmaßnahmen
+242	3	240	Ausgleichsabgaben
+249	3	240	Sonstiges zur KG 240
+251	3	250	Bauliche Maßnahmen
+252	3	250	Organisatorische Maßnahmen
+259	3	250	Sonstiges zur KG 250
+311	3	310	Herstellung
+312	3	310	Umschließung
+313	3	310	Wasserhaltung
+314	3	310	Vortrieb
+319	3	310	Sonstiges zur KG 310
+321	3	320	Baugrundverbesserung
+322	3	320	Flachgründungen und Bodenplatten
+323	3	320	Tiefgründungen
+324	3	320	Gründungsbeläge
+325	3	320	Abdichtungen und Bekleidungen
+326	3	320	Dränagen
+329	3	320	Sonstiges zur KG 320
+331	3	330	Tragende Außenwände
+332	3	330	Nichttragende Außenwände
+333	3	330	Außenstützen
+334	3	330	Außenwandöffnungen
+335	3	330	Außenwandbekleidungen, außen
+336	3	330	Außenwandbekleidungen, innen
+337	3	330	Elementierte
+338	3	330	Lichtschutz zur KG 330
+339	3	330	Sonstiges zur KG 330
+341	3	340	Tragende Innenwände
+342	3	340	Nichttragende Innenwände
+343	3	340	Innenstützen
+344	3	340	Innenwandöffnungen
+345	3	340	Innenwandbekleidungen
+346	3	340	Elementierte
+347	3	340	Lichtschutz zur KG 340
+349	3	340	Sonstiges zur KG 340
+351	3	350	Deckenkonstruktionen
+352	3	350	Deckenöffnungen
+353	3	350	Deckenbeläge
+354	3	350	Deckenbekleidungen
+355	3	350	Elementierte Deckenkonstruktionen
+359	3	350	Sonstiges zur KG 350
+361	3	360	Dachkonstruktionen
+362	3	360	Dachöffnungen
+363	3	360	Dachbeläge
+364	3	360	Dachbekleidungen
+365	3	360	Elementierte Dachkonstruktionen
+366	3	360	Lichtschutz zur KG 360
+369	3	360	Sonstiges zur KG 360
+371	3	370	Anlagen für den Straßenverkehr
+372	3	370	Anlagen für den Schienenverkehr
+373	3	370	Anlagen für den Flugverkehr
+374	3	370	Anlagen des Wasserbaus
+375	3	370	Anlagen der Abwasserentsorgung
+376	3	370	Anlagen der Wasserversorgung
+377	3	370	Anlagen der Energie- und
+378	3	370	Anlagen der Abfallentsorgung
+379	3	370	Sonstiges zur KG 370
+381	3	380	Allgemeine Einbauten
+382	3	380	Besondere Einbauten
+383	3	380	Landschaftsgestalterische Einbauten
+384	3	380	Mechanische Einbauten
+385	3	380	Einbauten in Konstruktionen des
+386	3	380	Orientierungs- und
+387	3	380	Schutzeinbauten
+389	3	380	Sonstiges zur KG 380
+391	3	390	Baustelleneinrichtung
+392	3	390	Gerüste
+393	3	390	Sicherungsmaßnahmen
+394	3	390	Abbruchmaßnahmen
+395	3	390	Instandsetzungen
+396	3	390	Materialentsorgung
+397	3	390	Zusätzliche Maßnahmen
+398	3	390	Provisorische Baukonstruktionen
+399	3	390	Sonstiges zur KG 390
+411	3	410	Abwasseranlagen
+412	3	410	Wasseranlagen
+413	3	410	Gasanlagen
+419	3	410	Sonstiges zur KG 410
+421	3	420	Wärmeerzeugungsanlagen
+422	3	420	Wärmeverteilnetze
+423	3	420	Raumheizflächen
+424	3	420	Verkehrsheizflächen
+429	3	420	Sonstiges zur KG 420
+431	3	430	Lüftungsanlagen
+432	3	430	Teilklimaanlagen
+433	3	430	Klimaanlagen
+434	3	430	Kälteanlagen
+439	3	430	Sonstiges zur KG 430
+441	3	440	Hoch- und Mittelspannungsanlagen
+442	3	440	Eigenstromversorgungsanlagen
+443	3	440	Niederspannungsschaltanlagen
+444	3	440	Niederspannungsinstallationsanlagen
+445	3	440	Beleuchtungsanlagen
+446	3	440	Blitzschutz- und Erdungsanlagen
+447	3	440	Fahrleitungssysteme
+449	3	440	Sonstiges zur KG 440
+451	3	450	Telekommunikationsanlagen
+452	3	450	Such- und Signalanlagen
+453	3	450	Zeitdienstanlagen
+454	3	450	Elektroakustische Anlagen
+455	3	450	Audiovisuelle Medien- und
+456	3	450	Gefahrenmelde- und Alarmanlagen
+457	3	450	Datenübertragungsnetze
+458	3	450	Verkehrsbeeinflussungsanlagen
+459	3	450	Sonstiges zur KG 450
+461	3	460	Aufzugsanlagen
+462	3	460	Fahrtreppen, Fahrsteige
+463	3	460	Befahranlagen
+464	3	460	Transportanlagen
+465	3	460	Krananlagen
+466	3	460	Hydraulikanlagen
+469	3	460	Sonstiges zur KG 460
+471	3	470	Küchentechnische Anlagen
+472	3	470	Wäscherei-, Reinigungs- und badetechnische Anlagen
+473	3	470	Medienversorgungsanlagen, MediAnlagen
+474	3	470	Feuerlöschanlagen
+475	3	470	Prozesswärme-, kälte- und
+476	3	470	Weitere nutzungsspezifische
+477	3	470	Verfahrenstechnische Anlagen,
+478	3	470	Verfahrenstechnische Anlagen, Feststoffe, Wertstoffe und Abfälle
+479	3	470	Sonstiges zur KG 470
+481	3	480	Automationseinrichtungen
+482	3	480	Schaltschränke, Automationsschwerpunkte
+483	3	480	Automationsmanagement
+484	3	480	Kabel, Leitungen und
+485	3	480	Datenübertragungsnetze
+489	3	480	Sonstiges zur KG 480
+491	3	490	Baustelleneinrichtung
+492	3	490	Gerüste
+493	3	490	Sicherungsmaßnahmen
+494	3	490	Abbruchmaßnahmen
+495	3	490	Instandsetzungen
+496	3	490	Materialentsorgung
+497	3	490	Zusätzliche Maßnahmen
+498	3	490	Provisorische technische Anlagen
+511	3	510	Herstellung
+512	3	510	Umschließung
+513	3	510	Wasserhaltung
+514	3	510	Vortrieb
+519	3	510	Sonstiges zur KG 510
+521	3	520	Baugrundverbesserung
+522	3	520	Gründungen und Bodenplatten
+523	3	520	Gründungsbeläge
+524	3	520	Abdichtungen und Bekleidungen
+525	3	520	Dränagen
+529	3	520	Sonstiges zur KG 520
+531	3	530	Wege
+532	3	530	Straßen
+533	3	530	Plätze, Höfe, Terrassen
+534	3	530	Stellplätze
+535	3	530	Sportplatzflächen
+536	3	530	Spielplatzflächen
+537	3	530	Gleisanlagen
+538	3	530	Flugplatzflächen
+539	3	530	Sonstiges zur KG 530
+541	3	540	Einfriedungen
+542	3	540	Schutzkonstruktionen
+543	3	540	Wandkonstruktionen
+544	3	540	Rampen, Treppen, Tribünen
+545	3	540	Überdachungen
+546	3	540	Stege
+547	3	540	Kanal- und Schachtkonstruktionen
+548	3	540	Wasserbecken
+551	3	550	Abwasseranlagen
+552	3	550	Wasseranlagen
+553	3	550	Anlagen für Gase und Flüssigkeiten
+554	3	550	Wärmeversorgungsanlagen
+555	3	550	Raumlufttechnische Anlagen
+556	3	550	Elektrische Anlagen
+557	3	550	Kommunikations-, sicherheits- und
+558	3	550	Nutzungsspezifische Anlagen
+559	3	550	Sonstiges zur KG 550
+561	3	560	Allgemeine Einbauten
+562	3	560	Besondere Einbauten
+563	3	560	Orientierungs- und
+569	3	560	Sonstiges zur KG 560
+571	3	570	Vegetationstechnische
+572	3	570	Sicherungsbauweisen
+573	3	570	Pflanzflächen
+574	3	570	Rasen- und Saatflächen
+579	3	570	Sonstiges zur KG 570
+581	3	580	Befestigungen
+582	3	580	Abdichtungen
+583	3	580	Bepflanzungen
+589	3	580	Sonstiges zur KG 580
+591	3	590	Baustelleneinrichtung
+592	3	590	Gerüste
+593	3	590	Sicherungsmaßnahmen
+594	3	590	Abbruchmaßnahmen
+595	3	590	Instandsetzungen
+596	3	590	Materialentsorgung
+597	3	590	Zusätzliche Maßnahmen
+598	3	590	Provisorische Außenanlagen und
+599	3	590	Sonstiges zur KG 590
+641	3	640	Kunstobjekte
+642	3	640	Künstlerische Gestaltung des BauBauwerks
+643	3	640	Künstlerische Gestaltung der
+649	3	640	Sonstiges zur KG 640
+711	3	710	Projektleitung
+712	3	710	Bedarfsplanung
+713	3	710	Projektsteuerung
+714	3	710	Sicherheits- und Gesundheitsschutzkoordination
+715	3	710	Vergabeverfahren
+719	3	710	Sonstiges zur KG 710
+721	3	720	Untersuchungen
+722	3	720	Wertermittlungen
+723	3	720	Städtebauliche Leistungen
+724	3	720	Landschaftsplanerische Leistungen
+725	3	720	Wettbewerbe
+729	3	720	Sonstiges zur KG 720
+731	3	730	Gebäude und Innenräume
+732	3	730	Freianlagen
+733	3	730	Ingenieurbauwerke
+734	3	730	Verkehrsanlagen
+739	3	730	Sonstiges zur KG 730
+741	3	740	Tragwerksplanung
+743	3	740	Bauphysik
+745	3	740	Ingenieurvermessung
+746	3	740	Lichttechnik, Tageslichttechnik
+747	3	740	Brandschutz
+748	3	740	Altlasten, Kampfmittel,
+749	3	740	Sonstiges zur KG 740
+751	3	750	Kunstwettbewerbe
+752	3	750	Honorare
+759	3	750	Sonstiges zur KG 750
+761	3	760	Gutachten und Beratung
+762	3	760	Prüfungen, Genehmigungen,
+763	3	760	Bewirtschaftungskosten
+764	3	760	Bemusterungskosten
+765	3	760	Betriebskosten nach der Abnahme
+766	3	760	Versicherungen
+769	3	760	Sonstiges zur KG 760
+791	3	790	Bestandsdokumentation
+799	3	790	Sonstiges zur KG 790
+
+------------------------------------------------------------------------
+HUMAN-READABLE TREE (2018.12)
+------------------------------------------------------------------------
+
+100  Grundstück
+  110  Grundstückswert
+  120  Grundstücksnebenkosten
+    121  Vermessungsgebühren
+    122  Gerichtsgebühren
+    123  Notargebühren
+    124  Grunderwerbsteuer
+    125  Untersuchungen
+    126  Wertermittlungen
+    127  Genehmigungsgebühren
+    128  Bodenordnung
+    129  Sonstiges zur KG 120
+  130  Rechte Dritter
+    131  Abfindungen
+    132  Ablösen dinglicher Rechte
+    139  Sonstiges zur KG 130
+200  Vorbereitende Maßnahmen
+  210  Herrichten
+    211  Sicherungsmaßnahmen
+    212  Abbruchmaßnahmen
+    213  Altlastenbeseitigung
+    214  Herrichten der Geländeoberfläche
+    215  Kampfmittelräumung
+    216  Kulturhistorische Funde
+    219  Sonstiges zur KG 210
+  220  Öffentliche Erschließung
+    221  Abwasserentsorgung
+    222  Wasserversorgung
+    223  Gasversorgung
+    224  Fernwärmeversorgung
+    225  Stromversorgung
+    226  Telekommunikation
+    227  Verkehrserschließung
+    228  Abfallentsorgung
+    229  Sonstiges zur KG 220
+  230  Nichtöffentliche Erschließung
+  240  Ausgleichsmaßnahmen und
+    241  Ausgleichsmaßnahmen
+    242  Ausgleichsabgaben
+    249  Sonstiges zur KG 240
+  250  Übergangsmaßnahmen
+    251  Bauliche Maßnahmen
+    252  Organisatorische Maßnahmen
+    259  Sonstiges zur KG 250
+300  Bauwerk – Baukonstruktionen
+  310  Baugrube/Erdbau
+    311  Herstellung
+    312  Umschließung
+    313  Wasserhaltung
+    314  Vortrieb
+    319  Sonstiges zur KG 310
+  320  Gründung, Unterbau
+    321  Baugrundverbesserung
+    322  Flachgründungen und Bodenplatten
+    323  Tiefgründungen
+    324  Gründungsbeläge
+    325  Abdichtungen und Bekleidungen
+    326  Dränagen
+    329  Sonstiges zur KG 320
+  330  Außenwände/Vertikale
+    331  Tragende Außenwände
+    332  Nichttragende Außenwände
+    333  Außenstützen
+    334  Außenwandöffnungen
+    335  Außenwandbekleidungen, außen
+    336  Außenwandbekleidungen, innen
+    337  Elementierte
+    338  Lichtschutz zur KG 330
+    339  Sonstiges zur KG 330
+  340  Innenwände/Vertikale
+    341  Tragende Innenwände
+    342  Nichttragende Innenwände
+    343  Innenstützen
+    344  Innenwandöffnungen
+    345  Innenwandbekleidungen
+    346  Elementierte
+    347  Lichtschutz zur KG 340
+    349  Sonstiges zur KG 340
+  350  Decken/Horizontale
+    351  Deckenkonstruktionen
+    352  Deckenöffnungen
+    353  Deckenbeläge
+    354  Deckenbekleidungen
+    355  Elementierte Deckenkonstruktionen
+    359  Sonstiges zur KG 350
+  360  Dächer
+    361  Dachkonstruktionen
+    362  Dachöffnungen
+    363  Dachbeläge
+    364  Dachbekleidungen
+    365  Elementierte Dachkonstruktionen
+    366  Lichtschutz zur KG 360
+    369  Sonstiges zur KG 360
+  370  Infrastrukturanlagen
+    371  Anlagen für den Straßenverkehr
+    372  Anlagen für den Schienenverkehr
+    373  Anlagen für den Flugverkehr
+    374  Anlagen des Wasserbaus
+    375  Anlagen der Abwasserentsorgung
+    376  Anlagen der Wasserversorgung
+    377  Anlagen der Energie- und
+    378  Anlagen der Abfallentsorgung
+    379  Sonstiges zur KG 370
+  380  Baukonstruktive Einbauten
+    381  Allgemeine Einbauten
+    382  Besondere Einbauten
+    383  Landschaftsgestalterische Einbauten
+    384  Mechanische Einbauten
+    385  Einbauten in Konstruktionen des
+    386  Orientierungs- und
+    387  Schutzeinbauten
+    389  Sonstiges zur KG 380
+  390  Sonstige Maßnahmen für Baukonstruktionen
+    391  Baustelleneinrichtung
+    392  Gerüste
+    393  Sicherungsmaßnahmen
+    394  Abbruchmaßnahmen
+    395  Instandsetzungen
+    396  Materialentsorgung
+    397  Zusätzliche Maßnahmen
+    398  Provisorische Baukonstruktionen
+    399  Sonstiges zur KG 390
+400  Bauwerk – Technische Anlagen
+  410  Abwasser-, Wasser-, Gasanlagen
+    411  Abwasseranlagen
+    412  Wasseranlagen
+    413  Gasanlagen
+    419  Sonstiges zur KG 410
+  420  Wärmeversorgungsanlagen
+    421  Wärmeerzeugungsanlagen
+    422  Wärmeverteilnetze
+    423  Raumheizflächen
+    424  Verkehrsheizflächen
+    429  Sonstiges zur KG 420
+  430  Raumlufttechnische Anlagen
+    431  Lüftungsanlagen
+    432  Teilklimaanlagen
+    433  Klimaanlagen
+    434  Kälteanlagen
+    439  Sonstiges zur KG 430
+  440  Elektrische Anlagen
+    441  Hoch- und Mittelspannungsanlagen
+    442  Eigenstromversorgungsanlagen
+    443  Niederspannungsschaltanlagen
+    444  Niederspannungsinstallationsanlagen
+    445  Beleuchtungsanlagen
+    446  Blitzschutz- und Erdungsanlagen
+    447  Fahrleitungssysteme
+    449  Sonstiges zur KG 440
+  450  Kommunikations-, sicherheits- und
+    451  Telekommunikationsanlagen
+    452  Such- und Signalanlagen
+    453  Zeitdienstanlagen
+    454  Elektroakustische Anlagen
+    455  Audiovisuelle Medien- und
+    456  Gefahrenmelde- und Alarmanlagen
+    457  Datenübertragungsnetze
+    458  Verkehrsbeeinflussungsanlagen
+    459  Sonstiges zur KG 450
+  460  Förderanlagen
+    461  Aufzugsanlagen
+    462  Fahrtreppen, Fahrsteige
+    463  Befahranlagen
+    464  Transportanlagen
+    465  Krananlagen
+    466  Hydraulikanlagen
+    469  Sonstiges zur KG 460
+  470  Nutzungsspezifische und verfahrenstechnische Anlagen
+    471  Küchentechnische Anlagen
+    472  Wäscherei-, Reinigungs- und badetechnische Anlagen
+    473  Medienversorgungsanlagen, MediAnlagen
+    474  Feuerlöschanlagen
+    475  Prozesswärme-, kälte- und
+    476  Weitere nutzungsspezifische
+    477  Verfahrenstechnische Anlagen,
+    478  Verfahrenstechnische Anlagen, Feststoffe, Wertstoffe und Abfälle
+    479  Sonstiges zur KG 470
+  480  Gebäude- und Anlagenautomation
+    481  Automationseinrichtungen
+    482  Schaltschränke, Automationsschwerpunkte
+    483  Automationsmanagement
+    484  Kabel, Leitungen und
+    485  Datenübertragungsnetze
+    489  Sonstiges zur KG 480
+    491  Baustelleneinrichtung
+    492  Gerüste
+    493  Sicherungsmaßnahmen
+    494  Abbruchmaßnahmen
+    495  Instandsetzungen
+    496  Materialentsorgung
+    497  Zusätzliche Maßnahmen
+    498  Provisorische technische Anlagen
+500  Außenanlagen und Freiflächen
+  510  Erdbau
+    511  Herstellung
+    512  Umschließung
+    513  Wasserhaltung
+    514  Vortrieb
+    519  Sonstiges zur KG 510
+  520  Gründung, Unterbau
+    521  Baugrundverbesserung
+    522  Gründungen und Bodenplatten
+    523  Gründungsbeläge
+    524  Abdichtungen und Bekleidungen
+    525  Dränagen
+    529  Sonstiges zur KG 520
+  530  Oberbau, Deckschichten
+    531  Wege
+    532  Straßen
+    533  Plätze, Höfe, Terrassen
+    534  Stellplätze
+    535  Sportplatzflächen
+    536  Spielplatzflächen
+    537  Gleisanlagen
+    538  Flugplatzflächen
+    539  Sonstiges zur KG 530
+  540  Baukonstruktionen
+    541  Einfriedungen
+    542  Schutzkonstruktionen
+    543  Wandkonstruktionen
+    544  Rampen, Treppen, Tribünen
+    545  Überdachungen
+    546  Stege
+    547  Kanal- und Schachtkonstruktionen
+    548  Wasserbecken
+  550  Technische Anlagen
+    551  Abwasseranlagen
+    552  Wasseranlagen
+    553  Anlagen für Gase und Flüssigkeiten
+    554  Wärmeversorgungsanlagen
+    555  Raumlufttechnische Anlagen
+    556  Elektrische Anlagen
+    557  Kommunikations-, sicherheits- und
+    558  Nutzungsspezifische Anlagen
+    559  Sonstiges zur KG 550
+  560  Einbauten in Außenanlagen und
+    561  Allgemeine Einbauten
+    562  Besondere Einbauten
+    563  Orientierungs- und
+    569  Sonstiges zur KG 560
+  570  Vegetationsflächen
+    571  Vegetationstechnische
+    572  Sicherungsbauweisen
+    573  Pflanzflächen
+    574  Rasen- und Saatflächen
+    579  Sonstiges zur KG 570
+  580  Wasserflächen
+    581  Befestigungen
+    582  Abdichtungen
+    583  Bepflanzungen
+    589  Sonstiges zur KG 580
+  590  Sonstige Maßnahmen für
+    591  Baustelleneinrichtung
+    592  Gerüste
+    593  Sicherungsmaßnahmen
+    594  Abbruchmaßnahmen
+    595  Instandsetzungen
+    596  Materialentsorgung
+    597  Zusätzliche Maßnahmen
+    598  Provisorische Außenanlagen und
+    599  Sonstiges zur KG 590
+600  Ausstattung und Kunstwerke
+  610  Allgemeine Ausstattung
+  620  Besondere Ausstattung
+  630  Informationstechnische Ausstattung
+  640  Künstlerische Ausstattung
+    641  Kunstobjekte
+    642  Künstlerische Gestaltung des BauBauwerks
+    643  Künstlerische Gestaltung der
+    649  Sonstiges zur KG 640
+  690  Sonstige Ausstattung
+700  Baunebenkosten
+  710  Bauherrenaufgaben
+    711  Projektleitung
+    712  Bedarfsplanung
+    713  Projektsteuerung
+    714  Sicherheits- und Gesundheitsschutzkoordination
+    715  Vergabeverfahren
+    719  Sonstiges zur KG 710
+  720  Vorbereitung der Objektplanung
+    721  Untersuchungen
+    722  Wertermittlungen
+    723  Städtebauliche Leistungen
+    724  Landschaftsplanerische Leistungen
+    725  Wettbewerbe
+    729  Sonstiges zur KG 720
+    731  Gebäude und Innenräume
+    732  Freianlagen
+    733  Ingenieurbauwerke
+    734  Verkehrsanlagen
+    739  Sonstiges zur KG 730
+  740  Fachplanung
+    741  Tragwerksplanung
+    743  Bauphysik
+    745  Ingenieurvermessung
+    746  Lichttechnik, Tageslichttechnik
+    747  Brandschutz
+    748  Altlasten, Kampfmittel,
+    749  Sonstiges zur KG 740
+  750  Künstlerische Leistungen
+    751  Kunstwettbewerbe
+    752  Honorare
+    759  Sonstiges zur KG 750
+  760  Allgemeine Baunebenkosten
+    761  Gutachten und Beratung
+    762  Prüfungen, Genehmigungen,
+    763  Bewirtschaftungskosten
+    764  Bemusterungskosten
+    765  Betriebskosten nach der Abnahme
+    766  Versicherungen
+    769  Sonstiges zur KG 760
+  790  Sonstige Baunebenkosten
+    791  Bestandsdokumentation
+    799  Sonstiges zur KG 790
+800  Finanzierung
+  810  Finanzierungsnebenkosten
+  820  Fremdkapitalzinsen
+  830  Eigenkapitalzinsen
+  840  Bürgschaften
+  890  Sonstige Finanzierungskosten

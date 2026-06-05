@@ -4,14 +4,15 @@ import * as TEMPLATES from "..";
 import {
   CONTENT_GRID_GAP,
   CONTENT_GRID_ID,
-  SMALL_COLUMN_WIDTH,
+  ELEMENT_DATA_COLUMN,
+  LEFT_EXPLORER_COLUMN,
 } from "../../globals";
 
 type Viewer = "viewer";
 
-type Models = {
-  name: "models";
-  state: TEMPLATES.ModelsPanelState;
+type LeftExplorer = {
+  name: "leftExplorer";
+  state: TEMPLATES.LeftExplorerPanelState;
 };
 
 type ElementData = {
@@ -19,14 +20,13 @@ type ElementData = {
   state: TEMPLATES.ElementsDataPanelState;
 };
 
-type Viewpoints = { name: "viewpoints"; state: TEMPLATES.ViewpointsPanelState };
-
-export type ContentGridElements = [Viewer, Models, ElementData, Viewpoints];
+export type ContentGridElements = [Viewer, LeftExplorer, ElementData];
 
 export type ContentGridLayouts = ["Viewer"];
 
 export interface ContentGridState {
   components: OBC.Components;
+  world: OBC.World;
   id: string;
   viewportTemplate: BUI.StatelessComponent;
 }
@@ -34,23 +34,19 @@ export interface ContentGridState {
 export const contentGridTemplate: BUI.StatefullComponent<ContentGridState> = (
   state,
 ) => {
-  const { components } = state;
+  const { components, world } = state;
 
   const onCreated = (e?: Element) => {
     if (!e) return;
     const grid = e as BUI.Grid<ContentGridLayouts, ContentGridElements>;
 
     grid.elements = {
-      models: {
-        template: TEMPLATES.modelsPanelTemplate,
-        initialState: { components },
+      leftExplorer: {
+        template: TEMPLATES.leftExplorerPanelTemplate,
+        initialState: { components, world },
       },
       elementData: {
         template: TEMPLATES.elementsDataPanelTemplate,
-        initialState: { components },
-      },
-      viewpoints: {
-        template: TEMPLATES.viewpointsPanelTemplate,
         initialState: { components },
       },
       viewer: state.viewportTemplate,
@@ -59,9 +55,8 @@ export const contentGridTemplate: BUI.StatefullComponent<ContentGridState> = (
     grid.layouts = {
       Viewer: {
         template: `
-          "models viewer elementData" 1fr
-          "viewpoints viewer elementData" 1fr
-          /${SMALL_COLUMN_WIDTH} 1fr ${SMALL_COLUMN_WIDTH}
+          "leftExplorer viewer elementData" 1fr
+          /${LEFT_EXPLORER_COLUMN} 1fr ${ELEMENT_DATA_COLUMN}
         `,
       },
     };

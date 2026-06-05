@@ -66,10 +66,11 @@ class Patcher:
         logger: Logger instance for output
         operation1-5: JSON strings for up to 5 operations (only non-empty operations are processed)
         
-    Each operation requires 3-4 fields:
+    Each operation requires:
         - selector: IfcOpenShell selector syntax string
         - property: PropertySetName.PropertyName (e.g., "Pset_Custom.Status")
-        - data_type: IFC data type (IfcText, IfcInteger, IfcReal, IfcBoolean, IfcLabel, IfcIdentifier)
+        - data_type: (optional) IFC data type; if omitted, inferred from the source property /
+          quantity (for ``from`` on a pset/qto path) or from the literal / extracted string
         - value: (optional) Literal value to set
         - from: (optional) Source to extract value from, with optional regex pattern
     
@@ -101,7 +102,23 @@ class Patcher:
         'IfcReal': float,
         'IfcBoolean': lambda x: x if isinstance(x, bool) else str(x).lower() in ('true', '1', 'yes')
     }
-    
+
+    @staticmethod
+    def _map_schema_type_to_supported(ifc_type: str) -> str | None:
+        """
+        Map IFC NominalValue / schema type names onto writable IfcPropertySingleValue types.
+        """
+        if not ifc_type:
+            return None
+        if ifc_type in Patcher.SUPPORTED_DATA_TYPES:
+            return ifc_type
+        if ifc_type.startswith("IfcQuantity"):
+            return "IfcInteger" if ifc_type == "IfcQuantityCount" else "IfcReal"
+        # Typical measure wrappers (IfcLengthMeasure, IfcAreaMeasure, …)
+        if ifc_type.endswith("Measure"):
+            return "IfcReal"
+        return None
+
     def __init__(self, file: ifcopenshell.file, logger: logging.Logger,
                  operation1: str = "",
                  operation2: str = "",
@@ -181,9 +198,11 @@ class Patcher:
                 self.logger.warning(f"Argument {idx + 1}: Expected JSON object, got {type(op).__name__}, skipping")
                 continue
             
-            # Validate required fields
-            if 'selector' not in op or 'property' not in op or 'data_type' not in op:
-                self.logger.warning(f"Argument {idx + 1}: Missing required fields 'selector', 'property', and/or 'data_type', skipping")
+            # Validate required fields (data_type optional — inferred at run time)
+            if 'selector' not in op or 'property' not in op:
+                self.logger.warning(
+                    f"Argument {idx + 1}: Missing required fields 'selector' and/or 'property', skipping"
+                )
                 continue
             
             # Validate that either 'value' or 'from' is provided (but not both)
@@ -203,10 +222,16 @@ class Patcher:
                 self.logger.warning(f"Argument {idx + 1}: property '{op['property']}' must be in format 'PropertySetName.PropertyName', skipping")
                 continue
             
-            # Validate data type
-            if op['data_type'] not in self.SUPPORTED_DATA_TYPES:
-                self.logger.warning(f"Argument {idx + 1}: unsupported data type '{op['data_type']}', skipping. Supported: {list(self.SUPPORTED_DATA_TYPES.keys())}")
-                continue
+            dt = op.get('data_type')
+            if dt is not None and dt != '':
+                if dt not in self.SUPPORTED_DATA_TYPES:
+                    self.logger.warning(
+                        f"Argument {idx + 1}: unsupported data type '{dt}', skipping. "
+                        f"Supported: {list(self.SUPPORTED_DATA_TYPES.keys())}"
+                    )
+                    continue
+            else:
+                op['data_type'] = None  # normalized: infer in _execute_operation
             
             validated_operations.append(op)
         
@@ -231,7 +256,104 @@ class Patcher:
             return converter(value)
         except Exception as e:
             raise ValueError(f"Cannot convert value '{value}' to {data_type}: {str(e)}")
-    
+
+    def _infer_data_type_from_literal(self, literal_value) -> str | None:
+        """Pick a supported IFC type from a JSON/Python literal when ``data_type`` is omitted."""
+        if isinstance(literal_value, bool):
+            return "IfcBoolean"
+        if isinstance(literal_value, int) and not isinstance(literal_value, bool):
+            return "IfcInteger"
+        if isinstance(literal_value, float):
+            return "IfcReal"
+        if literal_value is None:
+            return None
+        if isinstance(literal_value, str):
+            return self._infer_data_type_from_scalar_string(literal_value)
+        return "IfcLabel"
+
+    def _infer_data_type_from_scalar_string(self, s: str) -> str:
+        """Infer type from a string (e.g. values taken from attributes or regex extraction)."""
+        t = str(s).strip()
+        low = t.lower()
+        if low in ("true", "false", "yes", "no", "1", "0"):
+            if low in ("true", "false", "yes", "no"):
+                return "IfcBoolean"
+        try:
+            int(t)
+            return "IfcInteger"
+        except ValueError:
+            pass
+        try:
+            float(t.replace(",", "."))
+            return "IfcReal"
+        except ValueError:
+            pass
+        return "IfcLabel"
+
+    def _infer_data_type_from_pset_path(self, element, source: str, attribute: str) -> str | None:
+        """
+        Infer writable ``data_type`` from an existing pset / element quantity on ``element``
+        (same sources as ``from`` for non-material/type paths).
+        """
+        try:
+            psets = ifcopenshell.util.element.get_psets(
+                element, verbose=True, should_inherit=True
+            )
+        except Exception as e:
+            self.logger.debug(
+                f"get_psets(verbose) failed for {getattr(element, 'GlobalId', '?')}: {e}"
+            )
+            return None
+        if source not in psets or attribute not in psets[source]:
+            return None
+        meta = psets[source][attribute]
+        if not isinstance(meta, dict):
+            return None
+        vt = meta.get("value_type")
+        if vt:
+            mapped = self._map_schema_type_to_supported(vt)
+            if mapped:
+                return mapped
+        q_or_p_class = meta.get("class")
+        if q_or_p_class:
+            mapped = self._map_schema_type_to_supported(q_or_p_class)
+            if mapped:
+                return mapped
+        return None
+
+    def _resolve_operation_data_type(
+        self, operation: dict, elements: list, from_source: str | None, literal_value, has_from: bool
+    ) -> str | None:
+        """Determine ``data_type`` when omitted (inherit from source or literal)."""
+        explicit = operation.get("data_type")
+        if explicit:
+            return explicit
+        if has_from and from_source is not None:
+            source, attribute, _ = self._parse_from_field(from_source)
+            for el in elements:
+                if source in (None, "material", "type"):
+                    raw = self._extract_value_from_element(el, from_source)
+                    if raw is not None:
+                        inferred = self._infer_data_type_from_scalar_string(raw)
+                        self.logger.info(
+                            f"Inferred data_type '{inferred}' from '{from_source}' "
+                            f"on {el.is_a()} ({getattr(el, 'GlobalId', '')})"
+                        )
+                        return inferred
+                else:
+                    inferred = self._infer_data_type_from_pset_path(el, source, attribute)
+                    if inferred:
+                        self.logger.info(
+                            f"Inherited data_type '{inferred}' from {source}.{attribute} "
+                            f"on {el.is_a()} ({getattr(el, 'GlobalId', '')})"
+                        )
+                        return inferred
+            return None
+        inferred = self._infer_data_type_from_literal(literal_value)
+        if inferred:
+            self.logger.info(f"Inferred data_type '{inferred}' from literal value")
+        return inferred
+
     def _parse_from_field(self, from_string: str):
         """
         Parse the 'from' field to extract source and optional regex pattern.
@@ -688,7 +810,6 @@ class Patcher:
         """
         selector_str = operation['selector']
         property_path = operation['property']
-        data_type = operation['data_type']
         
         # Determine if using literal value or extraction
         has_from = 'from' in operation
@@ -703,7 +824,8 @@ class Patcher:
             'elements_found': 0,
             'elements_modified': 0,
             'error': None,
-            'mode': 'extract' if has_from else 'literal'
+            'mode': 'extract' if has_from else 'literal',
+            'data_type_resolved': None,
         }
         
         try:
@@ -715,6 +837,19 @@ class Patcher:
                 self.logger.warning(f"No elements matched selector: '{selector_str}'")
                 result['success'] = True  # Not an error, just no matches
                 return result
+
+            data_type = self._resolve_operation_data_type(
+                operation, elements, from_source if has_from else None, literal_value, has_from
+            )
+            if not data_type:
+                msg = (
+                    "data_type was not provided and could not be inferred from the source "
+                    f"or literal (from={from_source!r}, value={literal_value!r})"
+                )
+                self.logger.warning(msg)
+                result['error'] = msg
+                return result
+            result['data_type_resolved'] = data_type
             
             if has_from:
                 self.logger.info(

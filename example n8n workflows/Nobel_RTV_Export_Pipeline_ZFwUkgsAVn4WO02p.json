@@ -1,0 +1,361 @@
+{
+  "id": "ZFwUkgsAVn4WO02p",
+  "name": "Nobel RTV Export Pipeline",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        16,
+        352
+      ],
+      "id": "a1000001-0000-0000-0000-000000000001",
+      "name": "Schedule Trigger",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nobel-rtv-export",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        544
+      ],
+      "id": "a1000001-0000-0000-0000-000000000002",
+      "name": "Webhook",
+      "webhookId": "ce0de8c5-cad1-4af6-9f09-61709eecc880",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nobel RTV Export - Batch Job Preparation\n// Config\nconst allBatches = [\"PL\", \"S2\", \"SP1\", \"E1\", \"LA\", \"MEP\"];\nconst batchBasePath = \"C:\\\\Users\\\\Nattugglan\\\\Nobel Center\\\\Syncpoint - General\\\\Pipeline\\\\RTV Config\\\\Batch\";\nconst scriptPath = \"C:\\\\revit-worker\\\\scripts\\\\Run-RTVXporterBatch.ps1\";\nconst timeout = 7200;\n\n// If webhook provided specific batches, use those; otherwise export all\nconst input = $input.first().json;\nconst requestedBatches = input?.body?.batches;\nconst batches = (Array.isArray(requestedBatches) && requestedBatches.length > 0)\n  ? requestedBatches.filter(b => allBatches.includes(b))\n  : allBatches;\n\nreturn batches.map(prefix => ({\n  json: {\n    prefix,\n    batch_file: `${batchBasePath}\\\\${prefix}-Batch.rbxml`,\n    script_path: scriptPath,\n    timeout_seconds: timeout\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        448
+      ],
+      "id": "a1000001-0000-0000-0000-000000000003",
+      "name": "Resolve Batches"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api-gateway/revit/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"command_type\": \"rtv\",\n  \"script_path\": {{ $json.script_path.toJsonString() }},\n  \"batch_file\": {{ $json.batch_file.toJsonString() }},\n  \"timeout_seconds\": {{ $json.timeout_seconds }},\n  \"arguments\": [],\n  \"meta\": {\n      \"triggered_by\": \"n8n\",\n      \"workflow_name\": {{ $workflow.name.toJsonString() }},\n      \"commandtype\": \"RTV\",\n      \"workflow_url\" : \"{{ (\"http://bim-wsp1-ubnt.hogerklick.bim:5678/workflow/\"+$workflow.id+\"/executions/\"+$execution.id) }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        720,
+        448
+      ],
+      "id": "a1000001-0000-0000-0000-000000000004",
+      "name": "Submit RTV Job",
+      "retryOnFail": false,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ctx-job-id",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "ctx-prefix",
+              "name": "job_label",
+              "value": "={{ $json.prefix || $('Resolve Batches').item.json.prefix }}",
+              "type": "string"
+            },
+            {
+              "id": "ctx-max-retries",
+              "name": "max_retries",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "ctx-retry-delay",
+              "name": "retry_delay_seconds",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "ctx-poll",
+              "name": "poll_interval_seconds",
+              "value": 2,
+              "type": "number"
+            },
+            {
+              "id": "ctx-timeout",
+              "name": "timeout_seconds",
+              "value": "={{ $json.timeout_seconds || $('Resolve Batches').item.json.timeout_seconds }}",
+              "type": "number"
+            },
+            {
+              "id": "ctx-prefix2",
+              "name": "prefix",
+              "value": "={{ $json.prefix || $('Resolve Batches').item.json.prefix }}",
+              "type": "string"
+            },
+            {
+              "id": "ctx-batch",
+              "name": "batch_file",
+              "value": "={{ $json.batch_file || $('Resolve Batches').item.json.batch_file }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        976,
+        400
+      ],
+      "id": "a1000001-0000-0000-0000-000000000005",
+      "name": "Attach wait context"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "G1ArKSIzZRE2o3Vk",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{ $json.job_id }}",
+            "job_label": "={{ $json.job_label }}",
+            "max_retries": "={{ $json.max_retries }}",
+            "retry_delay_seconds": "={{ $json.retry_delay_seconds }}",
+            "poll_interval_seconds": "={{ $json.poll_interval_seconds }}",
+            "timeout_seconds": "={{ $json.timeout_seconds }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job_id",
+              "displayName": "job_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "job_label",
+              "displayName": "job_label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "max_retries",
+              "displayName": "max_retries",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "retry_delay_seconds",
+              "displayName": "retry_delay_seconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "poll_interval_seconds",
+              "displayName": "poll_interval_seconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timeout_seconds",
+              "displayName": "timeout_seconds",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {},
+        "mode": "each"
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1216,
+        400
+      ],
+      "id": "a1000001-0000-0000-0000-000000000006",
+      "name": "Wait for Job"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1456,
+        400
+      ],
+      "id": "a1000001-0000-0000-0000-000000000007",
+      "name": "Aggregate Results"
+    },
+    {
+      "parameters": {
+        "content": "# Nobel RTV Export Pipeline\n\nTriggers RTV batch exports for Nobel Center Revit models,\nwaits for completion on the Windows Revit worker.\n\n## Triggers\n- **Schedule**: nightly at 00:30\n- **Webhook**: `POST /webhook/nobel-rtv-export`\n  - Body (optional): `{ \"batches\": [\"S2\", \"PL\"] }`\n  - Omit body to export all disciplines\n\n## Batch files\n`C:\\Users\\Nattugglan\\Nobel Center\\Syncpoint - General\\Pipeline\\RTV Config\\Batch\\`\n- PL-Batch.rbxml, S2-Batch.rbxml, SP1-Batch.rbxml\n- E1-Batch.rbxml, LA-Batch.rbxml, MEP-Batch.rbxml\n\n## Revit Worker\n- Location: `C:\\revit-worker`\n- Script: `C:\\revit-worker\\scripts\\Run-RTVXporterBatch.ps1`\n\n## IFC Output\nExported IFCs land in SharePoint:\n`Nobel Center\\Syncpoint - General\\Pipeline\\IFC-from-Revit`\n\nThe **Nobel Center Master Pipeline** (scheduled at 01:30)\npicks up new IFC files and runs post-processing + StreamBIM sync.",
+        "height": 480,
+        "width": 480,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -192
+      ],
+      "id": "a1000001-0000-0000-0000-000000000010",
+      "name": "Info"
+    },
+    {
+      "parameters": {
+        "content": "## Phase 2: IFC Processing (TODO)\nAfter all exports complete, optionally trigger\nthe Nobel Center Master Pipeline to process\nnew IFC files immediately instead of waiting\nfor the 01:30 schedule.\n\nAlternatively, add ACC version checking here\nto only export models that have changed:\n- Hub: b.4d68920b-a7bb-4261-9d12-3b7dd2836122\n- Project: b.16a6c9ce-fb24-4a3f-80e9-92cc34d0744e",
+        "height": 360,
+        "width": 360,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        -176
+      ],
+      "id": "a1000001-0000-0000-0000-000000000011",
+      "name": "TODO"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Resolve Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resolve Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Batches": {
+      "main": [
+        [
+          {
+            "node": "Submit RTV Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit RTV Job": {
+      "main": [
+        [
+          {
+            "node": "Attach wait context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Job": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach wait context": {
+      "main": [
+        [
+          {
+            "node": "Wait for Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}

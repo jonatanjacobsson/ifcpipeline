@@ -472,3 +472,28 @@ services:
           cpus: '2.0'
           memory: 3G
 
+  # MEP coordination worker (from main). Preserved through the split-compose
+  # merge; not started unless explicitly brought up (heavy 16G worker).
+  ifccoord-worker:
+    build:
+      context: .
+      dockerfile: ifccoord-worker/Dockerfile
+      args:
+        - IFCCOORD_TAG=${IFCCOORD_TAG:-latest}
+    platform: linux/amd64
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+

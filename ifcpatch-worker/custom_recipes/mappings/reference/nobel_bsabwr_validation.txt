@@ -1,0 +1,17 @@
+Nobel A1 BSABwr validation against Naviate Produktionsresultat HUS
+Generated: 2026-05-26
+
+OK   ESE.182        Fundament av platsgjuten betong
+OK   ESE.24         Bjälklag av platsgjuten betong
+OK   GS             KONSTRUKTIONER AV MONTERINGSFÄRDIGA ELEMENT I HUS
+OK   HS             KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS
+OK   JSE.151        Vattentäta enlagstäckningar av tätskiktsmatta på yttertak
+OK   M              SKIKT AV BELÄGGNINGS- OCH BEKLÄDNADSVAROR I HUS
+OK   NSF            UNDERTAK AV FÖRTILLVERKADE KOMPONENTER
+OK   NSK.1          Trappor m m
+OK   NSK.3111       Trappräcken utomhus
+OK   NSK.3112       Trappräcken inomhus
+FAIL SFC.3          not found in Naviate produktionsresultat
+FAIL SHD.1          not found in Naviate produktionsresultat
+
+Summary: 10/12 exact matches

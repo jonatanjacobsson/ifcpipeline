@@ -1,0 +1,599 @@
+0	SAMMANSATTA BYGGDELAR OCH INSTALLATIONSSYSTEM	
+01	SAMMANSATTA BYGGDELAR	0
+01.S	Sammansatta byggdelar i hus	01
+01.SB	Innerväggar, sammansatta	01.S
+01.SC	Ytterväggar, sammansatta	01.S
+01.SC/31	Ytterväggar, sammansatta – element av betong	01.S
+01.SC/35	Ytterväggar, sammansatta – element av trä eller träbaserat material	01.S
+01.SF	Bjälklag, sammansatta	01.S
+01.SG	Yttertak och ytterbjälklag, sammansatta	01.S
+01.SH	Trappor, sammansatta	01.S
+01.SJ	Balkonger, sammansatta	01.S
+01.SK	Loftgångar, sammansatta	01.S
+01.SL	Lastkajer, sammansatta	01.S
+01.SZ	Övriga sammansatta byggdelar i hus	01.S
+1	UNDERGRUND, UNDERBYGGNAD, SKYDDANDE LAGER I MARK, GRUNDKONSTRUKTIONER OCH STÖDKONSTRUKTIONER	
+13	LAGER I MARK FÖR SKYDD AV BYGGNADSVERK	1
+13.G	Termisk isolering i mark för skydd av byggnadsverk	13
+13.GS	Termisk isolering i mark för skydd av hus	13
+15	GRUNDKONSTRUKTIONER	1
+15.A	Sammansatta grundkonstruktioner	15
+15.S	Grundkonstruktioner för hus	15
+15.S/11	Grundkonstruktioner – platsgjuten betong	15.S
+15.SC	Grundplintar	15.S
+15.SE	Pålplintar och pålplattor	15.S
+15.SF	Pelarholkar i grundkonstruktion	15.S
+15.SG	Grundplattor, hela	15.S
+15.SG/11	Grundplattor, hela – platsgjuten betong	15.SG
+15.SH	Grundsulor	15.S
+15.SJ	Grundbalkar	15.S
+15.SK	Grundmurar	15.S
+15.SL	Påldäck	15.S
+15.ST	Fundament i grundkonstruktion	15.S
+15.SU	Kompletteringar i grundkonstruktion	15.S
+15.SUB	Förankringar i grundkonstruktion	15.SU
+15.SZ	Övriga grundkonstruktioner för hus	15.S
+2	BÄRVERK	
+20	SAMMANSATTA BÄRVERK	2
+27	BÄRVERK I HUSSTOMME	2
+27.A	Sammansatta bärverk i husstomme	27
+27.B	Stominnerväggar	27
+27.B/11	Stominnerväggar – platsgjuten betong	27.B
+27.B/21	Stominnerväggar – murverk	27.B
+27.B/31	Stominnerväggar – element av betong	27.B
+27.B/35	Stominnerväggar – element av trä eller träbaserat material	27.B
+27.B/36	Stominnerväggar – element av skivor och stålregelverk	27.B
+27.B/37	Stominnerväggar – element av skivor och träregelverk eller träbaserade regelverk	27.B
+27.B/41	Stominnerväggar – skivor och stålregelverk	27.B
+27.B/42	Stominnerväggar – skivor och träregelverk eller träbaserade regelverk	27.B
+27.C	Stomytterväggar	27
+27.C/11	Stomytterväggar – platsgjuten betong	27.C
+27.C/12	Stomytterväggar – glidformsgjuten betong	27.C
+27.C/21	Stomytterväggar – murverk	27.C
+27.C/31	Stomytterväggar – element av betong	27.C
+27.C/32	Stomytterväggar – element av autoklaverad lättbetong	27.C
+27.C/33	Stomytterväggar – element av lättklinkerbetong	27.C
+27.C/35	Stomytterväggar – element av trä eller träbaserat material	27.C
+27.C/36	Stomytterväggar – element av skivor och stålregelverk	27.C
+27.C/37	Stomytterväggar – element av skivor och träregelverk eller träbaserade regelverk	27.C
+27.C/41	Stomytterväggar – skivor och stålregelverk	27.C
+27.C/42	Stomytterväggar – skivor och träregelverk eller träbaserade regelverk	27.C
+27.D	Pelarstommar	27
+27.D/11	Pelarstommar – platsgjuten betong	27.D
+27.D/21	Pelarstommar – murverk	27.D
+27.D/31	Pelarstommar – element av betong	27.D
+27.D/34	Pelarstommar – element av stål	27.D
+27.D/35	Pelarstommar – element av trä eller träbaserat material	27.D
+27.D/51	Pelarstommar – formvaror av stål	27.D
+27.E	Balkstommar	27
+27.E/11	Balkstommar – platsgjuten betong	27.E
+27.E/31	Balkstommar – element av betong	27.E
+27.E/34	Balkstommar – element av stål	27.E
+27.E/35	Balkstommar – element av trä eller träbaserat material	27.E
+27.E/51	Balkstommar – formvaror av stål	27.E
+27.F	Stombjälklag	27
+27.F/11	Stombjälklag – platsgjuten betong	27.F
+27.F/31	Stombjälklag – element av betong	27.F
+27.F/32	Stombjälklag – element av autoklaverad lättbetong	27.F
+27.F/33	Stombjälklag – element av lättklinkerbetong	27.F
+27.F/35	Stombjälklag – element av trä eller träbaserat material	27.F
+27.G	Yttertaks- och ytterbjälklagsstommar	27
+27.G/11	Yttertaks- och ytterbjälklagsstommar – platsgjuten betong	27.G
+27.G/31	Yttertaks- och ytterbjälklagsstommar – element av betong	27.G
+27.G/32	Yttertaks- och ytterbjälklagsstommar – element av autoklaverad lättbetong	27.G
+27.G/33	Yttertaks- och ytterbjälklagsstommar – element av lättklinkerbetong	27.G
+27.G/35	Yttertaks- och ytterbjälklagsstommar – element av trä eller träbaserat material	27.G
+27.H	Kompletterande bärverk i husstomme	27
+27.HB	Trappstommar i husstomme	27.H
+27.HC	Balkongstommar i husstomme	27.H
+27.HC/31	Balkongstommar i husstomme – element av betong	27.HC
+27.HC/33	Balkongstommar i husstomme – element av lättklinkerbetong	27.HC
+27.HD	Loftgångsstommar i husstomme	27.H
+27.HD/31	Loftgångsstommar i husstomme – element av betong	27.HD
+27.HD/33	Loftgångsstommar i husstomme – element av lättklinkerbetong	27.HD
+27.HE	Lastkajsstommar i husstomme	27.H
+27.HF	Schaktstommar i husstomme	27.H
+27.HFB	Hisschaktstommar i husstomme	27.HF
+27.HFB/11	Hisschaktstommar i husstomme – platsgjuten betong	27.HFB
+27.HFB/12	Hisschaktstommar i husstomme – glidformsgjuten betong	27.HFB
+27.HFB/31	Hisschaktstommar i husstomme – element av betong	27.HFB
+27.Z	Övriga bärverk i husstomme	27
+4	RUMSBILDANDE BYGGDELAR, HUSKOMPLETTERINGAR, YTSKIKT OCH RUMSKOMPLETTERINGAR	
+40	SAMMANSATTA RUMSBILDANDE BYGGDELAR, HUSKOMPLETTERINGAR, YTSKIKT OCH RUMSKOMPLETTERINGAR	4
+41	KLIMATSKILJANDE DELAR OCH KOMPLETTERINGAR I YTTERTAK OCH YTTERBJÄLKLAG	4
+41.A	Sammansatta klimatskiljande delar och kompletteringar i yttertak och ytterbjälklag	41
+41.B	Kompletterande bärverk i yttertak	41
+41.C	Ytterklimatskärmar i yttertak och ytterbjälklag	41
+41.D	Innerklimatskärmar i yttertak och ytterbjälklag	41
+41.E	Öppningskompletteringar i yttertak och ytterbjälklag	41
+41.F	Kompletteringar till yttertak och ytterbjälklag	41
+41.FB	Utvändiga avvattningssystem från yttertak och ytterbjälklag	41.F
+41.FC	Invändiga avvattningssystem från yttertak och ytterbjälklag	41.F
+41.FD	Säkerhetsanordningar på yttertak och ytterbjälklag	41.F
+41.FE	Tillträdesanordningar på yttertak och ytterbjälklag	41.F
+41.FY	Diverse kompletteringar till yttertak och ytterbjälklag	41.F
+41.Z	Övriga klimatskiljande delar och kompletteringar i yttertak och ytterbjälklag	41
+42	KLIMATSKILJANDE DELAR OCH KOMPLETTERINGAR I YTTERVÄGG	4
+42.A	Sammansatta klimatskiljande delar och kompletteringar i yttervägg	42
+42.A/21	Sammansatta klimatskiljande delar och kompletteringar i yttervägg – murverk	42.A
+42.B	Ytterklimatskärmar i yttervägg	42
+42.B/20	Ytterklimatskärmar i yttervägg – murverk, puts	42.B
+42.B/35	Ytterklimatskärmar i yttervägg – element av trä eller träbaserat material	42.B
+42.C	Innerklimatskärmar i yttervägg	42
+42.C/20	Innerklimatskärmar i yttervägg – murverk, puts	42.C
+42.C/35	Innerklimatskärmar i yttervägg – element av trä eller träbaserat material	42.C
+42.C/36	Innerklimatskärmar i yttervägg – element av skivor och stålregelverk	42.C
+42.C/37	Innerklimatskärmar i yttervägg – element av skivor och träregelverk eller träbaserade regelverk	42.C
+42.C/41	Innerklimatskärmar i yttervägg – skivor och stålregelverk	42.C
+42.C/42	Innerklimatskärmar i yttervägg – skivor och träregelverk eller träbaserade regelverk	42.C
+42.D	Öppningskompletteringar i yttervägg	42
+42.E	Ytterväggskompletteringar	42
+42.EB	Burspråk	42.E
+42.Z	Övriga klimatskiljande delar och kompletteringar i yttervägg	42
+43	INRE RUMSBILDANDE BYGGDELAR	4
+43.A	Sammansatta inre rumsbildande byggdelar	43
+43.B	Kompletterande väggkonstruktioner	43
+43.B/22	Kompletterande väggkonstruktioner – puts	43.B
+43.B/41	Kompletterande väggkonstruktioner – skivor och stålregelverk	43.B
+43.B/42	Kompletterande väggkonstruktioner – skivor och träregelverk eller träbaserade regelverk	43.B
+43.C	Innerväggar (ej stominnerväggar) och öppningskompletteringar	43
+43.CB	Innerväggar (ej stominnerväggar)	43.C
+43.CB/20	Innerväggar (ej stominnerväggar) – murverk, puts	43.CB
+43.CB/35	Innerväggar (ej stominnerväggar) – element av trä eller träbaserat material	43.CB
+43.CB/37	Innerväggar (ej stominnerväggar) – element av skivor och träregelverk eller träbaserade regelverk	43.CB
+43.CB/40	Innerväggar (ej stominnerväggar) – skivor och regelverk	43.CB
+43.CB/41	Innerväggar (ej stominnerväggar) – skivor och stålregelverk	43.CB
+43.CB/42	Innerväggar (ej stominnerväggar) – skivor och träregelverk eller träbaserade regelverk	43.CB
+43.CC	Öppningskompletteringar i innervägg	43.C
+43.D	Bjälklagsöverbyggnader och öppningskompletteringar	43
+43.DA	Sammansatta bjälklagsöverbyggnader och öppningskompletteringar	43.D
+43.DB	Golv	43.D
+43.DB/11	Golv – platsgjuten betong	43.DB
+43.DC	Undergolv	43.D
+43.DD	Skyddsbeläggningar	43.D
+43.DE	Öppningskompletteringar i bjälklag	43.D
+43.E	Innertak	43
+43.E/22	Innertak – puts	43.E
+43.E/40	Innertak – skivor och regelverk	43.E
+43.Z	Övriga inre rumsbildande byggdelar	43
+44	INVÄNDIGA YTSKIKT	4
+44.A	Sammansatta invändiga ytskikt	44
+44.B	Ytskikt på golv och trappor	44
+44.BB	Ytskikt på golv	44
+44.BC	Ytskikt på trappor	44
+44.C	Ytskikt på väggar	44
+44.D	Ytskikt på innertak	44
+44.Z	Övriga invändiga ytskikt	44
+45	HUSKOMPLETTERINGAR	4
+45.A	Sammansatta huskompletteringar	45
+45.B	Utvändiga huskompletteringar	45
+45.BB	Balkonger	45.B
+45.BC	Loftgångar	45.B
+45.BD	Skärmtak	45.B
+45.BE	Entrétrappor	45.B
+45.BF	Fasadstegar	45.B
+45.BG	Vindskupor	45.B
+45.BY	Diverse huskompletteringar	45.B
+45.BY/31	Diverse huskompletteringar – element av betong	45.BY
+45.BY/32	Diverse huskompletteringar – element av autoklaverad lättbetong	45.BY
+45.BY/33	Diverse huskompletteringar – element av lättklinkerbetong	45.BY
+45.BY/35	Diverse huskompletteringar – element av trä eller träbaserat material	45.BY
+45.C	Invändiga huskompletteringar	45
+45.CB	Invändiga trappor	45
+45.Z	Övriga huskompletteringar	45
+46	RUMSKOMPLETTERINGAR	4
+46.A	Sammansatta rumskompletteringar	46
+46.B	Inredningar	46
+46.C	Utrustningar	46
+46.Z	Övriga rumskompletteringar	46
+49	ÖVRIGA RUMSBILDANDE BYGGDELAR, HUSKOMPLETTERINGAR, YTSKIKT OCH RUMSKOMPLETTERINGAR	4
+5	VA-, VVS-, KYL- OCH PROCESSMEDIESYSTEM	
+51	VATTENLEDNINGS-, AVLOPPS-, FJÄRRVÄRME- OCH GASNÄT M M	5
+52	FÖRSÖRJNINGSSYSTEM FÖR FLYTANDE ELLER GASFORMIGT MEDIUM	5
+52.B	Tappvattensystem	52
+52.BB	Kallvattensystem	52.B
+52.BC	Varmvattensystem	52.B
+52.D	Processvattensystem	52
+52.E	Ångsystem	52
+52.F	Tryckluftssystem	52
+52.FB	Tryckluftssystem utan särskilt krav på renhet	52.F
+52.FC	Tryckluftssystem med särskilt krav på renhet	52.F
+52.G	Vakuumsystem	52
+52.H	Gassystem	52
+52.HB	System för medicinsk gas	52.H
+52.HC	Industrigassystem	52.H
+52.HD	Energigassystem	52.H
+52.HDB	Naturgassystem	52.HD
+52.HDC	Stadsgassystem	52.HD
+52.HDD	Gasolsystem	52.HD
+52.HDE	Biogassystem	52.HD
+52.J	Olje- och drivmedelssystem	52
+53	AVLOPPSVATTENSYSTEM OCH PNEUMATISKA AVFALLSTRANSPORTSYSTEM E D	5
+53.B	Avloppsvattensystem	53
+53.BB	Spillvattensystem	53.B
+53.BBB	Normalspillvattensystem	53.BB
+53.BBC	Processpillvattensystem	53.BB
+53.BBD	Riskspillvattensystem	53.BB
+53.BC	Dagvattensystem	53.B
+53.C	Sop- och dammsugningssystem	53
+53.CB	Sopsugningssystem	53
+53.CC	Dammsugningssystem	53
+53.D	Sugsystem för industriella processer	53
+53.E	Tvättsugningssystem	53
+54	BRANDSLÄCKNINGSSYSTEM	5
+54.A	Sammansatta släcksystem	54
+54.B	Vattensläcksystem	54
+54.B/1	Vattensläcksystem – sprinklersystem	54.B
+54.B/2	Vattensläcksystem – vattendimsystem	54.B
+54.B/3	Vattensläcksystem – brandpostsystem	54.B
+54.C	Skumsläcksystem	54
+54.D	Gassläcksystem	54
+54.D/1	Gassläcksystem – sprinklersystem	54.D
+55	KYLSYSTEM	5
+56	VÄRMESYSTEM	5
+56.B	Värmevattensystem	56
+56.C	Ångvärmesystem	56
+56.D	Hetoljevärmesystem	56
+57	LUFTBEHANDLINGSSYSTEM	5
+57.B	Allmänventilationssystem	57
+57.C	Processventilationssystem	57
+57.F	Luftvärmesystem	57
+6	EL- OCH TELESYSTEM	
+61	EL- OCH TELEKANALISATIONSSYSTEM	6
+22282	El- och telekanalisationssystem – ledningskanaler	61
+22313	El- och telekanalisationssystem – kabelstegar och kabelrännor	61
+22341	El- och telekanalisationssystem – elinstallationsrör	61
+22372	El- och telekanalisationssystem – kabelkulvertar	61
+63	ELKRAFTSYSTEM	6
+63.B	Eldistributionsnät	63
+63.BB	Högspänningsnät	63.B
+63.BBB	Högspänningsnät för växelström	63.BB
+63.BBB/1	Högspänningsnät för växelström – kabelnät i mark eller hus	63.BBB
+63.BBB/2	Högspänningsnät för växelström – luftledningsnät	63.BBB
+63.BBC	Högspänningsnät för likström	63.BB
+63.BC	Lågspänningsnät	63.B
+63.BCB	Lågspänningsnät för växelström, högst 1 000 V	63.BC
+63.BCB/1	Lågspänningsnät för växelström – kabelnät i mark eller hus	63.BCB
+63.BCB/2	Lågspänningsnät för växelström – luftledningsnät	63.BCB
+63.BCB/21	Lågspänningsnät för växelström – friledningsnät	63.BCB/2
+63.BCB/22	Lågspänningsnät för växelström – hängkabelnät	63.BCB/2
+63.BCB/23	Lågspänningsnät för växelström – hängspiralkabelnät	63.BCB/2
+63.BCC	Lågspänningsnät för likström, högst 1 500 V	63.BC
+63.BD	Klenspänningsnät	63.B
+63.BDB	Klenspänningsnät för växelström, högst 50 V	63.BD
+63.BDC	Klenspänningsnät för likström, högst 120 V	63.BD
+63.C	Transformator- och fördelningssystem	63
+63.D	Strömriktarstationer	63
+63.DB	Likriktarstationer	63.D
+63.DC	Växelriktarstationer	63.D
+63.E	Kontaktledningsnät	63
+63.F	Belysningssystem och ljussystem	63
+63.FB	Belysningssystem inom industri- eller hamnområde	63.F
+63.FC	Belysningssystem vid väg e d	63.F
+63.FCB	Belysningssystem vid väg	63.FC
+63.FCBB	Belysningssystem vid motorfordonskörfält	63.FCB
+63.FCBC	Belysningssystem vid gång- och cykelväg	63.FCB
+63.FCC	Belysningssystem på bro	63.FC
+63.FCD	Belysningssystem på öppen plats	63.FC
+63.FCDB	Belysningssystem på parkeringsplats	63.FCD
+63.FCDC	Belysningssystem på torg e d	63.FCD
+63.FCE	Belysningssystem i tunnel	63.FC
+63.FCEB	Belysningssystem i vägtrafiktunnel	63.FCE
+63.FCEC	Belysningssystem i gång- eller cykeltunnel	63.FCE
+63.FD	Belysningssystem på gård eller i park	63.F
+63.FE	Belysningssystem vid fasad e d	63.F
+63.FF	System för allmänbelysning och arbetsplatsbelysning i hus	63.F
+63.FG	Belysningssystem i sportanläggning	63.F
+63.FGB	Belysningssystem i sportanläggning inomhus	63.FG
+63.FGC	Belysningssystem i sportanläggning utomhus	63.FF
+63.FH	Nödbelysningssystem och reservbelysningssystem	63.F
+63.FHB	Nödbelysningssystem	63.FH
+63.FHC	Reservbelysningssystem	63.FH
+63.FJ	Belysningssystem för vägledande skyltning m m	63.F
+63.FK	Flygplatsljussystem	63.F
+63.FKB	Hinderljussystem	63.FK
+63.FKC	Inflygningsljussystem	63.FK
+63.FKD	System för visuell glidbaneindikering	63.FK
+63.FKE	Banljussystem	63.FK
+63.FKF	Ljussystem för taxibanor	63.FK
+63.FKG	Ljusskyltssystem för banvägledning	63.FK
+63.FKH	Visuella dockningsljussystem	63.FK
+63.FL	Belysningssystem för spårtrafik	63.F
+63.FM	Varningsljussystem	63.F
+63.FMB	Varningsljussystem för luftfart	63.FM
+63.G	Ljusdistributionssystem	63
+63.GB	Fiberoptiska ljussystem	63.G
+63.GC	Ljustubssystem	63.G
+63.H	Elvärmesystem	63
+63.H/1	Elvärmesystem – system med radiatorer e d	63.H
+63.H/2	Elvärmesystem – system med värmekabel	63.H
+63.H/21	Elvärmesystem – värmekabel för golvvärme	63.H/2
+63.H/22	Elvärmesystem – värmekabel för markvärme, frysskydd m m	63.H/2
+63.H/3	Elvärmesystem – system med värmefolie	63.H
+63.H/4	Elvärmesystem – system med bastuaggregat	63.H
+63.HG	Industriella elvärmesystem	63.H
+63.J	Motordriftsystem	63
+63.JB	Drivsystem med motor utan hastighetsreglering	63.J
+63.JC	Drivsystem med flerhastighetsmotor	63.J
+63.JC/1	Drivsystem med flerhastighetsmotor – tvåhastighetsmotor med skilda lindningar	63.JC
+63.JC/2	Drivsystem med flerhastighetsmotor – system med tvåhastighetsmotor med polomkopplingsbara lindningar	63.JC
+63.JD	Drivsystem med varvtalsstyrd motor	63.J
+63.JD/1	Drivsystem med varvtalsstyrd motor – system med asynkronmotor	63.JD
+63.JD/11	Drivsystem med varvtalsstyrd motor – system med släpringad asynkronmotor med reglermotstånd	63.JD/1
+63.JD/12	Drivsystem med varvtalsstyrd motor – system med asynkronmotor med styrning av primärspänning	63.JD/1
+63.JD/13	Drivsystem med varvtalsstyrd motor – system med asynkronmotor med kaskadsystem och återmatning av rotoreffekt 	63.JD/1
+63.JD/14	Drivsystem med varvtalsstyrd motor – system med asynkronmotor med direktomriktare 	63.JD/1
+63.JD/15	Drivsystem med varvtalsstyrd motor – system med asynkronmotor med mellanledsomriktare 	63.JD/1
+63.JD/16	Drivsystem med varvtalsstyrd motor – system med asynkronmotor med integrerad frekvensomriktare 	63.JD/1
+63.JD/17	Drivsystem med varvtalsstyrd motor – system med asynkronmotor typ kommutatormotor 	63.JD/1
+63.JD/2	Drivsystem med varvtalsstyrd motor – system med synkronmotor 	63.JD
+63.JD/21	Drivsystem med varvtalsstyrd motor – system med synkronmotor med direktomriktare 	63.JD/2
+63.JD/22	Drivsystem med varvtalsstyrd motor – system med synkronmotor med mellanledsomriktare	63.JD/2
+63.JD/3	Drivsystem med varvtalsstyrd motor – system med likströmsmotor	63.JD
+63.JD/31	Drivsystem med varvtalsstyrd motor – system med likströmsmotor med enkelströmriktare	63.JD/3
+63.JD/32	Drivsystem med varvtalsstyrd motor – system med likströmsmotor med dubbelströmriktare	63.JD/3
+63.JE	Bromssystem för elmotor	63.J
+63.JE/1	Bromssystem för elmotor – mekanisk bromsning	63.JE
+63.JE/2	Bromssystem för elmotor – elektrisk bromsning	63.JE
+63.JE/21	Bromssystem för elmotor – motströmsbromsning	63.JE/2
+63.JE/22	Bromssystem för elmotor – likströmsbromsning	63.JE/2
+63.K	Faskompenseringssystem	63
+63.K/1	Faskompenseringssystem – roterande system	63.K
+63.K/2	Faskompenseringssystem – system med kondensatorbatterier	63.K
+63.K/21	Faskompenseringssystem – system med kondensatorbatterier för högspänning	63.K/2
+63.K/22	Faskompenseringssystem – system med kondensatorbatterier för lågspänning	63.K/2
+63.K/221	Faskompenseringssystem – system med centralkompensering med kondensatorbatterier för lågspänning	63.K/22
+63.K/222	Faskompenseringssystem – system med gruppkompensering med kondensatorbatterier för lågspänning	63.K/22
+63.K/223	Faskompenseringssystem – system med direktkompensering med kondensatorbatterier för lågspänning	63.K/22
+63.K/23	Faskompenseringssystem – system med övertonsfilter	63.K/2
+63.K/231	Faskompenseringssystem – system med snedavstämda övertonsfilter	63.K/23
+63.K/232	Faskompenseringssystem – system med finavstämda övertonsfilter	63.K/23
+63.L	Omriktarsystem	63
+63.L/1	Omriktarsystem – system med elektroniska system	63.L
+63.L/11	Omriktarsystem – system med elektroniska likriktare	63.L/1
+63.L/12	Omriktarsystem – system med elektroniska växelriktare	63.L/1
+63.L/13	Omriktarsystem – system med elektroniska frekvensomriktare	63.L/1
+63.L/2	Omriktarsystem – system med roterande omformare	63.L
+63.M	Strömförsörjningssystem för elkraftsystem	63
+63.M/1	Strömförsörjningssystem för elkraftsystem – system med laddningsbara batterier	63.M
+63.M/2	Strömförsörjningssystem för elkraftsystem – system med torrbatterier	63.M
+63.M/3	Strömförsörjningssystem för elkraftsystem – system med likriktare för direktdrift	63.M
+63.M/4	Strömförsörjningssystem för elkraftsystem – system med transformator	63.M
+63.N	System för reservkraft, avbrottsfri kraft eller nödkraft	63
+63.NB	System för reservkraft	63.N
+63.NB/1	System för reservkraft – system med kolvmotordrivna generatoraggregat	63.NB
+63.NB/11	System för reservkraft – system med stationära kolvmotordrivna generatoraggregat	63.NB/1
+63.NB/12	System för reservkraft – system med mobila kolvmotordrivna generatoraggregat	63.NB/1
+63.NB/13	System för reservkraft – system med kolvmotordrivna generatoraggregat med anordning för avbrottsfri kraft	63.NB/1
+63.NB/2	System för reservkraft – system med gasturbindrivna generatoraggregat	63.NB
+63.NC	System för avbrottsfri kraft	63.N
+63.NC/1	System för avbrottsfri kraft – system med omriktare	63.NC
+63.NC/2	System för avbrottsfri kraft – system med roterande omformare	63.NC
+63.ND	System för nödkraft	63.N
+64	TELESYSTEM	6
+64.B	Flerfunktionsnät i telesystem	64
+64.BB	Flerfunktionsnät för teleoperatörer m fl	64.B
+64.BBB	Allmänt tillgängliga telenät	64.BB
+64.BBC	Digitala TV-nät för teleoperatörer	64.BB
+64.BBD	Kabel-TV-nät för teleoperatörer	64.BB
+64.BC	Flerfunktionsnät i fastighet	64.B
+64.BCB	Flerfunktionsnät för säkerhetssystem	64.BC
+64.BCC	Flerfunktionsnät för signalsystem	64.BC
+64.BCD	Flerfunktionsnät för telekommunikationssystem	64.BC
+64.BCD/1	Flerfunktionsnät för telekommunikationssystem – fastighetsnät för informationsöverföring	64.BCD
+64.BCD/2	Flerfunktionsnät för telekommunikationssystem – radiolänksystem för telekommunikation	64.BCD
+64.BCD/3	Flerfunktionsnät för telekommunikationssystem – digitala TV-nät	64.BCD
+64.C	Teletekniska säkerhetssystem	64
+64.CB	Teletekniska larmsystem	64.C
+64.CBB	Branddetekterings- och brandlarmsystem	64.CB
+64.CBB/1	Branddetekterings- och brandlarmsystem – automatiska brandlarmsystem	64.CBB
+64.CBB/2	Branddetekterings- och brandlarmsystem – samplande system	64.CBB
+64.CBB/21	Branddetekterings- och brandlarmsystem – samplande system med rökdetektorer	64.CBB/2
+64.CBB/22	Branddetekterings- och brandlarmsystem – samplande system med högkänslighetsdetektorer	64.CBB/2
+64.CBB/3	Branddetekterings- och brandlarmsystem – linjevärmedetektorsystem	64.CBB
+64.CBB/31	Branddetekterings- och brandlarmsystem – system med maximallinjevärmedetektor	64.CBB/3
+64.CBB/32	Branddetekterings- och brandlarmsystem – system med differentiallinjevärmedetektor	64.CBB/3
+64.CBC	Gaslarmsystem	64.CB
+64.CBD	Vätskelarmsystem	64.CB
+64.CBE	Inbrottslarmsystem och överfallslarmsystem	64.CB
+64.CBEB	Inbrottslarmsystem	64.CBE
+64.CBEC	Överfallslarmsystem	64.CBE
+64.CBF	Områdeslarmsystem	64.CB
+64.CBG	Utbrytningslarmsystem	64.CB
+64.CBH	Nödsignalsystem	64.CB
+64.CBJ	Trygghetslarmsystem	64.CB
+64.CBK	Utrymningslarmsystem	64.CB
+64.CC	Teletekniska kontrollsystem	64.C
+64.CCB	Entré- och passerkontrollsystem	64.CC
+64.CCB/1	Entré- och passerkontrollsystem – ellåssystem	64.CCB
+64.CCB/2	Entré- och passerkontrollsystem – kodlåssystem	64.CCB
+64.CCB/3	Entré- och passerkontrollsystem – passerkontrollsystem	64.CCB
+64.CCC	Dörrkontrollsystem	64.CC
+64.D	Teletekniska signalsystem	64
+64.DB	Händelseaktiverade signalsystem	64.D
+64.DBB	Entrésignalsystem	64.DB
+64.DBB/1	Entrésignalsystem – system för momentan anropssignal	64.DBB
+64.DBB/2	Entrésignalsystem – system för kvarstående anropssignal	64.DBB
+64.DBB/3	Entrésignalsystem – system för upptagen- och vänta-signal	64.DBB
+64.DBB/4	Entrésignalsystem – system för upptagetsignal	64.DBB
+64.DBC	Kallelsesignalsystem	64.DB
+64.DBD	Resultatmarkeringssystem	64.DB
+64.DBE	Kösignalsystem	64.DB
+64.DBF	Personsökningssystem	64.DB
+64.DBF/1	Personsökningssystem – trådlösa system	64.DBF
+64.DBF/11	Personsökningssystem – trådlösa system med anrop via radio	64.DBF/1
+64.DBF/2	Personsökningssystem – trådbundna system	64.DBF
+64.DBG	Bokningssystem	64.DB
+64.DBGB	Bokningssystem i tvättstugor	64.DBG
+64.DC	Tidsaktiverade signalsystem	64.D
+64.DCB	Tidgivningssystem	64.DC
+64.DCC	Tidregistreringssystem	64.DC
+64.DCCB	Närvarotidsystem	64.DCC
+64.DCCC	Tidredovisningssystem för sport	64.DCC
+64.DCD	Tidsignaleringssystem	64.DC
+64.DCDB	Rastsignalsystem	64.DCD
+64.DCDC	Väckningssystem	64.DCD
+64.E	Telekommunikationssystem	64
+64.EA	Sammansatta telekommunikationssystem	64.E
+64.EB	Telefonsystem	64.E
+64.EBB	Allmänt tillgängliga telefonsystem i fastighet	64.EB
+64.EBC	Interntelefonsystem	64.EB
+64.EBD	Porttelefonsystem	64.EB
+64.EBG	Snabbtelefonsystem	64.EB
+64.EBH	Hjälptelefonsystem	64.EB
+64.EBHB	Hisstelefonsystem	64.EBH
+64.EC	Ljudöverföringssystem och bildöverföringssystem	64.E
+64.ECB	Ljudöverföringssystem	64.EC
+64.ECB/1	Ljudöverföringssystem – system med högtalare	64.ECB
+64.ECB/2	Ljudöverföringssystem – system med centralradio	64.ECB
+64.ECB/3	Ljudöverföringssystem – system med teleslinga e d	64.ECB
+64.ECB/31	Ljudöverföringssystem – teleslinga	64.ECB/3
+64.ECB/32	Ljudöverföringssystem – IR-överföring	64.ECB/3
+64.ECC	Bildöverföringssystem	64.EC
+64.ECC/1	Bildöverföringssystem – TV-övervakningssystem	64.ECC
+64.ECC/2	Bildöverföringssystem – kabel-TV-system	64.ECC
+64.ECD	Bildvisningssystem	64.EC
+64.ECE	Radiokommunikationssystem	64.EC
+64.ED	Datakommunikationssystem	64.E
+64.EDB	Lokala datanätsystem	64.ED
+64.EE	Telefonväxelsystem	64.E
+64.M	Gemensamma strömförsörjningssystem för telesystem	64
+64.MB	System för likströmsförsörjning	64.M
+64.MC	System för växelströmsförsörjning	64.M
+64.Q	Teletekniska styrsystem	64
+64.QB	System för öppning av brandventilatorer m m	64.Q
+64.QC	System för stängning av brandspjäll m m	64.Q
+64.QD	System för start av rökgasfläktar	64.Q
+64.QE	System för fläktavstängning vid brand	64.Q
+64.QF	System för stängning av branddörrar	64.Q
+64.QG	System för aktivering av automatiska brandsläckningssystem	64.Q
+66	SYSTEM FÖR SPÄNNINGSUTJÄMNING OCH ELEKTRISK SEPARATION	6
+66.B	System för spänningsutjämning i elkraftsystem	66
+66.BB	System för jordning i elkraftsystem	66.B
+66.BBB	Systemjordning i elkraftsystem	66.BB
+66.BBB/1	Systemjordning i elkraftsystem – system med gemensam jordning	66.BBB
+66.BBB/2	Systemjordning i elkraftsystem – system med skilda jordningar	66.BBB
+66.C	System för spänningsutjämning i teletekniskt system	66
+66.CB	System för jordning i teletekniskt system	66.C
+66.D	Åskskyddsystem	66
+66.DB	System för inledningsskydd	66.D
+66.DC	System för inslagsskydd	66.D
+66.E	System för skydd mot statisk elektricitet	66
+66.F	System för skydd mot elektromagnetisk störning	66
+66.FB	System för skydd mot radiostörning m m	66.F
+66.FC	System för NEMP-skydd	66.F
+66.FD	System för LEMP-skydd	66.F
+66.FE	System för skydd mot elektromagnetiskt sabotage	66.F
+66.G	System för potentialutjämnad närmiljö	66
+66.H	System för begränsning av elektriska eller magnetiska fält	66
+66.HB	System för begränsning av elektriska fält	66.H
+66.HC	System för begränsning av magnetiska fält	66.H
+7	TRANSPORTSYSTEM M M	
+71	HISSYSTEM	7
+71.B	Drivsystem i hissinstallation	71
+71.BB	Drivsystem i linhissinstallation	71.B
+71.BB/1	Drivsystem i linhissinstallation – system med enhastighetsmotor	71.BB
+71.BB/2	Drivsystem i linhissinstallation – system med tvåhastighetsmotor	71.BB
+71.BB/3	Drivsystem i linhissinstallation – system med varvtalsstyrd motor	71.BB
+71.BB/31	Drivsystem i linhissinstallation – system med tyristorstyrd motor	71.BB/3
+71.BB/32	Drivsystem i linhissinstallation – system med frekvensstyrd motor	71.BB/3
+71.BB/33	Drivsystem i linhissinstallation – system med likströmsmotor med statisk omformare	71.BB/3
+71.BC	Drivsystem i hydraulhissinstallation	71.B
+71.BC/1	Drivsystem i hydraulhissinstallation – system med elektroniska ventiler	71.BC
+71.BC/2	Drivsystem i hydraulhissinstallation – system med magnetventiler	71.BC
+71.BD	Drivsystem i skruvhissinstallation	71.B
+71.BE	Drivsystem i kedjehissinstallation	71.B
+71.BF	Drivsystem i installation med kuggstångshiss	71.B
+71.E	Styrfunktioner för trafik med hiss	71
+71.EA	Styrsystem i hissinstallation	71.E
+71.EAB	Styrsystem i installation med persontillåtna hissar	71.EA
+71.EABB	Styrsystem i installation med ensam persontillåten hiss	71.EAB
+71.EABB/1	Styrsystem i installation med ensam persontillåten hiss – direktstyrning med lagrade impulser	71.EABB
+71.EABB/2	Styrsystem i installation med ensam persontillåten hiss – kollektiv-ned	71.EABB
+71.EABB/3	Styrsystem i installation med ensam persontillåten hiss – helkollektiv	71.EABB
+71.EABC	Styrsystem i installation med persontillåtna hissar i grupp	71.EAB
+71.EABC/1	Styrsystem i installation med persontillåtna hissar i grupp – direktstyrning med väljare och lagrade impulser	71.EABC
+71.EABC/2	Styrsystem i installation med persontillåtna hissar i grupp – kollektiv--ned med väljare	71.EABC
+71.EABC/3	Styrsystem i installation med persontillåtna hissar i grupp – helkollektiv med väljare	71.EABC
+71.EABC/4	Styrsystem i installation med persontillåtna hissar i grupp – trafiksystem till personhissar	71.EABC
+71.EABC/5	Styrsystem i installation med persontillåtna hissar i grupp – trafiksystem till sänghissar	71.EABC
+71.EAC	Styrsystem i installation med personförbjudna hissar	71.EA
+71.EACB	Styrsystem i varuhissinstallation	71.EAC
+71.EACB/1	Styrsystem i varuhissinstallation – system med destinationsknappar vid varje stannplan	71.EACB
+71.EACB/2	Styrsystem i varuhissinstallation – system med destinationsknappar vid ett stannplan	71.EACB
+71.EB	Prioritetskörningsfunktioner	71.E
+71.EC	Brandlarmsfunktion	71.E
+71.ED	Fullsattkontrollfunktion	71.E
+71.EE	Dörröppningsfunktion	71.E
+71.EF	Efterinställningsfunktion	71.E
+71.EG	Säkerhetsfunktion för täcklock	71.E
+71.EH	Funktion för körning med nödkraft eller reservkraft	71.E
+71.EHB	Automatisk nödströmskörning	71.EH
+71.EHC	Automatisk nödsänkning	71.EH
+71.EJ	Indikeringsfunktioner	71.E
+71.EJB	Funktion för kvitteringsindikering	71.EJ
+71.EJC	Funktion för upptagenindikering	71.EJ
+71.EJD	Funktion för ankomstindikering	71.EJ
+71.EJD/1	Funktion för ankomstindikering – ljusindikering	71.EJD
+71.EJD/2	Funktion för ankomstindikering – akustisk indikering	71.EJD
+71.EJE	Funktion för färdriktningsindikering	71.EJ
+71.EJF	Funktion för hänvisningsindikering	71.EJ
+71.EJG	Funktion för avstängdindikering	71.EJ
+71.F	Driftövervakningssystem i hissinstallation	71
+71.FB	Driftlarmsystem och driftindikeringssystem i hissinstallation	71.F
+71.FBB	Differentierade driftlarmsystem i hissinstallation	71.FB
+71.FBC	Summalarmsystem i hissinstallation	71.FB
+71.G	Nödsignalsystem i hissinstallation	71
+71.G/1	Nödsignalsystem i hissinstallation – vidarekopplat system med kvittering	71.G
+71.G/2	Nödsignalsystem i hissinstallation – system med lokaltelefonförbindelse	71.G
+71.G/3	Nödsignalsystem i hissinstallation – system med telefonförbindelse via allmänt telenät	71.G
+71.G/4	Nödsignalsystem i hissinstallation – system med hisstelefon	71.G
+73	RULLTRAPPSSYSTEM OCH RULLRAMPSSYSTEM	7
+73.B	Drivsystem i installation med rulltrappa eller rullramp	73
+73.B/1	Drivsystem i installation med rulltrappa eller rullramp – system med Y/D-start	73.B
+73.B/2	Drivsystem i installation med rulltrappa eller rullramp – system med enkel frekvensomriktning	73.B
+73.B/3	Drivsystem i installation med rulltrappa eller rullramp – system med fullständig frekvensomriktning	73.B
+73.E	Styr- och övervakningssystem i installation med rulltrappa eller rullramp	73
+73.EB	Styrsystem i installation med rulltrappa eller rullramp	73.E
+73.EBB	Styrsystem för kontinuerlig drift i installation med rulltrappa eller rullramp	73.EB
+73.EBC	Styrsystem för kontinuerlig drift med beredskapshastighet i installation med rulltrappa eller rullramp	73.EB
+73.EBD	Styrsystem för intermittent drift i installation med rulltrappa eller rullramp	73.EB
+73.EBE	Funktioner i styrsystem i installation med rulltrappa eller rullramp	73.EB
+73.EBEB	Brandlarmsfunktion	73.EBE
+73.EBEC	Funktion för färdriktningsindikering för trafikanter	73.EBE
+73.EBED	Fjärrmanöverfunktion	73.EBE
+73.EC	Driftövervakningssystem i installation med rulltrappa eller rullramp	73.E
+73.ECB	Driftlarmssystem och driftindikeringssystem i installation med rulltrappa eller rullramp	73.EC
+73.ECBB	Differentierade driftlarm	73.ECB
+73.ECBC	Summalarm	73.ECB
+73.ECBD	Fjärrdiagnossystem för fel	73.ECB
+74	KRANSYSTEM	7
+74/1	Kransystem – system med travers	74
+74/2	Kransystem – system med telfer	74
+74/3	Kransystem – system med portalkran	74
+75	RÖRPOSTSYSTEM	7
+75/1	Rörpostsystem – direktrörpostsystem	75
+75/11	Rörpostsystem – enrörs direktrörpostsystem	75/1
+75/12	Rörpostsystem – tvårörs direktrörpostsystem	75/1
+76	SYSTEM MED MASKINDRIVEN PORT, GRIND, DÖRR M M	7
+76.B	System med maskindriven port	76
+76.B/1	System med maskindriven port – system med vikport	76.B
+76.B/2	System med maskindriven port – system med takskjutport	76.B
+76.B/3	System med maskindriven port – system med skjutport	76.B
+76.B/4	System med maskindriven port – system med rullport	76.B
+76.C	System med maskindriven grind, bom e d	76
+76.D	System med maskindriven dörr	76
+76.D/1	System med maskindriven dörr – system med slagdörr	76.D
+76.D/2	System med maskindriven dörr – system med pendeldörr	76.D
+76.D/3	System med maskindriven dörr – system med roterdörr	76.D
+76.E	System med maskindriven rörlig vägg m m	76
+76.F	System med maskindriven solavskärmningsanordning, mörkläggningsgardin m m	76
+76.G	System med maskindriven lastbrygga	76
+76.H	System med maskindriven vädertätning	76
+76.J	Automatiska dockningssystem	76
+76.K	System med maskindrivet lyftbord e d	76
+8	STYR- OCH ÖVERVAKNINGSSYSTEM	
+81	STYR- OCH ÖVERVAKNINGSSYSTEM FÖR FASTIGHETSDRIFT	8
+82	STYR- OCH ÖVERVAKNINGSSYSTEM FÖR PROCESSINSTALLATIONER	8
+9	ÖVRIGA BYGGDELAR OCH INSTALLATIONSSYSTEM	
+91	GEMENSAMMA ARBETEN OCH TILLFÄLLIGA FABRIKEN	9

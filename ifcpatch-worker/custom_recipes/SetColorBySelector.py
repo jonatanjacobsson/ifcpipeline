@@ -41,6 +41,7 @@ from collections import defaultdict
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.api.style
+import ifcopenshell.util.element
 import ifcopenshell.util.selector
 
 logger = logging.getLogger(__name__)
@@ -216,9 +217,220 @@ class Patcher:
             if invalid_hex:
                 continue
             
+            # Validate and sanitize selectors
+            sanitized_selectors = self._sanitize_selectors(op['selectors'], idx + 1)
+            if sanitized_selectors is None:
+                continue
+            op['selectors'] = sanitized_selectors
+            
             validated_operations.append(op)
         
         return validated_operations
+    
+    def _sanitize_selectors(self, selectors_str: str, arg_num: int) -> str | None:
+        """
+        Validate and sanitize selector string.
+        
+        Detects and fixes common issues:
+        - Duplicate/concatenated selectors missing separator (e.g., "value=1value=2" -> "value=1 + value=2")
+        - Trailing/leading separators
+        
+        Returns sanitized string or None if unfixable.
+        """
+        original = selectors_str
+        
+        # Pattern to detect concatenated property selectors without separator
+        # Matches: "=valueProperty.Name" or "=valueBIP." etc. (missing + between value and next property)
+        concat_pattern = re.compile(r'(=\d+)([A-Za-z][A-Za-z0-9_]*\.[A-Za-z])')
+        
+        # Also detect IFC class patterns concatenated: "IfcWallIfcDoor"
+        ifc_concat_pattern = re.compile(r'(Ifc[A-Z][a-z]+[a-z0-9]*)(Ifc[A-Z])')
+        
+        fixed = selectors_str
+        
+        # Fix concatenated property selectors
+        if concat_pattern.search(fixed):
+            fixed = concat_pattern.sub(r'\1 + \2', fixed)
+            self.logger.warning(
+                f"Argument {arg_num}: Detected concatenated selectors, auto-fixed: "
+                f"'{original[:80]}...' -> '{fixed[:80]}...'"
+            )
+        
+        # Fix concatenated IFC class selectors
+        if ifc_concat_pattern.search(fixed):
+            fixed = ifc_concat_pattern.sub(r'\1 + \2', fixed)
+            self.logger.warning(
+                f"Argument {arg_num}: Detected concatenated IFC classes, auto-fixed"
+            )
+        
+        # Detect if selectors look like duplicates (same pattern repeated)
+        filter_groups = [fg.strip() for fg in fixed.split('+') if fg.strip()]
+        if len(filter_groups) > 1:
+            # Check for exact duplicates in filter groups
+            seen = set()
+            unique_groups = []
+            for fg in filter_groups:
+                if fg not in seen:
+                    seen.add(fg)
+                    unique_groups.append(fg)
+                else:
+                    self.logger.warning(
+                        f"Argument {arg_num}: Removed duplicate filter group: '{fg[:50]}'"
+                    )
+            
+            if len(unique_groups) < len(filter_groups):
+                fixed = ' + '.join(unique_groups)
+                self.logger.warning(
+                    f"Argument {arg_num}: Deduplicated selectors: {len(filter_groups)} -> {len(unique_groups)} groups"
+                )
+        
+        # Final validation: try to parse each filter group
+        filter_groups = [fg.strip() for fg in fixed.split('+') if fg.strip()]
+        if not filter_groups:
+            self.logger.warning(f"Argument {arg_num}: Selector string is empty after sanitization")
+            return None
+        
+        return fixed
+
+    def _select_elements(self, selector: str):
+        """Select elements, falling back for simple property equality filters."""
+        try:
+            return ifcopenshell.util.selector.filter_elements(self.file, selector)
+        except Exception as e:
+            elements = self._select_simple_property_elements(selector)
+            if elements is None:
+                raise
+            self.logger.warning(
+                f"IfcOpenShell selector failed for '{selector}' ({e}); "
+                f"used robust property selector fallback and found {len(elements)} element(s)"
+            )
+            return elements
+
+    def _select_simple_property_elements(self, selector: str):
+        """
+        Evaluate simple selectors like ``IfcElement, BIP.BSABe=640``.
+
+        Some real-world IFCs contain malformed property relationships that make
+        IfcOpenShell's selector crash while scanning psets. This fallback skips
+        malformed definitions instead of failing the entire patch job.
+        """
+        parsed = self._parse_simple_property_selector(selector)
+        if parsed is None:
+            return None
+
+        ifc_class, predicates = parsed
+        try:
+            candidates = self.file.by_type(ifc_class)
+        except Exception:
+            return None
+
+        matched = []
+        for element in candidates:
+            if all(
+                self._selector_value_matches(
+                    self._get_property_value_safe(element, pset_name, property_name),
+                    expected,
+                )
+                for pset_name, property_name, expected in predicates
+            ):
+                matched.append(element)
+        return set(matched)
+
+    def _parse_simple_property_selector(self, selector: str):
+        parts = [part.strip() for part in selector.split(',') if part.strip()]
+        if not parts:
+            return None
+
+        if re.fullmatch(r'Ifc[A-Za-z0-9_]+', parts[0]):
+            ifc_class = parts[0]
+            predicate_parts = parts[1:]
+        else:
+            ifc_class = 'IfcElement'
+            predicate_parts = parts
+
+        if not predicate_parts:
+            return None
+
+        predicates = []
+        for predicate in predicate_parts:
+            match = re.fullmatch(
+                r'([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)',
+                predicate,
+            )
+            if not match:
+                return None
+            expected = match.group(3).strip()
+            if len(expected) >= 2 and expected[0] == expected[-1] and expected[0] in ("'", '"'):
+                expected = expected[1:-1]
+            predicates.append((match.group(1), match.group(2), expected))
+
+        return ifc_class, predicates
+
+    def _get_property_value_safe(self, element, pset_name: str, property_name: str):
+        try:
+            value = ifcopenshell.util.element.get_pset(element, pset_name, property_name)
+            if value is not None:
+                return value
+        except Exception:
+            pass
+
+        for definition in self._iter_property_definitions(element):
+            if not self._safe_is_a(definition, 'IfcPropertySet'):
+                continue
+            if self._safe_getattr(definition, 'Name') != pset_name:
+                continue
+            for prop in self._safe_getattr(definition, 'HasProperties') or ():
+                if self._safe_getattr(prop, 'Name') != property_name:
+                    continue
+                if self._safe_is_a(prop, 'IfcPropertySingleValue'):
+                    return self._unwrap_ifc_value(self._safe_getattr(prop, 'NominalValue'))
+        return None
+
+    def _iter_property_definitions(self, element):
+        for rel in self._safe_getattr(element, 'IsDefinedBy') or ():
+            if not self._safe_is_a(rel, 'IfcRelDefinesByProperties'):
+                continue
+            definition = self._safe_getattr(rel, 'RelatingPropertyDefinition')
+            if definition is not None:
+                yield definition
+
+        try:
+            element_type = ifcopenshell.util.element.get_type(element)
+        except Exception:
+            element_type = None
+        for definition in self._safe_getattr(element_type, 'HasPropertySets') or ():
+            if definition is not None:
+                yield definition
+
+    def _selector_value_matches(self, actual, expected: str) -> bool:
+        if actual is None:
+            return False
+
+        actual_unwrapped = self._unwrap_ifc_value(actual)
+        actual_text = str(actual_unwrapped).strip()
+        expected_text = str(expected).strip()
+
+        try:
+            return float(actual_text) == float(expected_text)
+        except ValueError:
+            return actual_text == expected_text
+
+    def _unwrap_ifc_value(self, value):
+        if hasattr(value, 'wrappedValue'):
+            return value.wrappedValue
+        return value
+
+    def _safe_is_a(self, entity, ifc_class: str) -> bool:
+        try:
+            return bool(entity and entity.is_a(ifc_class))
+        except Exception:
+            return False
+
+    def _safe_getattr(self, entity, attribute: str):
+        try:
+            return getattr(entity, attribute) if entity is not None else None
+        except Exception:
+            return None
     
     def _validate_hex_format(self, hex_str: str) -> bool:
         """Validate hex color format (6 or 8 characters)."""
@@ -716,7 +928,7 @@ class Patcher:
                 if '.' in selector and '=' in selector and not has_ifc_class:
                     selector = f"IfcElement, {selector}"
                 
-                elements = ifcopenshell.util.selector.filter_elements(self.file, selector)
+                elements = self._select_elements(selector)
                 if not elements:
                     continue
                 
@@ -873,7 +1085,7 @@ class Patcher:
                     selector = f"IfcElement, {selector}"
                     self.logger.debug(f"Auto-prefixed selector: '{filter_group}' -> '{selector}'")
                 
-                elements = ifcopenshell.util.selector.filter_elements(self.file, selector)
+                elements = self._select_elements(selector)
                 
                 if len(elements) == 0:
                     self.logger.warning(f"No elements matched filter group: '{selector}' (original: '{filter_group}')")

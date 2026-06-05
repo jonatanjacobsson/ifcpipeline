@@ -1,6 +1,7 @@
+import os
 import re
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Any, Dict
+from typing import Annotated, Any, Dict, List, Optional
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from datetime import datetime
 from enum import Enum
 
@@ -18,12 +19,47 @@ def _validate_safe_filename(v: str) -> str:
     return v
 
 
+def _validate_original_upload_basename(v: str) -> str:
+    """Accept human upload names (spaces, Unicode); reject path traversal and shell metacharacters."""
+    name = os.path.basename(v.strip())
+    if not name:
+        raise ValueError("Filename cannot be empty")
+    if ".." in name or "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError("Invalid filename")
+    for bad in (";", "|", "`", "$", "&"):
+        if bad in name:
+            raise ValueError("Filename contains invalid characters")
+    if len(name) > 512:
+        raise ValueError("Filename too long")
+    return name
+
+
 def _validate_safe_path(v: str) -> str:
     if not v:
         raise ValueError("Path cannot be empty")
     if ".." in v or ";" in v or "`" in v or "|" in v or "$" in v or "&" in v:
         raise ValueError("Path contains invalid or dangerous characters")
-    for part in v.split("/"):
+
+    # Accept the canonical `s3://<bucket>/<key>` URI that gateway endpoints
+    # (`/upload/*`, `/download-from-url`) and worker outputs now return.
+    # Strip `s3://<bucket>/` before per-segment validation so the rest of
+    # the key is checked the same way a legacy `uploads/foo.ifc` path is.
+    # The bucket segment is still required to match SAFE_FILENAME_PATTERN
+    # so a crafted URI cannot smuggle unsafe characters past the scheme.
+    # `shared.object_storage.normalize_input_key` strips the same prefix
+    # before handing the key to S3, keeping gateway validation and worker
+    # resolution in lockstep.
+    path_part = v
+    if path_part.startswith("s3://"):
+        rest = path_part[len("s3://"):]
+        bucket, sep, key = rest.partition("/")
+        if not sep or not bucket or not key:
+            raise ValueError("Invalid s3 URI: expected s3://<bucket>/<key>")
+        if not SAFE_FILENAME_PATTERN.match(bucket):
+            raise ValueError("s3 URI bucket contains invalid characters")
+        path_part = key
+
+    for part in path_part.split("/"):
         if part and not SAFE_FILENAME_PATTERN.match(part):
             raise ValueError("Path contains invalid characters")
     return v
@@ -39,16 +75,38 @@ class ProcessRequest(BaseModel):
         return _validate_safe_path(v)
 
 
+class VersionPinOptional(BaseModel):
+    """Optional MinIO S3 VersionId / audit pinning (n8n `applyVersionPins`).
+
+    CDE and workers resolve these via `shared.object_storage.pin_for`.
+    For two-input jobs use `input_version_ids` (per object key) or explicit
+    per-side fields (e.g. ifcdiff); a single `input_audit_id` cannot pin two files.
+    """
+
+    input_version_id: Optional[str] = None
+    input_version_ids: Optional[Dict[str, str]] = None
+    input_audit_id: Optional[int] = None
+
+
 class IfcConvertRequest(BaseModel):
     """Mirror of the flags that ifcconvert-worker's tasks.py looks at.
 
     Every option the worker reads is listed here with a safe default so that
     `request.<flag>` attribute access does not explode when callers only
     provide `input_filename`/`output_filename`.
+
+    The IfcConvert ``--validate`` flag is exposed as ``validate_geometry`` on
+    the Python side (with JSON alias ``validate``) to avoid shadowing the
+    deprecated ``BaseModel.validate`` classmethod, which otherwise emits a
+    ``UserWarning`` at every worker import.
     """
 
     input_filename: str
     output_filename: str
+    # MinIO/S3 VersionId pinning (same semantics as VersionPinOptional).
+    input_version_id: Optional[str] = None
+    input_version_ids: Optional[Dict[str, str]] = None
+    input_audit_id: Optional[int] = None
 
     # --- command-line options ------------------------------------------------
     verbose: bool = False
@@ -124,7 +182,15 @@ class IfcConvertRequest(BaseModel):
 
     no_normals: bool = False
     generate_uvs: bool = False
-    validate: bool = False
+    # Renamed from ``validate`` so the field no longer shadows
+    # ``BaseModel.validate`` (deprecated Pydantic v2 classmethod). JSON callers
+    # still send ``"validate": true`` via the validation alias; ``model_dump()``
+    # in api-gateway will emit the field name, which is also accepted on the
+    # worker side via ``AliasChoices``.
+    validate_geometry: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("validate_geometry", "validate"),
+    )
     element_hierarchy: bool = False
 
     force_space_transparency: Optional[float] = None
@@ -189,14 +255,21 @@ class IfcConvertRequest(BaseModel):
         return _validate_safe_path(v)
 
 
-class IfcCsvRequest(BaseModel):
+class IfcCsvRequest(VersionPinOptional):
     filename: str
     output_filename: str
     format: str = "csv"
     delimiter: str = ","
     null_value: str = Field("-", alias="null")
-    query: str = "IfcProduct"
+    query: str = "IfcElement"
     attributes: List[str] = ["Name", "Description"]
+    # Optional ifccsv IfcCsv.export() extras (see IfcOpenshell/src/ifccsv/ifccsv.py).
+    headers: Optional[List[Optional[str]]] = None
+    groups: Optional[List[Dict[str, Any]]] = None
+    sort: Optional[List[Dict[str, Any]]] = None
+    summaries: Optional[List[Dict[str, Any]]] = None
+    formatting: Optional[List[Dict[str, Any]]] = None
+    include_global_id: bool = True
 
     @field_validator("filename", "output_filename")
     @classmethod
@@ -204,7 +277,7 @@ class IfcCsvRequest(BaseModel):
         return _validate_safe_path(v)
 
 
-class IfcCsvImportRequest(BaseModel):
+class IfcCsvImportRequest(VersionPinOptional):
     ifc_filename: str
     csv_filename: str
     output_filename: str = None
@@ -217,10 +290,59 @@ class IfcCsvImportRequest(BaseModel):
         return _validate_safe_path(v)
 
 
+class IfcFastRequest(VersionPinOptional):
+    """Native ``ifcfast`` (Rust) operations — see ``shared/ifcfast_ops.py``."""
+
+    filename: str
+    operation: str = "export_products"
+    output_filename: Optional[str] = None
+    output_format: str = "csv"
+    delimiter: str = ","
+    null_value: str = Field("-", alias="null")
+    # export_products / filter_products
+    query: str = "IfcProduct"
+    attributes: List[str] = ["Name", "Description"]
+    headers: Optional[List[Optional[str]]] = None
+    include_global_id: bool = True
+    mmap: bool = True  # kept for API compat; native parser always mmap-based
+    # export_layer / extract_all
+    layer: Optional[str] = None
+    layers: Optional[List[str]] = None
+    output_prefix: Optional[str] = None
+    # traverse
+    traverse: Optional[str] = None
+    guid: Optional[str] = None
+    # model.filter
+    filter_entity: Optional[str] = None
+    filter_mode: Optional[str] = None
+    filter_storey_guid: Optional[str] = None
+    # preview
+    preview_table: Optional[str] = None
+    preview_n: int = 5
+    # diff
+    other_filename: Optional[str] = None
+    diff_sample: int = 5
+    # type_bank / type_summary
+    sample_guids: int = 3
+    # geometry
+    point_cloud_per_m2: float = 1000.0
+    point_cloud_seed: int = 42
+    mesh_unit: str = "m"
+    # by_type
+    entity_type: Optional[str] = None
+
+    @field_validator("filename", "output_filename", "other_filename", "output_prefix")
+    @classmethod
+    def validate_filenames(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
+
 class ClashFile(BaseModel):
     file: str
     selector: Optional[str] = None
-    mode: Optional[str] = "e"
+    mode: Optional[str] = "a"
 
     @field_validator("file")
     @classmethod
@@ -238,7 +360,7 @@ class ClashMode(str, Enum):
     COLLISION = "collision"
     CLEARANCE = "clearance"
 
-class IfcClashRequest(BaseModel):
+class IfcClashRequest(VersionPinOptional):
     clash_sets: List[ClashSet]
     output_filename: str
     tolerance: float = 0.01
@@ -255,7 +377,7 @@ class IfcClashRequest(BaseModel):
         return _validate_safe_path(v)
 
 
-class IfcTesterRequest(BaseModel):
+class IfcTesterRequest(VersionPinOptional):
     ifc_filename: str
     ids_filename: str
     output_filename: str
@@ -267,13 +389,21 @@ class IfcTesterRequest(BaseModel):
         return _validate_safe_path(v)
 
 
-class IfcDiffRequest(BaseModel):
+# IfcGherkinRequest + BeastPdfGherkinRequest moved to cde/shared/classes.py
+# along with their workers (2026-05). Re-add here only if a future ifcpipeline
+# service grows a need for the same Pydantic shapes.
+
+
+class IfcDiffRequest(VersionPinOptional):
     old_file: str
     new_file: str
     output_file: str = "diff.json"
     relationships: Optional[List[str]] = None
     is_shallow: bool = True
     filter_elements: Optional[str] = None
+    # Same S3 key, two VersionIds (n8n IfcDiff explicit pins; precedence in worker).
+    old_version_id: Optional[str] = None
+    new_version_id: Optional[str] = None
 
     @field_validator("old_file", "new_file", "output_file")
     @classmethod
@@ -281,13 +411,32 @@ class IfcDiffRequest(BaseModel):
         return _validate_safe_path(v)
 
 
-class IFC2JSONRequest(BaseModel):
+class IFC2JSONRequest(VersionPinOptional):
     filename: str
     output_filename: str
 
     @field_validator("filename", "output_filename")
     @classmethod
     def validate_filenames(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+
+class FragmentsRequest(VersionPinOptional):
+    """IFC → ThatOpen ``.frag`` pre-bake (ifcfrag-worker)."""
+
+    input_filename: str
+    output_filename: Optional[str] = None
+
+    @field_validator("input_filename")
+    @classmethod
+    def validate_input(cls, v: str) -> str:
+        return _validate_safe_path(v)
+
+    @field_validator("output_filename")
+    @classmethod
+    def validate_output(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
         return _validate_safe_path(v)
 
 
@@ -305,7 +454,7 @@ class DownloadLink(BaseModel):
     token: str
     expiry: datetime
 
-class IfcQtoRequest(BaseModel):
+class IfcQtoRequest(VersionPinOptional):
     input_file: str
     output_file: Optional[str] = None
 
@@ -320,13 +469,22 @@ class IfcQtoRequest(BaseModel):
 class DownloadUrlRequest(BaseModel):
     url: str
     output_filename: Optional[str] = None  # Optional path to save the file to, if not provided it will use the filename from the URL
+    # n8n IfcPipeline `downloadFromUrl` sends `source_etag`; also accept JSON `versionId`.
+    source_etag: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            validation_alias=AliasChoices("source_etag", "versionId"),
+            description="Opaque upstream version token (e.g. ACC version id) for audit short-circuit.",
+        ),
+    ] = None
 
     @field_validator("output_filename")
     @classmethod
     def validate_output_filename(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        return _validate_safe_path(v)
+        return _validate_original_upload_basename(v)
 
 
 class IfcClassifyRequest(BaseModel):
@@ -355,7 +513,7 @@ class IfcClassifyBatchResponse(BaseModel):
     total_elements: int
 
 # IfcPatch Worker Classes
-class IfcPatchRequest(BaseModel):
+class IfcPatchRequest(VersionPinOptional):
     """Request model for IfcPatch operations"""
     input_file: str = Field(..., description="Input IFC filename in /uploads")
     output_file: str = Field(..., description="Output IFC filename")

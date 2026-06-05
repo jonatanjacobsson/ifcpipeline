@@ -33,6 +33,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
       const buffer = await file.arrayBuffer();
       const bytes = new Uint8Array(buffer);
       await ifcLoader.load(bytes, true, file.name.replace(".ifc", ""));
+      document.title = file.name;
       target.loading = false;
       BUI.ContextMenu.removeMenus();
     });
@@ -57,6 +58,7 @@ export const modelsPanelTemplate: BUI.StatefullComponent<ModelsPanelState> = (
       await fragments.core.load(bytes, {
         modelId: file.name.replace(".frag", ""),
       });
+      document.title = file.name;
       target.loading = false;
       BUI.ContextMenu.removeMenus();
     });

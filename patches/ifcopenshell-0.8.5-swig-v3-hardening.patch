@@ -1,0 +1,324 @@
+diff --git a/src/ifcwrap/IfcParseWrapper.i b/src/ifcwrap/IfcParseWrapper.i
+index 1bc43b422c..b65a7e3ef5 100644
+--- a/src/ifcwrap/IfcParseWrapper.i
++++ b/src/ifcwrap/IfcParseWrapper.i
+@@ -143,6 +143,7 @@ static IfcUtil::ArgumentType helper_fn_attribute_type(const IfcUtil::IfcBaseClas
+ %}
+ 
+ %inline %{
++#include <cstring>   // Phase 8 hardening: std::strcmp in get_attribute_category
+ #include <memory>
+ #include <string>
+ #ifdef IFOPSH_WITH_ROCKSDB
+@@ -322,11 +323,22 @@ private:
+ 		file = None
+ 	%}
+ 
+-	int get_attribute_category(const std::string& name) const {
++	// Phase 8 hardening: take const char* instead of const std::string&
++	// so SWIG's `new std::string(buf, size-1)` path (the `_M_construct<char*>`
++	// canary-smash fingerprint we captured in Phase 7) is never invoked.
++	// `attribute::name()` returns std::string, and `std::string == const char*`
++	// is well-defined, so the comparisons remain semantically identical.
++	// This path is hot: entity_instance.__getattr__ in entity_instance.py
++	// calls this on every Python attribute access (`e.Representation`,
++	// `e.Name`, get_info(), etc.).
++	int get_attribute_category(const char* name) const {
++		if (name == nullptr) {
++			return 0;
++		}
+ 		if (!$self->declaration().as_entity()) {
+-			return name == "wrappedValue";
++			return std::strcmp(name, "wrappedValue") == 0 ? 1 : 0;
+ 		}
+-		
++
+ 		{
+ 		const std::vector<const IfcParse::attribute*> attrs = $self->declaration().as_entity()->all_attributes();
+ 		std::vector<const IfcParse::attribute*>::const_iterator it = attrs.begin();
+@@ -367,44 +379,62 @@ private:
+ 		}
+ 	}
+ 
+-	std::vector<std::string> get_attribute_names() const {
++	// Phase 9 hardening v2: return a PyObject* tuple directly, avoiding
++	// the SwigValueWrapper<std::vector<std::string>> destructor at function
++	// return — same SSO-state-corruption hazard as argument_types().
++	// `attribute::name()` returns `const std::string&`, so we read the
++	// underlying char* + size and convert straight to PyUnicode without
++	// constructing any intermediate std::string. Hot path: get_info() in
++	// entity_instance.py walks every attribute name on every entity.
++	PyObject* get_attribute_names() const {
+ 		if (!$self->declaration().as_entity()) {
+-			return std::vector<std::string>(1, "wrappedValue");
++			PyObject* r = PyTuple_New(1);
++			PyTuple_SET_ITEM(r, 0, PyUnicode_FromString("wrappedValue"));
++			return r;
+ 		}
+-		
+-		const std::vector<const IfcParse::attribute*> attrs = $self->declaration().as_entity()->all_attributes();
+-		
+-		std::vector<std::string> attr_names;
+-		attr_names.reserve(attrs.size());		
+-		
+-		std::vector<const IfcParse::attribute*>::const_iterator it = attrs.begin();
+-		for (; it != attrs.end(); ++it) {
+-			attr_names.push_back((*it)->name());
++		const auto& attrs = $self->declaration().as_entity()->all_attributes();
++		PyObject* r = PyTuple_New(attrs.size());
++		Py_ssize_t i = 0;
++		for (auto* attr : attrs) {
++			const std::string& nm = attr->name();
++			PyTuple_SET_ITEM(r, i++, PyUnicode_FromStringAndSize(nm.data(), nm.size()));
+ 		}
+-
+-		return attr_names;
++		return r;
+ 	}
+ 
+-	std::vector<std::string> get_inverse_attribute_names() const {
++	// Phase 9 hardening v2: same pattern as get_attribute_names.
++	PyObject* get_inverse_attribute_names() const {
+ 		if (!$self->declaration().as_entity()) {
+-			return std::vector<std::string>(0);
++			return PyTuple_New(0);
+ 		}
+-
+-		const std::vector<const IfcParse::inverse_attribute*> attrs = $self->declaration().as_entity()->all_inverse_attributes();
+-		
+-		std::vector<std::string> attr_names;
+-		attr_names.reserve(attrs.size());		
+-		
+-		std::vector<const IfcParse::inverse_attribute*>::const_iterator it = attrs.begin();
+-		for (; it != attrs.end(); ++it) {
+-			attr_names.push_back((*it)->name());
++		const auto& attrs = $self->declaration().as_entity()->all_inverse_attributes();
++		PyObject* r = PyTuple_New(attrs.size());
++		Py_ssize_t i = 0;
++		for (auto* attr : attrs) {
++			const std::string& nm = attr->name();
++			PyTuple_SET_ITEM(r, i++, PyUnicode_FromStringAndSize(nm.data(), nm.size()));
+ 		}
+-
+-		return attr_names;
++		return r;
+ 	}
+ 	
+-	bool is_a(const std::string& s) {
+-		return self->declaration().is(s);
++	// Phase 9 hardening v3: walk the inheritance chain manually, comparing
++	// `const std::string& name()` against `const char* s` directly via
++	// `std::string::operator==(const char*)`. Avoids `new std::string(buf, size-1)`
++	// in SWIG glue and avoids constructing any std::string in the hot path.
++	// v3 fix: NULL guard — SWIG's SWIG_AsCharPtrAndSize can leave buf=NULL
++	// for None / non-string args, and the original const std::string&
++	// typemap would have raised SWIG_TypeError; we must do the same.
++	bool is_a(const char* s) {
++		if (s == nullptr) {
++			throw IfcParse::IfcException("is_a() requires a non-null string argument");
++		}
++		const IfcParse::declaration* d = &self->declaration();
++		while (d) {
++			if (d->name() == s) return true;
++			const IfcParse::entity* e = d->as_entity();
++			d = e ? e->supertype() : nullptr;
++		}
++		return false;
+ 	}
+ 
+ 	std::string is_a(bool with_schema=false) const {
+@@ -419,12 +449,33 @@ private:
+ 		return $self->get_attribute_value(i);
+ 	}
+ 
+-	AttributeValue get_argument(const std::string& a) {
+-		auto i = $self->declaration().as_entity()->attribute_index(a);
+-		if (i == -1) {
+-			throw std::runtime_error("Attribute '" + a + "' not found on entity named " + $self->declaration().name());
++	// Phase 9 hardening v3: take const char* + mirror the original
++	// entity::attribute_index two-pass walk, no allocation, no std::string
++	// on success. v3 fix: NULL guard.
++	AttributeValue get_argument(const char* a) {
++		if (a == nullptr) {
++			throw std::runtime_error("get_argument() requires a non-null string argument");
+ 		}
+-		return $self->get_attribute_value((unsigned)i);
++		const auto* ent = $self->declaration().as_entity();
++		if (ent) {
++			const IfcParse::entity* current = ent;
++			ptrdiff_t index = -1;
++			do {
++				if (index > -1) {
++					index += current->attributes().size();
++				} else {
++					const auto& attrs = current->attributes();
++					for (size_t i = 0; i < attrs.size(); ++i) {
++						if (attrs[i]->name() == a) {
++							index = static_cast<ptrdiff_t>(i);
++							break;
++						}
++					}
++				}
++			} while ((current = current->supertype()) != 0);
++			if (index >= 0) return $self->get_attribute_value(static_cast<unsigned>(index));
++		}
++		throw std::runtime_error(std::string("Attribute '") + a + "' not found on entity named " + $self->declaration().name());
+ 	}
+ 
+ 	bool __eq__(IfcUtil::IfcBaseClass* other) const {
+@@ -448,21 +499,57 @@ private:
+ 		return reinterpret_cast<size_t>($self->file_);
+ 	}
+ 
+-	unsigned get_argument_index(const std::string& a) const {
+-		if ($self->declaration().as_entity()) {
+-			return $self->declaration().as_entity()->attribute_index(a);
+-		} else if (a == "wrappedValue") {
++	// Phase 9 hardening v3: take const char*, iterate manually walking the
++	// inheritance chain. Mirrors the original entity::attribute_index(string)
++	// algorithm exactly — but without constructing any std::string. v2 used
++	// a stack-allocated std::vector<const entity*> to reverse-iterate the
++	// chain, which surfaced as a "double free in vector::deallocate" abort
++	// when upstream code smashed the stack. v3 eliminates the allocation
++	// entirely by mirroring the original two-pass walk.
++	// v3 fix: NULL guard.
++	unsigned get_argument_index(const char* a) const {
++		if (a == nullptr) {
++			throw IfcParse::IfcException("get_argument_index() requires a non-null string argument");
++		}
++		const auto* ent = $self->declaration().as_entity();
++		if (ent) {
++			const IfcParse::entity* current = ent;
++			ptrdiff_t index = -1;
++			do {
++				if (index > -1) {
++					index += current->attributes().size();
++				} else {
++					const auto& attrs = current->attributes();
++					for (size_t i = 0; i < attrs.size(); ++i) {
++						if (attrs[i]->name() == a) {
++							index = static_cast<ptrdiff_t>(i);
++							break;
++						}
++					}
++				}
++			} while ((current = current->supertype()) != 0);
++			if (index >= 0) return static_cast<unsigned>(index);
++			throw IfcParse::IfcException(std::string(a) + " not found on " + $self->declaration().name());
++		} else if (std::strcmp(a, "wrappedValue") == 0) {
+ 			return 0;
+ 		} else {
+-			throw IfcParse::IfcException(a + " not found on " + $self->declaration().name());
++			throw IfcParse::IfcException(std::string(a) + " not found on " + $self->declaration().name());
+ 		}
+ 	}
+ 
+-	aggregate_of_instance::ptr get_inverse(const std::string& a) {
++	// Phase 9 hardening v3: take const char*. The underlying
++	// IfcBaseEntity::get_inverse takes std::string&, so we still pay one
++	// std::string construction here on success — but it happens in our
++	// extension frame, *after* SWIG marshalling has finished writing its
++	// canary. v3 fix: NULL guard.
++	aggregate_of_instance::ptr get_inverse(const char* a) {
++		if (a == nullptr) {
++			throw IfcParse::IfcException("get_inverse() requires a non-null string argument");
++		}
+ 		if ($self->declaration().as_entity()) {
+-			return ((IfcUtil::IfcBaseEntity*)$self)->get_inverse(a);
++			return ((IfcUtil::IfcBaseEntity*)$self)->get_inverse(std::string(a));
+ 		} else {
+-			throw IfcParse::IfcException(a + " not found on " + $self->declaration().name());
++			throw IfcParse::IfcException(std::string(a) + " not found on " + $self->declaration().name());
+ 		}
+ 	}
+ 
+@@ -786,15 +873,20 @@ private:
+ 		def __repr__(self):
+ 			return "<type %s: %r>" % (self.name(), self.declared_type())
+ 	%}
+-	std::vector<std::string> argument_types() {
+-		std::vector<std::string> r;
++	// Phase 8 hardening: return a Python tuple of `const char*` literals
++	// from .rodata directly, bypassing std::vector<std::string> +
++	// SwigValueWrapper. Eliminates the std::string SSO-state corruption
++	// fingerprint observed under N>=8 fan-out (see
++	// ifcpipeline/HUNT_REPORT_2026-05-15-debugbuild.md, Phase 7/8).
++	PyObject* argument_types() {
+ 		auto at = IfcUtil::Argument_UNKNOWN;
+ 		auto pt = $self->declared_type();
+ 		if (pt) {
+ 			at = IfcUtil::from_parameter_type(pt);
+ 		}
+-		r.push_back(IfcUtil::ArgumentTypeToString(at));
+-		return r;
++		PyObject* result = PyTuple_New(1);
++		PyTuple_SET_ITEM(result, 0, PyUnicode_FromString(IfcUtil::ArgumentTypeToString(at)));
++		return result;
+ 	}
+ }
+ 
+@@ -810,10 +902,11 @@ private:
+ 		def __repr__(self):
+ 			return "<enumeration %s: (%s)>" % (self.name(), ", ".join(self.enumeration_items()))
+ 	%}
+-	std::vector<std::string> argument_types() {
+-		std::vector<std::string> r;
+-		r.push_back(IfcUtil::ArgumentTypeToString(IfcUtil::Argument_STRING));
+-		return r;
++	// Phase 8 hardening: see note on type_declaration::argument_types.
++	PyObject* argument_types() {
++		PyObject* result = PyTuple_New(1);
++		PyTuple_SET_ITEM(result, 0, PyUnicode_FromString(IfcUtil::ArgumentTypeToString(IfcUtil::Argument_STRING)));
++		return result;
+ 	}
+ }
+ 
+@@ -848,22 +941,41 @@ private:
+ 		def __repr__(self):
+ 			return "<entity %s>" % (self.name())
+ 	%}
+-	std::vector<std::string> argument_types() {
+-		size_t i = 0;
+-		std::vector<std::string> r;
+-		for (auto& attr : $self->all_attributes()) {
++	// Phase 8 hardening: return a Python tuple of `const char*` literals
++	// from .rodata directly, bypassing std::vector<std::string> +
++	// SwigValueWrapper. Eliminates the std::string SSO-state corruption
++	// fingerprint (`free(0x544152454d554e45)` / ASCII "ENUMERAT") observed
++	// in _wrap_entity_argument_types under N>=8 fan-out (see
++	// ifcpipeline/HUNT_REPORT_2026-05-15-debugbuild.md, Phase 7/8).
++	//
++	// This path is hot: register_schema_attributes() in entity_instance.py
++	// iterates every declaration in every loaded schema and calls
++	// argument_types() on each, so ~6000 invocations happen at
++	// `import ifcopenshell` time. The original implementation pushed
++	// std::string copies of static .rodata literals onto a temporary
++	// vector that was then copy-assigned into a SwigValueWrapper; the
++	// vector's destructor at function return is where the SSO state-bit
++	// corruption fires.
++	PyObject* argument_types() {
++		const auto& attrs = $self->all_attributes();
++		const auto& der = $self->derived();
++		const Py_ssize_t n = static_cast<Py_ssize_t>(attrs.size());
++		PyObject* result = PyTuple_New(n);
++		Py_ssize_t i = 0;
++		for (auto& attr : attrs) {
+ 			auto at = IfcUtil::Argument_UNKNOWN;
+ 			auto pt = attr->type_of_attribute();
+-			if ($self->derived()[i++]) {
++			if (der[i]) {
+ 				at = IfcUtil::Argument_DERIVED;
+ 			} else if (!pt) {
+ 				at = IfcUtil::Argument_UNKNOWN;
+ 			} else {
+ 				at = IfcUtil::from_parameter_type(pt);
+ 			}
+-			r.push_back(IfcUtil::ArgumentTypeToString(at));
++			PyTuple_SET_ITEM(result, i, PyUnicode_FromString(IfcUtil::ArgumentTypeToString(at)));
++			++i;
+ 		}
+-		return r;
++		return result;
+ 	}
+ }
+ 

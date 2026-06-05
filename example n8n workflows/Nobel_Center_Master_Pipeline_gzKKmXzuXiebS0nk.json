@@ -1,0 +1,1694 @@
+{
+  "updatedAt": "2026-05-29T08:22:38.202Z",
+  "createdAt": "2025-04-09T13:39:10.100Z",
+  "id": "gzKKmXzuXiebS0nk",
+  "name": "Nobel Center Master Pipeline",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 2,
+              "triggerAtMinute": {}
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        2576
+      ],
+      "id": "4fd823ee-7021-44ec-a356-60d94a84d341",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://login.microsoftonline.com/f2331605-5182-4286-9dd2-71953083f008/oauth2/v2.0/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2496,
+        2480
+      ],
+      "id": "26d74340-a485-48c8-993b-206fb5c5eb20",
+      "name": "token",
+      "retryOnFail": true,
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "ORKQrOywP28Uepv0",
+          "name": "Nobel Center Sharepoint Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "OvSqiRo9gqs7VpXI",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3392,
+        2384
+      ],
+      "id": "7948059d-5024-401f-bf7d-e46823aa404b",
+      "name": "Fetch File Versions",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f6023b77-ecff-4720-9162-aa303b9836fd",
+              "name": "name",
+              "value": "={{ $('Processed files').item.json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "13ad16f4-593b-4d62-a764-b392b75b8a79",
+              "name": "id",
+              "value": "={{ $('Processed files').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "7a00cef8-0757-4663-82e1-e87d9220f914",
+              "name": "value",
+              "value": "={{ $json.value }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2944,
+        2480
+      ],
+      "id": "122b3876-e55e-47cd-a8ff-f143ff0af916",
+      "name": "prepare file metadata"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $('Processed files').item.json.parentReference.driveId }}/items/{{ $('Processed files').item.json.id }}/versions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('token').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2720,
+        2480
+      ],
+      "id": "f20b0b4f-b485-48ff-ae4a-409b1ea934c8",
+      "name": "Get Versions",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "32375313-060b-490c-a05d-45ff404e6799",
+              "leftValue": "={{ $json.data.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4976,
+        2368
+      ],
+      "id": "adcd1b13-4f7c-4489-ae44-e83e3ee23929",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        4752,
+        2464
+      ],
+      "id": "830421f5-7a27-4f24-a7ba-344f180ae2b3",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "siteId": "nobelcenter.sharepoint.com,e8c38dbc-76a9-41be-9dd5-a9ab7ee4d11f,84a2bbbe-4b6c-4994-9659-5eaf2774ac7f",
+        "libraryId": "b!vI3D6Kl2vkGd1amrfuTRH767ooRsS5RJllleryd0rH_dBF1Th2XzQpC7p0dhBR96",
+        "filePath": "General/Pipeline/IFC-from-Revit",
+        "optionsGetItemsInFolder": {}
+      },
+      "type": "n8n-nodes-microsoft-sharepoint.sharepoint",
+      "typeVersion": 1,
+      "position": [
+        1824,
+        2384
+      ],
+      "id": "5ccfb8aa-a691-42db-878f-fac5bb6bf1f7",
+      "name": "Get items in folder",
+      "credentials": {
+        "microsoftSharepointOAuth2Api": {
+          "id": "yMILuYfiGScotoFc",
+          "name": "Microsoft Sharepoint account Nobel2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "56fd5555-cc5e-401d-89a3-f0ab2edf1f06",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "SP1",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        2048,
+        2384
+      ],
+      "id": "739cd750-358e-4ff3-a627-fd654ec8c5d1",
+      "name": "Filter1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        2384
+      ],
+      "id": "b2c68f87-c882-49ab-a2ca-744b2db75e4e",
+      "name": "When clicking \u2018Execute workflow\u2019"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2272,
+        2480
+      ],
+      "id": "ae75dace-1f2a-4e8e-8053-0f08421b313b",
+      "name": "Processed files"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "AzKJShD4IzSeKkso",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/AzKJShD4IzSeKkso",
+          "cachedResultName": "Subflow: Ifc Processing"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $('prepare file metadata').item.json.name }}",
+            "output_path": "={{ $('Fetch File Versions').item.json.data[0].file_path }}",
+            "version_id": "={{ $('Fetch File Versions').item.json.data[0].new_version_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "output_path",
+              "displayName": "output_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "dedupe_mode",
+              "displayName": "dedupe_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "dry_run",
+              "displayName": "dry_run",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "files",
+              "displayName": "files",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "object_keys",
+              "displayName": "object_keys",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "use_database",
+              "displayName": "use_database",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "verbose",
+              "displayName": "verbose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "version_id",
+              "displayName": "version_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4528,
+        2464
+      ],
+      "name": "Nobel IFC Post-processing",
+      "id": "fdffcc3f-5bc9-4625-bd25-4173131d497e",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4a8e9d41-a265-4593-b35c-24b8393826e2",
+              "leftValue": "={{ $json.value.length }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3168,
+        2480
+      ],
+      "id": "4f88a997-158a-424a-b806-856ba5d4f0f0",
+      "name": "Has versions?"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "siteId": "nobelcenter.sharepoint.com,e8c38dbc-76a9-41be-9dd5-a9ab7ee4d11f,84a2bbbe-4b6c-4994-9659-5eaf2774ac7f",
+        "libraryId": "b!vI3D6Kl2vkGd1amrfuTRH767ooRsS5RJllleryd0rH_dBF1Th2XzQpC7p0dhBR96",
+        "filePath": "General/Pipeline/IFC-from-Revit",
+        "optionsGetItemsInFolder": {}
+      },
+      "type": "n8n-nodes-microsoft-sharepoint.sharepoint",
+      "typeVersion": 1,
+      "position": [
+        1824,
+        2576
+      ],
+      "id": "3e5ca8ef-c94b-4113-9da2-e94db0888b86",
+      "name": "Unprocessed files",
+      "retryOnFail": true,
+      "credentials": {
+        "microsoftSharepointOAuth2Api": {
+          "id": "yMILuYfiGScotoFc",
+          "name": "Microsoft Sharepoint account Nobel2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "02ed63d8-bfd3-4cec-a13b-d4bb4961fcfd",
+              "leftValue": "={{ $json.file.fileExtension }}",
+              "rightValue": ".ifc",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        2048,
+        2576
+      ],
+      "id": "cb7df496-3b98-4ea9-a7aa-9fd5fa13ea3b",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "OvSqiRo9gqs7VpXI",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3392,
+        2672
+      ],
+      "id": "afde21a3-580e-44fa-8ad4-32a6ec8ecf60",
+      "name": "Download new file",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1f1f9aab-9468-4ff1-ac09-e97516029825",
+              "name": "name",
+              "value": "={{ $json.data[0].file_path.split(\"/\").pop() }}",
+              "type": "string"
+            },
+            {
+              "id": "622f60cd-28ff-4203-961a-eb575519eed9",
+              "name": "file_path",
+              "value": "={{ $json.data[0].file_path }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3616,
+        2672
+      ],
+      "id": "02b86eb0-81fc-43b5-846d-7e1673d88299",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "AHMXxURuisDwIjLt"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mode": "delta",
+            "changed": "={{ $json.data }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mode",
+              "displayName": "mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": true
+            },
+            {
+              "id": "changed",
+              "displayName": "changed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "88888888-8888-8888-8888-888888888888",
+      "name": "Execute Clashes (delta)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4976,
+        2560
+      ]
+    },
+    {
+      "parameters": {
+        "oldFile": "={{ $json.data[0].file_path }}",
+        "oldVersionId": "={{ $json.data[0].old_version_id }}",
+        "newFile": "={{ $json.data[0].file_path }}",
+        "newVersionId": "={{ $json.data[0].new_version_id || '' }}",
+        "outputFile": "={{ $json.data[0].file_path.split('/').pop().replace(/\\.ifc$/i, '') }}.shallow_diff.json",
+        "relationshipsUi": [
+          "aggregate",
+          "attributes",
+          "classification",
+          "property",
+          "type"
+        ],
+        "filterElements": "IfcElement + IfcBuildingelement",
+        "timeout": 600,
+        "executionMode": "parallel"
+      },
+      "id": "08772411-a6d6-471e-9e74-047ccfafcf84",
+      "name": "IFC Diff1",
+      "type": "CUSTOM.ifcDiff",
+      "position": [
+        3616,
+        2480
+      ],
+      "retryOnFail": true,
+      "typeVersion": 1,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a8b70d40-b5f3-4fba-a31d-708e363a1964",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $json.result.summary.added }}",
+              "rightValue": 0
+            },
+            {
+              "id": "7ee1c938-134d-49dc-b975-5217d84ac0d9",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $json.result.summary.deleted }}",
+              "rightValue": 0
+            },
+            {
+              "id": "5ff6eba8-b531-47c6-8c10-9fe40986ed65",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $json.result.summary.changed }}",
+              "rightValue": 0
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "40d470c8-32cb-4bac-9324-ef689070bfab",
+      "name": "If2",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        4032,
+        2464
+      ],
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3616,
+        2288
+      ],
+      "id": "a21b4c9d-e877-45e8-82a3-ffcfc764930f",
+      "name": "Force all",
+      "notesInFlow": true,
+      "notes": "Connect to Ifc Processing if needed"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "AzKJShD4IzSeKkso",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/AzKJShD4IzSeKkso",
+          "cachedResultName": "Nobel IFC Post-processing"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.name }}",
+            "output_path": "={{ $json.file_path }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "output_path",
+              "displayName": "output_path",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3840,
+        2672
+      ],
+      "name": "Nobel IFC Post-processing1",
+      "id": "18359569-1375-4888-a5eb-fe1cf96339c7",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "siteId": "nobelcenter.sharepoint.com,e8c38dbc-76a9-41be-9dd5-a9ab7ee4d11f,84a2bbbe-4b6c-4994-9659-5eaf2774ac7f",
+        "libraryId": "b!vI3D6Kl2vkGd1amrfuTRH767ooRsS5RJllleryd0rH_dBF1Th2XzQpC7p0dhBR96",
+        "filePath": "General/StreamBIM/Building Design - 02. BIM/A1 Architecture (DCA)/01. MODEL",
+        "optionsGetItemsInFolder": {}
+      },
+      "type": "n8n-nodes-microsoft-sharepoint.sharepoint",
+      "typeVersion": 1,
+      "position": [
+        2304,
+        2192
+      ],
+      "id": "f69b9f17-2940-46fe-922a-f1906b117ea3",
+      "name": "Get items in folder1",
+      "credentials": {
+        "microsoftSharepointOAuth2Api": {
+          "id": "yMILuYfiGScotoFc",
+          "name": "Microsoft Sharepoint account Nobel2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2a6a106a-727e-46c5-a98b-7a98e51ce314",
+              "leftValue": "={{ $json.file.fileExtension }}",
+              "rightValue": ".ifc",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "3c31d294-710c-41a4-bf87-36bbf525a744",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "0003",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        2512,
+        2192
+      ],
+      "id": "e48c504b-bb39-499f-8acc-f17f87aa4f4a",
+      "name": "Filter2"
+    },
+    {
+      "parameters": {
+        "resource": "sync",
+        "projectId": "13588"
+      },
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        5856,
+        2288
+      ],
+      "id": "1d302e95-c1ab-4463-9f56-b4bb049a9e5b",
+      "name": "Trigger sync",
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "sync",
+        "operation": "getSyncActivity",
+        "projectId": "13588"
+      },
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        5344,
+        2272
+      ],
+      "id": "a1b2c3d4-sync-check-node-001",
+      "name": "Get sync activity",
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "sync-check-condition-001",
+              "leftValue": "={{ $json['started-at'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "dateTime",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5568,
+        2272
+      ],
+      "id": "a1b2c3d4-is-syncing-node-002",
+      "name": "Is syncing?"
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        5584,
+        2688
+      ],
+      "id": "a1b2c3d4-wait-sync-node-003",
+      "name": "Wait for sync",
+      "webhookId": "sync-wait-webhook-001"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "loop-start-ts-001",
+              "name": "loopStartMs",
+              "value": "={{ $now.toMillis() }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5152,
+        2272
+      ],
+      "id": "timeout-set-start-001",
+      "name": "Set loop start"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "timeout-check-cond-001",
+              "leftValue": "={{ $now.toMillis() - $('Set loop start').item.json.loopStartMs }}",
+              "rightValue": 7200000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5584,
+        2480
+      ],
+      "id": "timeout-check-if-001",
+      "name": "Check timeout"
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Sync activity check timed out after 2 hours. StreamBIM project 13588 sync has been running too long."
+      },
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        5856,
+        2464
+      ],
+      "id": "timeout-stop-error-001",
+      "name": "Sync timeout error"
+    },
+    {
+      "parameters": {
+        "resource": "converterJob",
+        "operation": "create",
+        "projectId": "13588",
+        "buildingId": "1000",
+        "converterFloorplanLayer": "A1_ARCHITECTURAL~ARCHITECTURAL",
+        "converterName": "Updated by n8n"
+      },
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        7360,
+        2304
+      ],
+      "id": "8d30fa16-89be-4885-97bb-1928618120e3",
+      "name": "Create converter job",
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2372e351-9949-48ee-833b-5ee60b5c7972",
+              "leftValue": "={{ $json.attributes['job-status'] }}",
+              "rightValue": "running",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7088,
+        2288
+      ],
+      "id": "b8802001-de7a-4cd8-9678-a3e0ec82c6e6",
+      "name": "Is syncing?1"
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        7104,
+        2704
+      ],
+      "id": "6462b23c-b967-4c76-a168-1b352206dd4c",
+      "name": "Wait for sync1",
+      "webhookId": "sync-wait-webhook-001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "timeout-check-cond-001",
+              "leftValue": "={{ $now.toMillis() - $('Set loop start1').item.json.loopStartMs }}",
+              "rightValue": 7200000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7104,
+        2496
+      ],
+      "id": "8a6b106b-b0d9-40c2-927f-fc3315c5a909",
+      "name": "Check timeout1"
+    },
+    {
+      "parameters": {
+        "resource": "converterJob",
+        "projectId": "13588",
+        "buildingId": "1000",
+        "limit": 1
+      },
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        6864,
+        2288
+      ],
+      "id": "195aca2d-42f0-44b5-b4f5-55afb7b4368d",
+      "name": "List converter jobs",
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "loop-start-ts-001",
+              "name": "loopStartMs",
+              "value": "={{ $now.toMillis() }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        6608,
+        2288
+      ],
+      "id": "39664122-8015-47d2-a3b2-cf970a362612",
+      "name": "Set loop start1"
+    },
+    {
+      "id": "9fd43ca4-c0be-4851-816d-8984984c43d6",
+      "name": "Register IFC files",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6224,
+        2288
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "1hhknyxiLdRM5q6C",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "projectId": "13588",
+            "buildingId": "1000",
+            "processedFilenames": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "projectId",
+              "displayName": "projectId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "buildingId",
+              "displayName": "buildingId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "processedFilenames",
+              "displayName": "processedFilenames",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Unprocessed files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "token": {
+      "main": [
+        [
+          {
+            "node": "Get Versions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch File Versions": {
+      "main": [
+        [
+          {
+            "node": "IFC Diff1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Force all",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare file metadata": {
+      "main": [
+        [
+          {
+            "node": "Has versions?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Versions": {
+      "main": [
+        [
+          {
+            "node": "prepare file metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute Clashes (delta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Set loop start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get items in folder": {
+      "main": [
+        [
+          {
+            "node": "Filter1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter1": {
+      "main": [
+        [
+          {
+            "node": "Processed files",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "When clicking \u2018Execute workflow\u2019": {
+      "main": [
+        [
+          {
+            "node": "Get items in folder1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processed files": {
+      "main": [
+        [
+          {
+            "node": "token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nobel IFC Post-processing": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has versions?": {
+      "main": [
+        [
+          {
+            "node": "Fetch File Versions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download new file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unprocessed files": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Processed files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download new file": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Nobel IFC Post-processing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IFC Diff1": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Nobel IFC Post-processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Force all": {
+      "main": [
+        []
+      ]
+    },
+    "Get items in folder1": {
+      "main": [
+        [
+          {
+            "node": "Filter2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter2": {
+      "main": [
+        [
+          {
+            "node": "Processed files",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Get sync activity": {
+      "main": [
+        [
+          {
+            "node": "Is syncing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is syncing?": {
+      "main": [
+        [
+          {
+            "node": "Check timeout",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Trigger sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for sync": {
+      "main": [
+        [
+          {
+            "node": "Get sync activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set loop start": {
+      "main": [
+        [
+          {
+            "node": "Get sync activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check timeout": {
+      "main": [
+        [
+          {
+            "node": "Sync timeout error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger sync": {
+      "main": [
+        [
+          {
+            "node": "Register IFC files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is syncing?1": {
+      "main": [
+        [
+          {
+            "node": "Check timeout1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create converter job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for sync1": {
+      "main": [
+        [
+          {
+            "node": "List converter jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check timeout1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wait for sync1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List converter jobs": {
+      "main": [
+        [
+          {
+            "node": "Is syncing?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set loop start1": {
+      "main": [
+        [
+          {
+            "node": "List converter jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register IFC files": {
+      "main": [
+        [
+          {
+            "node": "Set loop start1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "wVG7yrtD2xHCjvht",
+    "timeSavedMode": "fixed",
+    "binaryMode": "separate",
+    "saveExecutionProgress": true
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "Schedule Trigger": [
+      {
+        "json": {
+          "timestamp": "2026-05-27T02:10:19.004+02:00",
+          "Readable date": "May 27th 2026, 2:10:19 am",
+          "Readable time": "2:10:19 am",
+          "Day of week": "Wednesday",
+          "Year": "2026",
+          "Month": "May",
+          "Day of month": "27",
+          "Hour": "02",
+          "Minute": "10",
+          "Second": "19",
+          "Timezone": "Europe/Stockholm (UTC+02:00)"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "versionId": "e9ca1df3-6b1f-407c-be02-363c471c7257",
+  "activeVersionId": null,
+  "versionCounter": 879,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2025-04-09T13:39:10.106Z",
+      "createdAt": "2025-04-09T13:39:10.106Z",
+      "role": "workflow:owner",
+      "workflowId": "gzKKmXzuXiebS0nk",
+      "projectId": "GzqzJbGJYB82REo0",
+      "project": {
+        "updatedAt": "2026-05-12T05:02:21.544Z",
+        "createdAt": "2024-09-11T10:51:49.985Z",
+        "id": "GzqzJbGJYB82REo0",
+        "name": "Jonatan Jacobsson <jonatan.jacobsson@byggstyrning.se>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "89796f97-0734-44e2-af42-6fdab3dde381"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-05-07T06:20:32.783Z",
+      "createdAt": "2026-05-07T06:20:32.783Z",
+      "id": "3wRQieNCqZONQDTC",
+      "name": "folder/Nobel/Center"
+    },
+    {
+      "updatedAt": "2026-05-07T06:22:21.423Z",
+      "createdAt": "2026-05-07T06:22:21.423Z",
+      "id": "j8oqAeh4tPoi7mO3",
+      "name": "portfolio/Nobel/Center"
+    },
+    {
+      "updatedAt": "2026-05-07T06:21:43.300Z",
+      "createdAt": "2026-05-07T06:21:43.300Z",
+      "id": "kGGDCxmsqWUEdFrT",
+      "name": "structure/Nobel/Center"
+    }
+  ],
+  "activeVersion": null
+}

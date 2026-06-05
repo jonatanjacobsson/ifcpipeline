@@ -49,8 +49,14 @@ def run_qto_calculation(job_data: dict) -> dict:
                 output_key = f"output/qto/{base}_qto{ext}"
             input_file_path = os.path.join(tmpdir, os.path.basename(input_key) or "input.ifc")
             output_file_path = os.path.join(tmpdir, os.path.basename(output_key))
-            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=input_key, Filename=input_file_path)
-            s3_ctx = {"tmpdir": tmpdir, "output_key": output_key, "input_key": input_key}
+            input_pin = s3.pin_for(request, request.input_file)
+            s3.download_to_path(input_key, input_file_path, version_id=input_pin)
+            s3_ctx = {
+                "tmpdir": tmpdir,
+                "output_key": output_key,
+                "input_key": input_key,
+                "input_pin": input_pin,
+            }
             logger.info("[s3] staged ifc5d input, output → s3://%s/%s", s3.bucket_name(), output_key)
         else:
             models_dir = "/uploads"
@@ -125,6 +131,10 @@ def run_qto_calculation(job_data: dict) -> dict:
                     worker=WORKER_NAME,
                     job_id=_current_job_id(),
                     parents=[("input", s3_ctx["input_key"])],
+                    parent_version_ids=(
+                        {s3_ctx["input_key"]: s3_ctx["input_pin"]}
+                        if s3_ctx.get("input_pin") else None
+                    ),
                     metadata={
                         "rule": "IFC4QtoBaseQuantities",
                         "element_count": len(elements),

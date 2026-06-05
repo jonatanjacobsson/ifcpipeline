@@ -1,0 +1,21 @@
+din_prefix	suggested_bsabwr	ama_title	match_method	notes
+310	BCS	HJÄLPARBETEN FÖR HUS	curated	Erdbau / förarbeten
+320	ESE	BETONGGJUTNINGAR I HUS	curated	Gründung → platsgjuten betong
+322	ESE.182	Fundament av platsgjuten betong	curated	Fundament / Bodenplatte
+330	HS	KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS	curated	Außenwände
+331	HS	KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS	curated	Tragende Außenwände
+332	HS	KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS	curated	Nichttragende Außenwände
+335	HS	KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS	curated	Fassade / Bekleidung außen
+340	HS	KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS	curated	Innenwände
+342	HS	KONSTRUKTIONER AV LÄNGDFORMVAROR I HUS	curated	Innenwände nicht tragend
+343	GS	KONSTRUKTIONER AV MONTERINGSFÄRDIGA ELEMENT I HUS	curated	Stützen
+351	GS	KONSTRUKTIONER AV MONTERINGSFÄRDIGA ELEMENT I HUS	curated	Decken / Träger — verify TWP vs ERG
+352	ESE.24	Bjälklag av platsgjuten betong	curated	Deckenkonstruktion betong
+353	M	SKIKT AV BELÄGGNINGS- OCH BEKLÄDNADSVAROR I HUS	curated	Bodenbelag
+354	NSF	UNDERTAK AV FÖRTILLVERKADE KOMPONENTER	curated	Abhangdecken
+360	GS	KONSTRUKTIONER AV MONTERINGSFÄRDIGA ELEMENT I HUS	curated	Dachkonstruktion
+361	GS	KONSTRUKTIONER AV MONTERINGSFÄRDIGA ELEMENT I HUS	curated	Dachkonstruktion stom
+363	JSE.151	Vattentäta enlagstäckningar av tätskiktsmatta på yttertak	curated	Dachbelag / Abdichtung
+364	NSF	UNDERTAK AV FÖRTILLVERKADE KOMPONENTER	curated	Dachbekleidung innen
+410	Q		curated	Sanitär — verify discipline
+440	SHD.1		curated	Elektro / PV
