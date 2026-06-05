@@ -1,0 +1,124 @@
+# Remote worker stack (worker host). Includes canonical worker definitions from
+# docker-compose.workers.yml and applies external broker/storage env from .env.remote.
+#
+# Usage (worker host, repo root):
+#   COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml \
+#     --env-file .env.remote up -d ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker
+#
+# Or: ./scripts/start-remote-workers.sh
+
+name: ifcpipeline-remote
+
+include:
+  - path: docker-compose.workers.yml
+
+x-remote-worker-env: &remote-worker-env
+  PYTHONUNBUFFERED: "1"
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  REDIS_URL: ${REDIS_URL:?Set REDIS_URL in .env.remote}
+  POSTGRES_HOST: ${POSTGRES_HOST:?Set POSTGRES_HOST in .env.remote}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-ifcpipeline}
+  POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.remote}
+  USE_OBJECT_STORAGE: ${USE_OBJECT_STORAGE:-true}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?Set S3_ENDPOINT_URL in .env.remote}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY in .env.remote}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY in .env.remote}
+  S3_BUCKET: ${S3_BUCKET:-ifcpipeline}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_CHECKSUM_MODE: ${S3_CHECKSUM_MODE:-app}
+
+services:
+  ifctester-worker:
+    profiles: [remote]
+    image: ifcpipeline-ifctester-worker:latest
+    depends_on: !reset []
+    environment:
+      <<: *remote-worker-env
+    command: >
+      rq worker ifctester --url ${REDIS_URL} --path /app
+      --logging_level INFO
+    deploy:
+      replicas: ${IFCTESTER_REMOTE_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+
+  ifcpatch-worker:
+    profiles: [remote]
+    image: ifcpipeline-ifcpatch-worker:latest
+    depends_on: !reset []
+    volumes:
+      - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
+    environment:
+      <<: *remote-worker-env
+      IFCPATCH_DEBUG: ${IFCPATCH_DEBUG:-0}
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+    command: >
+      rq worker ifcpatch --url ${REDIS_URL} --path /app
+      --logging_level INFO --with-scheduler
+    deploy:
+      replicas: ${IFCPATCH_REMOTE_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+
+  ifcclash-worker:
+    profiles: [remote]
+    image: ifcpipeline-ifcclash-worker:latest
+    depends_on: !reset []
+    environment:
+      <<: *remote-worker-env
+      IFCCLASH_GEOMETRY_LIBRARY: ${IFCCLASH_GEOMETRY_LIBRARY:-cgal}
+      IFCCLASH_ITERATOR_THREADS: ${IFCCLASH_ITERATOR_THREADS:-}
+      IFCCLASH_ISOLATE: ${IFCCLASH_ISOLATE:-1}
+      IFCCLASH_BVH_CACHE: ${IFCCLASH_BVH_CACHE:-off}
+      IFCCLASH_BVH_CACHE_DIR: ${IFCCLASH_BVH_CACHE_DIR:-/tmp/ifcclash-bvh-cache}
+      IFCCLASH_BVH_CACHE_MAX_MB: ${IFCCLASH_BVH_CACHE_MAX_MB:-4096}
+      IFCCLASH_BVH_CACHE_MINIO_PREFIX: ${IFCCLASH_BVH_CACHE_MINIO_PREFIX:-cache/clash-tess}
+      IFCCLASH_VALIDATE_CACHE: ${IFCCLASH_VALIDATE_CACHE:-off}
+      IFCCLASH_VALIDATE_CACHE_TTL_S: ${IFCCLASH_VALIDATE_CACHE_TTL_S:-604800}
+      IFCCLASH_VALIDATE_CACHE_PREFIX: ${IFCCLASH_VALIDATE_CACHE_PREFIX:-ifcclash:validate}
+    command: >
+      rq worker ifcclash --url ${REDIS_URL} --path /app
+      --logging_level INFO --with-scheduler
+    deploy:
+      replicas: ${IFCCLASH_REMOTE_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 12G
+
+  ifcdiff-worker:
+    profiles: [remote]
+    image: ifcpipeline-ifcdiff-worker:latest
+    depends_on: !reset []
+    environment:
+      <<: *remote-worker-env
+    command: >
+      rq worker ifcdiff --url ${REDIS_URL} --path /app
+      --logging_level INFO
+    deploy:
+      replicas: ${IFCDIFF_REMOTE_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 4G
+
+  # Workers not deployed remotely — disable when using this compose file.
+  ifc5d-worker:
+    profiles: [never]
+  ifcconvert-worker:
+    profiles: [never]
+  ifccsv-worker:
+    profiles: [never]
+  ifc2json-worker:
+    profiles: [never]
+  guid-index-worker:
+    profiles: [never]

@@ -1,0 +1,3 @@
+[submodule "ifc-coord"]
+	path = ifc-coord
+	url = https://github.com/jonatanjacobsson/ifc-coord.git

@@ -28,6 +28,7 @@ Author: IFC Pipeline Team
 
 import logging
 import re
+import json
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.util.element
@@ -67,6 +68,11 @@ class Patcher:
             ``"!IfcCovering, !IfcBuildingStorey"`` keeps coverings and building
             storeys while removing other products. Spatial structure elements
             are always kept automatically (see module docstring).
+            ``KEEP_GUIDS:guid1|guid2|…`` removes every ``IfcProduct`` *except*
+            the listed GlobalIds (and protected spatial containers).
+            ``KEEP_GUIDS_FILE:/path/to.json`` loads GUIDs from a JSON list or
+            from ``{"keep_guids": [...]}`` / coordination manifest
+            ``{"applied_fixes": [...]}``.
         :param clean_geometry: When True (default), also remove orphaned
             representations and placements that belonged exclusively to the
             removed elements.  Set to False for maximum speed if you don't
@@ -203,12 +209,74 @@ class Patcher:
         self.logger.info(f"RemoveElements: negated-type query → {len(to_remove)} element(s) to remove")
         return list(to_remove)
 
+    @staticmethod
+    def _load_keep_guids_from_file(path: str) -> set[str]:
+        with open(path, encoding="utf-8") as fh:
+            payload = json.load(fh)
+        if isinstance(payload, list):
+            return {str(g).strip() for g in payload if str(g).strip()}
+        if isinstance(payload, dict):
+            if isinstance(payload.get("keep_guids"), list):
+                return {str(g).strip() for g in payload["keep_guids"] if str(g).strip()}
+            guids: set[str] = set()
+            for fix in payload.get("applied_fixes") or []:
+                if not isinstance(fix, dict):
+                    continue
+                for g in fix.get("branch_guids") or [fix.get("movable_guid")]:
+                    if g:
+                        guids.add(str(g).strip())
+            if guids:
+                return guids
+        raise ValueError(f"KEEP_GUIDS_FILE: no GUID list found in {path!r}")
+
+    def _elements_all_except_guids(self, keep_guids: set[str]) -> list:
+        """Remove every IfcProduct except ``keep_guids`` (plus protected spatial)."""
+        universe = [
+            e
+            for e in self.file.by_type("IfcProduct")
+            if not e.is_a("IfcFeatureElement")
+        ]
+        keep_resolved: set[str] = set()
+        missing: list[str] = []
+        for guid in keep_guids:
+            try:
+                keep_resolved.add(self.file.by_guid(guid).GlobalId)
+            except Exception:
+                missing.append(guid)
+        if missing:
+            self.logger.warning(
+                "RemoveElements: KEEP_GUIDS — %d GUID(s) not found in file",
+                len(missing),
+            )
+        to_remove = [
+            e
+            for e in universe
+            if e.GlobalId not in keep_resolved
+            and not any(e.is_a(t) for t in self._PROTECTED_TYPES)
+        ]
+        self.logger.info(
+            "RemoveElements: KEEP_GUIDS — keep %d, remove %d product(s)",
+            len(keep_resolved),
+            len(to_remove),
+        )
+        return to_remove
+
     def _select_elements(self) -> list:
         """Resolve the query into a list of elements.
 
         Handles both ifcopenshell selector expressions and simple
         comma-separated IFC type names (e.g. "IfcSpace, IfcCovering").
         """
+        if self.query.startswith("KEEP_GUIDS_FILE:"):
+            path = self.query.split(":", 1)[1].strip()
+            keep_guids = self._load_keep_guids_from_file(path)
+            return self._elements_all_except_guids(keep_guids)
+
+        if self.query.startswith("KEEP_GUIDS:"):
+            raw = self.query.split(":", 1)[1].strip()
+            keep_guids = {g.strip() for g in raw.split("|") if g.strip()}
+            return self._elements_all_except_guids(keep_guids)
+
         query_terms = [t.strip() for t in self.query.split(",") if t.strip()]
 
         negated_names = self._parse_negated_ifc_types(query_terms)

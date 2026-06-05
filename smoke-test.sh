@@ -41,15 +41,21 @@ print("" if d is None else d)
 ' "$1"
 }
 
-# Which services we care about for this smoke test. Everything else in
-# docker-compose.yml (viewer, n8n, dozzle, …) is left out on purpose.
+# Which services we care about for this smoke test. Everything else in the
+# combined compose (viewer, n8n, dozzle, …) is left out on purpose.
 SERVICES=(
   minio minio-setup redis postgres
   api-gateway
-  ifccsv-worker ifctester-worker ifcconvert-worker
+  ifccsv-worker ifcfast-worker ifctester-worker ifcconvert-worker
   ifcdiff-worker ifc5d-worker ifc2json-worker ifcpatch-worker
-  ifcclash-worker
+  ifcclash-worker guid-index-worker
+  # ifc-gherkin-worker + beast-pdf-gherkin-worker moved to cde/ (2026-05);
+  # smoke them via cde/scripts instead.
 )
+
+# Enable async GUID indexing for the smoke test so we can assert on
+# tester_results / clash_pairs / object_guids afterwards.
+export GUID_INDEX_MODE="${GUID_INDEX_MODE:-async}"
 
 echo ">>> Building & starting services"
 docker compose up -d --build "${SERVICES[@]}"
@@ -65,12 +71,31 @@ ARCH="Building-Architecture.ifc"
 HVAC="Building-Hvac.ifc"
 STRUCT="Building-Structural.ifc"
 IDS="IDS-example.ids"
+BEAST_PDF="55906-A1-440-1-030-AA-01.pdf"
 
 echo ">>> Uploading sample files"
 for f in "$ARCH" "$HVAC" "$STRUCT"; do
   curl -fsS "${AUTH[@]}" -F "file=@shared/examples/$f" "$API/upload/ifc" >/dev/null
 done
 curl -fsS "${AUTH[@]}" -F "file=@shared/examples/$IDS" "$API/upload/ids" >/dev/null
+# Generate the BEAst sample PDF if it doesn't already exist
+if [ ! -f "shared/examples/${BEAST_PDF}" ]; then
+  python3 - <<'PYEOF'
+import io, pikepdf, pathlib
+MM = 72.0 / 25.4
+A1_W, A1_H = 594 * MM, 841 * MM
+pdf = pikepdf.Pdf.new()
+page = pikepdf.Page(pikepdf.Dictionary(Type=pikepdf.Name.Page, MediaBox=[0, 0, A1_W, A1_H]))
+page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(F1=pikepdf.Dictionary(Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1, BaseFont=pikepdf.Name.Helvetica)))
+page.obj.Contents = pikepdf.Stream(pdf, b"BT\n/F1 8 Tf\n50 50 Td\n(55906-A1-440-1-030-AA-01) Tj\nET\n")
+pdf.pages.append(page)
+out = pathlib.Path("shared/examples/55906-A1-440-1-030-AA-01.pdf")
+out.parent.mkdir(parents=True, exist_ok=True)
+pdf.save(str(out))
+print("  created", out)
+PYEOF
+fi
+curl -fsS "${AUTH[@]}" -F "file=@shared/examples/${BEAST_PDF}" "$API/upload/pdf" >/dev/null || true
 echo "  upload OK"
 
 enqueue() {
@@ -104,6 +129,10 @@ poll_job() {
 echo ">>> Enqueue one job per converted worker"
 CSV_JOB=$(enqueue /ifccsv "$(cat <<EOF
 {"filename":"$ARCH","output_filename":"arch.csv","format":"csv","query":"IfcWall","attributes":["Name","Description"]}
+EOF
+)")
+FAST_JOB=$(enqueue /ifcfast "$(cat <<EOF
+{"filename":"$ARCH","operation":"export_products","output_filename":"arch_fast.csv","query":"IfcWall","attributes":["Name","Description"]}
 EOF
 )")
 IDS_JOB=$(enqueue /ifctester "$(cat <<EOF
@@ -147,7 +176,12 @@ CLASH_JOB=$(enqueue /ifcclash "$(cat <<EOF
 EOF
 )")
 
-echo "  jobs: csv=$CSV_JOB ids=$IDS_JOB convert=$CONV_JOB diff=$DIFF_JOB qto=$QTO_JOB ifc2json=$J2J_JOB patch=$PATCH_JOB clash=$CLASH_JOB"
+# BEAst PDF gherkin moved to cde/pipeline-gateway (2026-05); smoke it from
+# CDE instead. BEAST_PDF is left assigned above so the rest of the test
+# script (artifact listing, audit lineage) sees no diff.
+BEAST_JOB=""
+
+echo "  jobs: csv=$CSV_JOB fast=$FAST_JOB ids=$IDS_JOB convert=$CONV_JOB diff=$DIFF_JOB qto=$QTO_JOB ifc2json=$J2J_JOB patch=$PATCH_JOB clash=$CLASH_JOB beast=${BEAST_JOB:-skipped}"
 
 # These two tests can fail for reasons unrelated to object storage:
 #   - ifc5d: ifc5d/ifcopenshell library version mismatch (get_top_area missing)
@@ -157,6 +191,7 @@ echo "  jobs: csv=$CSV_JOB ids=$IDS_JOB convert=$CONV_JOB diff=$DIFF_JOB qto=$QT
 fail=0
 soft_fail=0
 poll_job "$CSV_JOB"   "ifccsv"     || fail=1
+poll_job "$FAST_JOB"  "ifcfast"    || fail=1
 poll_job "$IDS_JOB"   "ifctester"  || fail=1
 poll_job "$CONV_JOB"  "ifcconvert" || fail=1
 poll_job "$DIFF_JOB"  "ifcdiff"    || fail=1
@@ -164,6 +199,9 @@ poll_job "$QTO_JOB"   "ifc5d"      || soft_fail=$((soft_fail+1))
 poll_job "$J2J_JOB"   "ifc2json"   || fail=1
 poll_job "$PATCH_JOB" "ifcpatch"   || fail=1
 poll_job "$CLASH_JOB" "ifcclash"   || soft_fail=$((soft_fail+1))
+if [ -n "${BEAST_JOB:-}" ]; then
+  poll_job "$BEAST_JOB" "beast-pdf" || soft_fail=$((soft_fail+1))
+fi
 
 echo ">>> Listing objects in bucket ${S3_BUCKET}"
 docker compose run --rm --entrypoint /bin/sh minio-setup -c \
@@ -235,6 +273,61 @@ if [ "$audit_fail" -ne 0 ]; then
   echo "SMOKE TEST FAILED (audit trail missing for one or more outputs)"
   exit 1
 fi
+
+echo ">>> GUID index smoke"
+# Give the guid-index-worker a moment to drain the queue we just fed.
+sleep 5
+
+guid_fail=0
+
+psql_exec() {
+  docker compose exec -T postgres psql -U "${POSTGRES_USER:-ifcpipeline}" \
+    -d "${POSTGRES_DB:-ifcpipeline}" -tA -c "$1"
+}
+
+row_count() {
+  local sql="$1"
+  local out
+  out=$(psql_exec "$sql" 2>/dev/null || echo 0)
+  # Strip whitespace.
+  echo "${out//[[:space:]]/}"
+}
+
+guids_total=$(row_count "SELECT COUNT(*) FROM object_guids;")
+tester_total=$(row_count "SELECT COUNT(*) FROM tester_results;")
+clash_total=$(row_count "SELECT COUNT(*) FROM clash_pairs;")
+echo "  object_guids=$guids_total  tester_results=$tester_total  clash_pairs=$clash_total"
+
+# With GUID_INDEX_MODE=async, the root upload + patch derivative should
+# have populated object_guids within a few seconds. We only assert a
+# *minimum* because row counts depend on the fixture.
+if [ "${GUID_INDEX_MODE}" = "async" ] || [ "${GUID_INDEX_MODE}" = "sync" ]; then
+  [ "${guids_total:-0}" -gt 0 ] || {
+    echo "  [FAIL] object_guids is empty (expected >0 after uploads + ifcpatch)"
+    guid_fail=1
+  }
+fi
+
+# Pick any indexed guid and exercise the /guid endpoints.
+sample_guid=$(psql_exec "SELECT ifc_guid FROM object_guids ORDER BY id DESC LIMIT 1;" || true)
+sample_guid=${sample_guid//[[:space:]]/}
+if [ -n "$sample_guid" ]; then
+  echo "  sample guid: $sample_guid"
+  rows_count=$(curl -fsS "${AUTH[@]}" "$API/guid/$sample_guid" | jqget count)
+  path_nodes=$(curl -fsS "${AUTH[@]}" "$API/guid/$sample_guid/path" \
+    | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("nodes",[])))')
+  echo "  /guid returned count=$rows_count, /guid/path returned nodes=$path_nodes"
+  [ "${rows_count:-0}" -ge 1 ] || { echo "  [FAIL] /guid/{guid} returned zero rows"; guid_fail=1; }
+  [ "${path_nodes:-0}" -ge 1 ] || { echo "  [FAIL] /guid/{guid}/path returned zero nodes"; guid_fail=1; }
+else
+  echo "  [skip] no guid rows yet (worker may still be draining)"
+fi
+
+if [ "$guid_fail" -ne 0 ]; then
+  echo "SMOKE TEST FAILED (GUID index checks)"
+  exit 1
+fi
+
 if [ "$soft_fail" -gt 0 ]; then
   echo "SMOKE TEST OK (with ${soft_fail} known library-issue failure(s) — see OBJECT_STORAGE.md)"
 else

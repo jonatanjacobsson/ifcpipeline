@@ -1,0 +1,25 @@
+Nobel A1 BSABe validation against Naviate Byggdelar HUS
+Generated: 2026-05-26
+
+OK   15.ST        Fundament i grundkonstruktion
+OK   27.B         Stominnerväggar
+OK   27.C         Stomytterväggar
+OK   27.D         Pelarstommar
+OK   27.E         Balkstommar
+OK   27.F         Stombjälklag
+OK   27.G         Yttertaks- och ytterbjälklagsstommar
+OK   41.C         Ytterklimatskärmar i yttertak och ytterbjälklag
+OK   41.D         Innerklimatskärmar i yttertak och ytterbjälklag
+OK   42.A         Sammansatta klimatskiljande delar och kompletteringar i yttervägg
+OK   42.B         Ytterklimatskärmar i yttervägg
+OK   43.CB        Innerväggar (ej stominnerväggar)
+OK   43.E         Innertak
+OK   44.BB        Ytskikt på golv
+OK   44.C         Ytskikt på väggar
+OK   45.B         Utvändiga huskompletteringar
+OK   45.BE        Entrétrappor
+OK   45.C         Invändiga huskompletteringar
+OK   45.CB        Invändiga trappor
+OK   63           ELKRAFTSYSTEM
+
+Summary: 20/20 exact matches

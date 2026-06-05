@@ -17,7 +17,8 @@
 
 ### Core Processing Operations
 - **Format Conversion**: Convert IFC to GLB, STEP, DAE, OBJ, XML, and other formats
-- **CSV Export/Import**: Bidirectional data exchange with CSV, XLSX, and ODS formats
+- **CSV Export/Import**: Bidirectional data exchange with CSV, XLSX, and ODS formats (IfcOpenShell / ifccsv)
+- **IFC Fast**: High-throughput read, extract, and geometry analytics via [ifcfast](https://pypi.org/project/ifcfast/) (Rust parser, Python API — see [Acknowledgements](#ifcfast--credit-where-its-due))
 - **Clash Detection**: Advanced geometric clash detection with smart grouping
 - **IDS Validation**: Validate IFC models against Information Delivery Specification
 - **Model Comparison**: Diff analysis to track changes between IFC versions
@@ -42,6 +43,7 @@
 
 ### Implemented Features ✅
 - [x] **ifcCsv** - CSV/XLSX/ODS export and import
+- [x] **ifcFast** - Native [ifcfast](https://pypi.org/project/ifcfast/) operations (products/layers, traverse, mesh QTO, diff, Parquet cache)
 - [x] **ifcClash** - Clash detection with smart grouping
 - [x] **ifcTester** - IDS validation
 - [x] **ifcDiff** - Model comparison and change tracking
@@ -79,7 +81,8 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
 2. **Worker Services** - Specialized Python workers for each operation:
    - `ifcconvert-worker` - Format conversion
    - `ifcclash-worker` - Clash detection
-   - `ifccsv-worker` - CSV export/import
+   - `ifccsv-worker` - CSV/XLSX/ODS export and import (IfcOpenShell; arbitrary selectors, grouping, write-back)
+   - `ifcfast-worker` - [ifcfast](https://pypi.org/project/ifcfast/) engine (Rust STEP tokenizer; all read/extract ops — see [`ifcfast-worker/README.md`](./ifcfast-worker/README.md))
    - `ifctester-worker` - IDS validation
    - `ifcdiff-worker` - Model comparison
    - `ifc5d-worker` - Quantity calculations
@@ -313,6 +316,7 @@ s3://ifcpipeline/
 └── output/
     ├── converted/                   # ifcconvert outputs (GLB/STEP/DAE/...)
     ├── csv/                         # ifccsv exports
+    ├── ifcfast/                     # ifcfast exports (CSV/JSON/Parquet per operation)
     ├── ids/                         # ifctester reports
     ├── diff/                        # ifcdiff reports
     ├── ifc/                         # ifcpatch outputs + chain derivatives
@@ -359,6 +363,8 @@ The API Gateway exposes comprehensive REST endpoints for IFC operations:
 - `POST /ifcconvert` - Convert IFC to other formats (GLB, STEP, OBJ, etc.)
 - `POST /ifccsv` - Export IFC data to CSV/XLSX/ODS
 - `POST /ifccsv/import` - Import CSV/XLSX/ODS data back to IFC
+- `GET /ifcfast/operations` - List ifcfast operations, data layers, and output formats
+- `POST /ifcfast` - Run an ifcfast operation (`export_products`, `extract_all`, `summary`, `mesh_qto`, …)
 - `POST /ifcclash` - Detect clashes between IFC models
 - `POST /ifctester` - Validate IFC against IDS specification
 - `POST /ifcdiff` - Compare two IFC files and generate diff
@@ -423,6 +429,47 @@ curl -X POST http://localhost:8000/create_download_link \
   -d '{"file_path": "/output/glb/model.glb"}'
 ```
 
+### IFC Fast (`/ifcfast`)
+
+IfcPipeline integrates **[ifcfast](https://pypi.org/project/ifcfast/)** — a Rust-backed IFC toolkit by **[Edvard Granskogen Kjorstad](https://github.com/EdvardGK)** ([`EdvardGK/ifcfast`](https://github.com/EdvardGK/ifcfast), [PyPI](https://pypi.org/project/ifcfast/)). The library parses STEP on a native hot path (no `ifcopenshell.open()` for tier‑1 product tables), caches extracted layers as Parquet, and exposes geometry analytics (`mesh_qto`, `meshes_summary`, spatial `traverse`, and more). IfcPipeline wraps every supported operation behind `POST /ifcfast` and the **IFC Fast** n8n node.
+
+| Use **ifcfast** (`/ifcfast`) | Use **ifccsv** (`/ifccsv`) |
+|------------------------------|----------------------------|
+| Fast product/layer export (CSV/JSON/Parquet) | Arbitrary IFC selector queries |
+| All 14 schema layers + `extract_all` | XLSX/ODS and grouped exports |
+| `summary`, `types`, `traverse`, `diff` | Import / write-back into IFC |
+| `mesh_qto`, `meshes_summary` | Custom attribute columns via ifccsv rules |
+
+```bash
+# List operations
+curl -s http://localhost:8000/ifcfast/operations -H "X-API-Key: your-api-key"
+
+# Export tier-1 products to CSV (default operation)
+curl -X POST http://localhost:8000/ifcfast \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "model.ifc",
+    "operation": "export_products",
+    "output_filename": "products.csv",
+    "output_format": "csv"
+  }'
+
+# Export property sets as Parquet
+curl -X POST http://localhost:8000/ifcfast \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "model.ifc",
+    "operation": "export_layer",
+    "layer": "psets",
+    "output_filename": "model_psets.parquet",
+    "output_format": "parquet"
+  }'
+```
+
+Worker details, benchmarks, and resource notes: [`ifcfast-worker/README.md`](./ifcfast-worker/README.md). API test suite: [`n8n-tests/README.md`](./n8n-tests/README.md).
+
 ### n8n Workflow Automation
 
 n8n provides a visual interface for creating automated IFC processing workflows.
@@ -434,12 +481,13 @@ The `n8n-nodes-ifcpipeline` community package provides:
 1. **IfcPipeline** - File operations, uploads, downloads, viewer links
 2. **IfcConversion** - Format conversion with configuration
 3. **IfcCsv** - CSV/XLSX/ODS export and import
-4. **IfcClash** - Clash detection with smart grouping
-5. **IfcTester** - IDS validation
-6. **IfcDiff** - Model comparison
-7. **IfcToJson** - JSON conversion
-8. **IfcQuantityTakeoff** - Quantity calculations
-9. **IfcPatch** - Apply recipes (dynamic recipe loading)
+4. **IFC Fast** - ifcfast operations (export, layers, traverse, mesh QTO, diff, …)
+5. **IfcClash** - Clash detection with smart grouping
+6. **IfcTester** - IDS validation
+7. **IfcDiff** - Model comparison
+8. **IfcToJson** - JSON conversion
+9. **IfcQuantityTakeoff** - Quantity calculations
+10. **IfcPatch** - Apply recipes (dynamic recipe loading)
 
 #### Example Workflow: Automated QA Pipeline
 
@@ -734,6 +782,9 @@ Light workers:
 - **ifccsv-worker**: 0.5 CPU, 1GB RAM
 - **ifctester-worker**: 0.3 CPU, 1GB RAM
 
+Medium workers:
+- **ifcfast-worker**: 1 CPU, 4GB RAM (layer cache + `mesh_qto`; `point_cloud` on very large models may need more memory or lower `point_cloud_max_points`)
+
 ### Scaling
 
 Increase replicas for heavy workloads:
@@ -765,9 +816,21 @@ See [WORKER_CREATION_GUIDE.md](WORKER_CREATION_GUIDE.md) for adding new workers.
 
 ## Acknowledgements
 
-This project wouldn't be possible without:
+### ifcfast — credit where it’s due
 
-- **[IfcOpenShell](https://ifcopenshell.org/)** - Open-source IFC toolkit
+The **ifcfast** integration is the performance engine behind `/ifcfast`. That library is the work of **[Edvard Granskogen Kjorstad](https://github.com/EdvardGK)**:
+
+- **Repository:** [github.com/EdvardGK/ifcfast](https://github.com/EdvardGK/ifcfast)
+- **PyPI:** [pypi.org/project/ifcfast](https://pypi.org/project/ifcfast/)
+- **Origin:** Extracted from [EdvardGK/ifc-workbench](https://github.com/EdvardGK/ifc-workbench) (see the upstream `docs/history/origin.md`)
+
+IfcPipeline only provides the worker, API, and n8n bindings; the Rust STEP tokenizer, Parquet layer cache, product tables, spatial graph, and mesh analytics are **ifcfast**. If you benefit from fast IFC reads in this stack, please star the upstream repo, report issues there, and cite Edvard’s work when you publish benchmarks or integrations.
+
+### Other dependencies
+
+This project also builds on:
+
+- **[IfcOpenShell](https://ifcopenshell.org/)** - Open-source IFC toolkit (ifccsv, clash, patch, …)
 - **[n8n](https://n8n.io/)** - Workflow automation platform
 - **[@thatopen/components](https://github.com/ThatOpen/engine_components)** - BIM viewer framework
 - **[BuildingSMART](https://www.buildingsmart.org/)** - IFC standards development

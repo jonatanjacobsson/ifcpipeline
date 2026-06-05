@@ -1,5 +1,17 @@
 # IFC Viewer Configuration
 
+## Docker: rebuild after source changes
+
+The preview app is baked into the **`ifc-viewer`** image (`npm run build` runs at **image build** time). Editing `src/` or `index.html` on the host does **not** change what a running container serves until you rebuild and recreate the service.
+
+From the **ifcpipeline** repository root:
+
+```bash
+docker compose build ifc-viewer && docker compose up -d ifc-viewer
+```
+
+`docker compose restart ifc-viewer` alone is **not** enough—it restarts the old image. Use **`build`** (or `up -d --build ifc-viewer`) whenever viewer source changes.
+
 ## Environment Variables
 
 The IFC Viewer requires the following environment variable to be set:
@@ -45,9 +57,7 @@ These errors have been fixed in the latest version by:
 
 ## API Endpoints
 
-The viewer expects the following API endpoint to be available:
-
-- `GET ${VITE_API_BASE}/download/{token}` - Downloads IFC model by token
+The viewer expects **`GET ${VITE_API_BASE}/download/{token}`** to return the IFC (or `.frag`) bytes. For S3-backed tokens the gateway redirects to a presigned URL that includes **`Content-Disposition`** with the real filename; your object store CORS must **expose** `Content-Disposition` to the preview origin so the browser can read it after the redirect (otherwise the UI may fall back to `model.ifc`).
 
 
 

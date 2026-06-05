@@ -1,0 +1,11 @@
+# GUID indexing worker requirements.
+#
+# We stay minimal — no ifcopenshell — because guid_extract.py only needs
+# streaming primitives: regex scan for STEP, ijson for ifc2json output,
+# pandas for CSV/XLSX.
+
+rq>=2.0.0,<3.0.0
+ijson>=3.2.0,<4.0.0
+pandas>=2.2.0,<3.0.0
+openpyxl>=3.1.0,<4.0.0
+# boto3 and psycopg2-binary already come from shared's install_requires.

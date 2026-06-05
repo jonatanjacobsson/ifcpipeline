@@ -9,6 +9,9 @@ WORKDIR /app
 # Install system dependencies for IfcOpenShell
 RUN apt-get update && apt-get install -y \
     build-essential \
+    libfcl-dev \
+    liboctomap-dev \
+    libccd-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip to latest version for better dependency resolution
@@ -28,6 +31,10 @@ COPY ifcpatch-worker/recipe_loader.py /app/
 
 # Copy custom recipes directory
 COPY ifcpatch-worker/custom_recipes /app/custom_recipes/
+
+# ifc_coord MEP clash coordination engine (Phase 4)
+COPY ifc-coord/ifc_coord /app/ifc_coord
+COPY ifc-coord/ag_ifc /app/ag_ifc
 
 # Create necessary directories
 RUN mkdir -p /output/patch /uploads

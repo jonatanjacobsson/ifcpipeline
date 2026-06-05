@@ -1,0 +1,83 @@
+{
+  "id": "IfcFastExportSmoke01",
+  "name": "IfcPipeline: IfcFast Export Smoke",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## IfcFast export smoke\n\n1. Stack running with `ifcfast-worker` and `USE_OBJECT_STORAGE=true`.\n2. Deploy `n8n-nodes-ifcpipeline` (includes **IFC Fast CSV** node).\n3. Assign **IFC Pipeline API** credential on both pipeline nodes (`http://api-gateway`).\n\nUploads `Building-Architecture.ifc` then runs **IFC Fast CSV** with `IfcWall` filter.",
+        "width": 520,
+        "height": 220,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-60, -320],
+      "id": "sticky-ifcfast",
+      "name": "Readme"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-40, 0],
+      "id": "trigger",
+      "name": "Manual"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/examples/Building-Architecture.ifc",
+        "options": { "dataPropertyName": "data" }
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [200, 0],
+      "id": "read-ifc",
+      "name": "Read sample IFC"
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "fileType": "ifc",
+        "binaryPropertyName": "data"
+      },
+      "type": "CUSTOM.ifcPipeline",
+      "typeVersion": 1,
+      "position": [440, 0],
+      "id": "upload-ifc",
+      "name": "Upload IFC",
+      "credentials": {
+        "ifcPipelineApi": { "id": "__SET_ME__", "name": "IFC Pipeline API" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "exportToCsv",
+        "filename": "Building-Architecture.ifc",
+        "outputFilename": "ifcfast_smoke_walls.csv",
+        "options": {
+          "query": "IfcWall",
+          "attributes": "Name,Description",
+          "mmap": true
+        },
+        "waitForCompletion": true
+      },
+      "type": "CUSTOM.ifcFast",
+      "typeVersion": 1,
+      "position": [700, 0],
+      "id": "ifcfast-export",
+      "name": "IFC Fast CSV",
+      "credentials": {
+        "ifcPipelineApi": { "id": "__SET_ME__", "name": "IFC Pipeline API" }
+      }
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "Read sample IFC", "type": "main", "index": 0 }]] },
+    "Read sample IFC": { "main": [[{ "node": "Upload IFC", "type": "main", "index": 0 }]] },
+    "Upload IFC": { "main": [[{ "node": "IFC Fast CSV", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": { "templateCredsSetupCompleted": false }
+}

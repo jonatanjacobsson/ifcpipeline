@@ -1,0 +1,474 @@
+services:
+  ifc5d-worker:
+    build:
+      context: .
+      dockerfile: ifc5d-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  ifcpatch-worker:
+    build:
+      context: .
+      dockerfile: ifcpatch-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    # Core dumps are OFF by default (each ifcopenshell SIGSEGV would otherwise
+    # write a 600 MB – 1.1 GB core under /var/crash/cores; at N≥3 replicas
+    # that fills disk in a couple of weeks). Spawn isolation in tasks.py
+    # already prevents the rq worker from dying, so cores aren't needed in
+    # steady state. Re-enable for debugging by setting IFCPATCH_CORE_LIMIT=-1
+    # in .env (or `IFCPATCH_CORE_LIMIT=-1 docker compose up -d --no-deps
+    # ifcpatch-worker`); the host kernel.core_pattern set by
+    # scripts/stabilize-host.sh routes the dumps to /var/crash/cores via the
+    # bind mount below. RLIMIT_CORE set here is inherited by every child
+    # (rq worker, work-horse, every spawn-isolated subprocess), so no `ulimit`
+    # in the wrapper command is needed.
+    ulimits:
+      core: ${IFCPATCH_CORE_LIMIT:-0}
+    command: >
+      rq worker ifcpatch --url redis://redis:6379/0 --path /app
+      --logging_level INFO --with-scheduler
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+      - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
+      # Bind core dumps from inside the container to a host directory so
+      # we can post-mortem ifcopenshell SIGSEGVs with gdb after the fact.
+      - /var/crash/cores:/var/crash/cores
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # When debugging a recurring crash, set IFCPATCH_DEBUG=1 in .env to
+      # log every recipe argument verbatim before invoking ifcopenshell.
+      - IFCPATCH_DEBUG=${IFCPATCH_DEBUG:-0}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      # TessellateElements uses a multi-threaded geom iterator; cap BLAS/OpenMP to limit RSS spikes.
+      - OMP_NUM_THREADS=1
+      - OPENBLAS_NUM_THREADS=1
+      - MKL_NUM_THREADS=1
+      - NUMEXPR_NUM_THREADS=1
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      # Reduced from 3 to 2 replicas (2026-05-14): three concurrent workers ×
+      # 6G could collide at the top of each hour and exceed the 33 GiB host
+      # (no swap), correlating with the SIGSEGV storm in
+      # _ifcopenshell_wrapper.cpython-311-x86_64-linux-gnu.so on May 13/14.
+      # See plans/teams_error_culprit_analysis_*.plan.md.
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2.0'
+          # Lowered from 6G to 4G: still covers full-building TessellateElements
+          # but bounds total ifcpatch-worker headroom to 2 × 4G = 8G instead of
+          # 3 × 6G = 18G on a 33 GiB host.
+          memory: 4G
+
+  ifcconvert-worker:
+    build:
+      context: .
+      dockerfile: ifcconvert-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+
+  ifcclash-worker:
+    build:
+      context: .
+      dockerfile: ifcclash-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    # Same core-dump policy as ifcpatch-worker: OFF by default, toggle with
+    # IFCPATCH_CORE_LIMIT=-1 in .env when debugging (single env var covers
+    # both worker types). See ifcpatch-worker block above for the rationale.
+    ulimits:
+      core: ${IFCPATCH_CORE_LIMIT:-0}
+    command: >
+      rq worker ifcclash --url redis://redis:6379/0 --path /app
+      --logging_level INFO --with-scheduler
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+      - /var/crash/cores:/var/crash/cores
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      # Hardening knobs (see .env for documentation). All three are runtime
+      # toggles so flipping them does not require rebuilding the image.
+      - IFCCLASH_GEOMETRY_LIBRARY=${IFCCLASH_GEOMETRY_LIBRARY:-cgal}
+      # Empty fallback lets ifcclash-worker/tasks.py:_resolve_iterator_threads
+      # pick min(cpu_count, 8) when the .env value is missing. Was hard-coded
+      # to 1 prior to 2026-05-17.
+      - IFCCLASH_ITERATOR_THREADS=${IFCCLASH_ITERATOR_THREADS:-}
+      - IFCCLASH_ISOLATE=${IFCCLASH_ISOLATE:-1}
+      # BVH/tessellation cache (HdfSerializer keyed by sha256(file)+kernel).
+      # Off by default; flip to "on" in .env after the first deploy to make
+      # back-to-back clash calls against the same input file reuse the
+      # cached per-element tessellation. See ifcclash-worker/bvh_cache.py.
+      - IFCCLASH_BVH_CACHE=${IFCCLASH_BVH_CACHE:-off}
+      - IFCCLASH_BVH_CACHE_DIR=${IFCCLASH_BVH_CACHE_DIR:-/tmp/ifcclash-bvh-cache}
+      - IFCCLASH_BVH_CACHE_MAX_MB=${IFCCLASH_BVH_CACHE_MAX_MB:-4096}
+      - IFCCLASH_BVH_CACHE_MINIO_PREFIX=${IFCCLASH_BVH_CACHE_MINIO_PREFIX:-cache/clash-tess}
+      # Validation cache (Redis-backed, keyed by sha256(file)+kernel) — skips
+      # the ~2-3 s ifcopenshell.open() + iterator probe in validate_ifc_file
+      # on back-to-back clashes against the same inputs. See
+      # ifcclash-worker/validation_cache.py.
+      - IFCCLASH_VALIDATE_CACHE=${IFCCLASH_VALIDATE_CACHE:-off}
+      - IFCCLASH_VALIDATE_CACHE_TTL_S=${IFCCLASH_VALIDATE_CACHE_TTL_S:-604800}
+      - IFCCLASH_VALIDATE_CACHE_PREFIX=${IFCCLASH_VALIDATE_CACHE_PREFIX:-ifcclash:validate}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: '12G'
+
+  # ---- Converted to object storage (PoC) ----
+  ifccsv-worker:
+    build:
+      context: .
+      dockerfile: ifccsv-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+  ifcfast-worker:
+    build:
+      context: .
+      dockerfile: ifcfast-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - HOME=/tmp
+      - XDG_CACHE_HOME=/tmp/.cache
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 4G
+
+  ifctester-worker:
+    build:
+      context: .
+      dockerfile: ifctester-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+  # ifc-gherkin-worker and beast-pdf-gherkin-worker have moved to
+  # cde/ifc-gherkin-worker and cde/beast-pdf-gherkin-worker (2026-05).
+  # The cde/pipeline-gateway service exposes /ifc-gherkin + /beast-pdf-gherkin
+  # in front of those workers. Keep this comment for git-archaeology;
+  # remove once the migration is no longer fresh in memory.
+
+  ifcdiff-worker:
+    build:
+      context: .
+      dockerfile: ifcdiff-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: '4G'
+
+  ifc2json-worker:
+    build:
+      context: .
+      dockerfile: ifc2json-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+  ifcfrag-worker:
+    build:
+      context: .
+      dockerfile: ifcfrag-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - FRAGMENTER_URL=http://fragmenter:4001
+      - FRAGMENTER_TIMEOUT_SECONDS=600
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      replicas: 4
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+

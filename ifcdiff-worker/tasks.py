@@ -215,13 +215,22 @@ def run_ifcdiff(job_data: dict) -> dict:
             old_file_path = os.path.join(tmpdir, "old_" + (os.path.basename(old_key) or "old.ifc"))
             new_file_path = os.path.join(tmpdir, "new_" + (os.path.basename(new_key) or "new.ifc"))
             output_path = os.path.join(tmpdir, os.path.basename(output_key) or "diff.json")
-            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=old_key, Filename=old_file_path)
-            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=new_key, Filename=new_file_path)
+            # Explicit per-side pins override the filename-keyed map. This is
+            # the version-native path: both old_file and new_file can resolve
+            # to the same S3 key, with the two VersionIds distinguishing
+            # "before" from "after". Falls back to pin_for (input_version_ids
+            # map, input_version_id singular, or MinIO HEAD) when not set.
+            old_pin = request.old_version_id or s3.pin_for(request, request.old_file)
+            new_pin = request.new_version_id or s3.pin_for(request, request.new_file)
+            s3.download_to_path(old_key, old_file_path, version_id=old_pin)
+            s3.download_to_path(new_key, new_file_path, version_id=new_pin)
             s3_ctx = {
                 "tmpdir": tmpdir,
                 "output_key": output_key,
                 "old_key": old_key,
                 "new_key": new_key,
+                "old_pin": old_pin,
+                "new_pin": new_pin,
             }
             logger.info("[s3] staged ifcdiff inputs into %s, output → s3://%s/%s", tmpdir, s3.bucket_name(), output_key)
         else:
@@ -287,10 +296,22 @@ def run_ifcdiff(job_data: dict) -> dict:
             diff_data=diff_data
         )
         
+        def _count(value):
+            if isinstance(value, (list, dict)):
+                return len(value)
+            return 0
+
+        summary = {
+            "added": _count(diff_data.get("added")) if isinstance(diff_data, dict) else 0,
+            "deleted": _count(diff_data.get("deleted")) if isinstance(diff_data, dict) else 0,
+            "changed": _count(diff_data.get("changed")) if isinstance(diff_data, dict) else 0,
+        }
+
         result = {
             "success": True,
             "message": f"IFC diff completed. Results saved to {output_path}",
-            "output_path": output_path
+            "output_path": output_path,
+            "summary": summary,
         }
 
         if s3_ctx is not None:
@@ -301,6 +322,11 @@ def run_ifcdiff(job_data: dict) -> dict:
                         val = diff_data.get(cat)
                         if isinstance(val, (list, dict)):
                             diff_count += len(val)
+                parent_pins = {}
+                if s3_ctx.get("old_pin"):
+                    parent_pins[s3_ctx["old_key"]] = s3_ctx["old_pin"]
+                if s3_ctx.get("new_pin"):
+                    parent_pins[s3_ctx["new_key"]] = s3_ctx["new_pin"]
                 audit = s3.upload_and_audit(
                     output_path,
                     key=s3_ctx["output_key"],
@@ -311,6 +337,12 @@ def run_ifcdiff(job_data: dict) -> dict:
                         ("input", s3_ctx["old_key"]),
                         ("reference", s3_ctx["new_key"]),
                     ],
+                    parent_version_ids=parent_pins or None,
+                    # The diff JSON classifies its own per-GUID roles
+                    # (diff_added/diff_deleted/diff_changed). The guid-index
+                    # worker picks `extract_from_diff_report` when the role
+                    # starts with `diff_`.
+                    guid_role="diff_report",
                     metadata={
                         "diff_count": diff_count,
                         "relationships": request.relationships,

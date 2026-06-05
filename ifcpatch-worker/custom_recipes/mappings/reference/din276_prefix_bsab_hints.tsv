@@ -1,0 +1,23 @@
+din_prefix	suggested_bsabe	bsab_title	match_method	notes
+310	15.S	Grundkonstruktioner för hus	curated	Baugrube/Erdbau → grundkonstruktioner
+320	15.S	Grundkonstruktioner för hus	curated	Gründung → grundkonstruktioner
+330	42.B	Ytterklimatskärmar i yttervägg	curated	Außenwände → klimatskiljande yttervägg
+337	42.B	Ytterklimatskärmar i yttervägg	curated	Fassade → ytterklimatskärm / fasad
+340	27.B	Stominnerväggar	curated	Innenwände tragend
+342	43.CB	Innerväggar (ej stominnerväggar)	curated	Innenwände nicht tragend → mellanväggar
+343	27.D	Pelarstommar	curated	Innenstützen
+351	27.E	Balkstommar	curated	Träger → balkstommar
+352	27.F	Stombjälklag	curated	Deckenöffnungen / decken
+360	27.G	Yttertaks- och ytterbjälklagsstommar	curated	Dach → yttertakstommar
+361	27.G	Yttertaks- och ytterbjälklagsstommar	curated	Dachkonstruktion (structural) → 27.G
+363	41.C	Ytterklimatskärmar i yttertak och ytterbjälklag	curated	Dachbelag → 41.C
+364	41.D	Innerklimatskärmar i yttertak och ytterbjälklag	curated	Dachbekleidung / Abhang → 41.D
+370	27.F	Stombjälklag	curated	Infrastruktur — verify per object
+390	45.C	Invändiga huskompletteringar	curated	Einbauten
+410	51.B	VATTENLEDNINGS-, AVLOPPS-, FJÄRRVÄRME- OCH GASNÄT M M	resolved_parent:51	Sanitär — installationssystem
+420	53.B	Avloppsvattensystem	curated	Heizung
+430	54.B	Vattensläcksystem	curated	RLT
+440	63	ELKRAFTSYSTEM	curated	Elektro → Elkraftssystem (not 32.G tak)
+450	65.B		curated	Schwachstrom
+460	71.B	Drivsystem i hissinstallation	curated	Aufzüge
+490	63	ELKRAFTSYSTEM	curated	Sonstige TGA — verify

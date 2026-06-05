@@ -299,12 +299,101 @@ class CustomClashSettings(ClashSettings):
         self.logger = logging.getLogger(__name__)
 
 class CustomClasher(Clasher):
+
     def __init__(self, settings):
         super().__init__(settings)
         self.logger = logging.getLogger(__name__)
         if not hasattr(self.settings, 'logger') or self.settings.logger is None:
             self.settings.logger = self.logger
         self.cache_lookups = []
+        self._group_shape_counts: Dict[str, int] = {}
+
+    def process_clash_set(self, clash_set) -> None:
+        import ifcopenshell
+        self._group_shape_counts = {"a": 0, "b": 0}
+        self.tree = ifcopenshell.geom.tree()
+        self.create_group("a")
+        for source in clash_set["a"]:
+            source["ifc"] = self.load_ifc(source["file"])
+            self.add_collision_objects("a", source["ifc"], source)
+
+        if "b" in clash_set and clash_set["b"]:
+            self.create_group("b")
+            for source in clash_set["b"]:
+                source["ifc"] = self.load_ifc(source["file"])
+                self.add_collision_objects("b", source["ifc"], source)
+            b = "b"
+        else:
+            b = "a"
+
+        # CGAL/ifcopenshell SIGSEGV when clash_*_many runs with an empty BVH
+        # (0 selected elements, or elements present but no tessellated shapes).
+        a_meta = list(self.groups["a"]["elements"].values())
+        b_meta = list(self.groups[b]["elements"].values())
+        a_shapes = self._group_shape_counts.get("a", 0)
+        b_shapes = self._group_shape_counts.get(b, 0)
+
+        if not a_meta or not b_meta or a_shapes == 0 or b_shapes == 0:
+            self.logger.warning(
+                "Skipping clash detection for %r: group 'a' meta=%d shapes=%d, "
+                "group '%s' meta=%d shapes=%d (empty geometry — CGAL SIGSEGV guard)",
+                clash_set.get("name"),
+                len(a_meta),
+                a_shapes,
+                b,
+                len(b_meta),
+                b_shapes,
+            )
+            results = []
+        else:
+            mode = clash_set["mode"]
+            if mode == "intersection":
+                assert "tolerance" in clash_set and "check_all" in clash_set
+                results = self.tree.clash_intersection_many(
+                    a_meta,
+                    b_meta,
+                    tolerance=clash_set["tolerance"],
+                    check_all=clash_set["check_all"],
+                )
+            elif mode == "collision":
+                assert "allow_touching" in clash_set
+                results = self.tree.clash_collision_many(
+                    a_meta,
+                    b_meta,
+                    allow_touching=clash_set["allow_touching"],
+                )
+            elif mode == "clearance":
+                assert "clearance" in clash_set and "check_all" in clash_set
+                results = self.tree.clash_clearance_many(
+                    a_meta,
+                    b_meta,
+                    clearance=clash_set["clearance"],
+                    check_all=clash_set["check_all"],
+                )
+            else:
+                from typing import assert_never
+                assert_never(mode)
+
+        from ifcclash.ifcclash import ClashResult
+        processed_results = {}
+        for result in results:
+            element1 = result.a
+            element2 = result.b
+
+            processed_results[f"{element1.get_argument(0)}-{element2.get_argument(0)}"] = ClashResult(
+                a_global_id=element1.get_argument(0),
+                b_global_id=element2.get_argument(0),
+                a_ifc_class=element1.is_a(),
+                b_ifc_class=element2.is_a(),
+                a_name=element1.get_argument(2),
+                b_name=element2.get_argument(2),
+                type=self.tree.get_clash_type(result.clash_type),
+                p1=list(result.p1),
+                p2=list(result.p2),
+                distance=result.distance,
+            )
+        clash_set["clashes"] = processed_results
+        self.logger.info(f"Found clashes: {len(processed_results.keys())}")
 
     def add_collision_objects(self, name, ifc_file, source):
         """Override of upstream ifcclash.add_collision_objects to address
@@ -415,6 +504,7 @@ class CustomClasher(Clasher):
         else:
             while True:
                 self.tree.add_element(iterator.get())
+                self._group_shape_counts[name] = self._group_shape_counts.get(name, 0) + 1
                 if not iterator.next():
                     break
         tree_ms = (time.time() - start) * 1000.0

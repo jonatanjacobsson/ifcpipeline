@@ -1,0 +1,311 @@
+{
+  "id": "NobelMepCoordElecStruct01",
+  "name": "Nobel — MEP Coordination (Elec vs Struct)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            { "name": "elec_s3_key" },
+            { "name": "struct_s3_key" },
+            { "name": "struct_s3_version_id" },
+            { "name": "output_prefix" },
+            { "name": "mode" },
+            { "name": "max_rounds", "type": "number" },
+            { "name": "max_auto_apply", "type": "number" },
+            { "name": "policy_json" }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 400],
+      "name": "Start",
+      "id": "start"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ ({\n  elec_s3_key: $json.elec_s3_key || 'uploads/E1_2b_BIM_XXX_600_00.ifc',\n  struct_s3_key: $json.struct_s3_key || 'uploads/S2_2B_BIM_XXX_0001_00.ifc',\n  struct_s3_version_id: $json.struct_s3_version_id || '',\n  output_prefix: $json.output_prefix || 'nobel_elec_coord',\n  mode: $json.mode || 'propose_and_apply',\n  max_rounds: $json.max_rounds != null && $json.max_rounds !== '' ? Number($json.max_rounds) : 10,\n  max_auto_apply: $json.max_auto_apply != null && $json.max_auto_apply !== '' ? Number($json.max_auto_apply) : 25,\n  policy_json: $json.policy_json || '{\"gates\":{\"max_auto_apply_per_run\":25,\"max_auto_apply_per_round\":20,\"full_clash_every_n_rounds\":3,\"use_scoped_signoff\":true},\"topology\":{\"enabled\":true,\"branch_move_enabled\":true}}',\n  clash_output_filename: 'nobel_elec_vs_struct_clash.json',\n  patch_output_file: 'output/patch/coord/' + ($json.output_prefix || 'nobel_elec_coord') + '_E1_coord.ifc',\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [464, 400],
+      "name": "Resolve Inputs",
+      "id": "resolve-inputs"
+    },
+    {
+      "parameters": {
+        "clashSetName": "nobel_elec_vs_struct",
+        "outputFilename": "={{ $json.clash_output_filename }}",
+        "groupAFiles": {
+          "files": [{ "file": "={{ $json.elec_s3_key }}", "selector": "", "mode": "a" }]
+        },
+        "groupBFiles": {
+          "files": [{ "file": "={{ $json.struct_s3_key }}", "selector": "", "mode": "a" }]
+        },
+        "options": { "mode": "intersection", "tolerance": 0.01 },
+        "timeout": 1200,
+        "versionPinning": {
+          "inputVersionIdsUi": {
+            "pins": [
+              {
+                "key": "={{ $json.struct_s3_key }}",
+                "versionId": "={{ $json.struct_s3_version_id }}"
+              }
+            ]
+          }
+        },
+        "operation": "detectClashes",
+        "waitForCompletion": true,
+        "executionMode": "parallel",
+        "maxRetriesPerJob": 3,
+        "retryDelaySeconds": 5,
+        "pollingInterval": 2,
+        "maxConcurrency": 2
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcClash",
+      "typeVersion": 1,
+      "position": [688, 400],
+      "name": "IFC Clash (Elec vs Struct)",
+      "id": "ifc-clash-elec-struct",
+      "credentials": {
+        "ifcPipelineApi": { "id": "HegPhb3qE1FTgAYI", "name": "IFC Pipeline account" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ ({\n  elec_s3_key: $('Resolve Inputs').item.json.elec_s3_key,\n  struct_s3_key: $('Resolve Inputs').item.json.struct_s3_key,\n  struct_s3_version_id: $('Resolve Inputs').item.json.struct_s3_version_id,\n  output_prefix: $('Resolve Inputs').item.json.output_prefix,\n  mode: $('Resolve Inputs').item.json.mode,\n  max_rounds: $('Resolve Inputs').item.json.max_rounds,\n  max_auto_apply: $('Resolve Inputs').item.json.max_auto_apply,\n  policy_json: $('Resolve Inputs').item.json.policy_json,\n  patch_output_file: $('Resolve Inputs').item.json.patch_output_file,\n  clash_output_key: ($json.result && $json.result.output_key) || $json.output_key || '',\n  clash_output_path: ($json.result && $json.result.output_path) || $json.output_path || '',\n  clash_count: ($json.result && $json.result.clash_count) || $json.clash_count || 0,\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [912, 384],
+      "name": "Build Coord Args",
+      "id": "build-coord-args"
+    },
+    {
+      "parameters": {
+        "inputFile": "={{ $json.elec_s3_key }}",
+        "outputFile": "={{ $json.patch_output_file }}",
+        "recipeName": "CoordinateClashesFromReport",
+        "argumentsUi": {
+          "argumentValues": [
+            { "value": "={{ $json.struct_s3_key }}" },
+            { "value": "={{ $json.clash_output_key || $json.clash_output_path || ' ' }}" },
+            { "value": "={{ $json.policy_json }}" },
+            { "value": "={{ $json.mode }}" },
+            { "value": "={{ $json.max_rounds }}" },
+            { "value": "={{ $json.max_auto_apply }}" },
+            { "value": "={{ $json.output_prefix }}" }
+          ]
+        },
+        "timeout": 3600,
+        "versionPinning": {
+          "inputVersionIdsUi": {
+            "pins": [
+              {
+                "key": "={{ $json.struct_s3_key }}",
+                "versionId": "={{ $json.struct_s3_version_id }}"
+              }
+            ]
+          }
+        },
+        "waitForCompletion": true,
+        "executionMode": "parallel",
+        "maxRetriesPerJob": 2,
+        "retryDelaySeconds": 10,
+        "pollingInterval": 3,
+        "maxConcurrency": 1
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPatch",
+      "typeVersion": 1,
+      "position": [1136, 384],
+      "name": "IFC Patch (Coordinate Clashes)",
+      "id": "ifc-patch-coord",
+      "credentials": {
+        "ifcPipelineApi": { "id": "HegPhb3qE1FTgAYI", "name": "IFC Pipeline account" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ ({\n  output_prefix: $('Build Coord Args').item.json.output_prefix,\n  clash_count: $('Build Coord Args').item.json.clash_count,\n  output_key: $json.result?.output_key || $json.output_key || '',\n  output_path: $json.result?.output_path || $json.output_path || '',\n  output_filename: ($json.result?.output_filename || $json.output_filename || $('Build Coord Args').item.json.output_prefix + '_E1_coord.ifc'),\n  bcf_key: $json.result?.bcf_key || $json.bcf_key || '',\n  bcf_path: $json.result?.bcf_path || $json.bcf_path || '',\n  manifest_key: $json.result?.manifest_key || $json.manifest_key || '',\n  patched_b_key: $json.result?.patched_b_key || $json.patched_b_key || '',\n  patched_b_path: $json.result?.patched_b_path || $json.patched_b_path || '',\n  proposals_json_key: $json.result?.proposals_json_key || $json.proposals_json_key || '',\n  coordination_summary: $json.result?.coordination_summary || $json.coordination_summary || {},\n  elec_s3_key: $('Build Coord Args').item.json.elec_s3_key,\n  struct_s3_key: $('Build Coord Args').item.json.struct_s3_key,\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1360, 384],
+      "name": "Build Coordination Result",
+      "id": "build-coord-result"
+    },
+    {
+      "parameters": {
+        "operation": "downloadFile",
+        "filePath": "={{ $json.output_path }}",
+        "versionPinning": {}
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [1584, 280],
+      "name": "Download Coordinated IFC",
+      "id": "download-ifc",
+      "credentials": {
+        "ifcPipelineApi": { "id": "HegPhb3qE1FTgAYI", "name": "IFC Pipeline account" }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "siteId": "nobelcenter.sharepoint.com,e8c38dbc-76a9-41be-9dd5-a9ab7ee4d11f,84a2bbbe-4b6c-4994-9659-5eaf2774ac7f",
+        "libraryId": "b!vI3D6Kl2vkGd1amrfuTRH767ooRsS5RJllleryd0rH_dBF1Th2XzQpC7p0dhBR96",
+        "parentLocator": { "__rl": true, "mode": "path", "value": "/General/StreamBIM" },
+        "fileName": "={{ $('Build Coordination Result').item.json.output_filename }}"
+      },
+      "type": "n8n-nodes-microsoft-sharepoint.sharepoint",
+      "typeVersion": 1,
+      "position": [1808, 280],
+      "name": "Upload IFC to SharePoint",
+      "id": "upload-ifc-sp",
+      "credentials": {
+        "microsoftSharepointOAuth2Api": {
+          "id": "yMILuYfiGScotoFc",
+          "name": "Microsoft Sharepoint account Nobel2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "downloadFile",
+        "filePath": "={{ $('Build Coordination Result').item.json.bcf_path }}",
+        "versionPinning": {}
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [1584, 520],
+      "name": "Download BCF",
+      "id": "download-bcf",
+      "credentials": {
+        "ifcPipelineApi": { "id": "HegPhb3qE1FTgAYI", "name": "IFC Pipeline account" }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "uploadFile",
+        "siteId": "nobelcenter.sharepoint.com,e8c38dbc-76a9-41be-9dd5-a9ab7ee4d11f,84a2bbbe-4b6c-4994-9659-5eaf2774ac7f",
+        "libraryId": "b!vI3D6Kl2vkGd1amrfuTRH767ooRsS5RJllleryd0rH_dBF1Th2XzQpC7p0dhBR96",
+        "parentLocator": { "__rl": true, "mode": "path", "value": "/General/StreamBIM" },
+        "fileName": "={{ $('Build Coordination Result').item.json.output_prefix + '.bcfzip' }}"
+      },
+      "type": "n8n-nodes-microsoft-sharepoint.sharepoint",
+      "typeVersion": 1,
+      "position": [1808, 520],
+      "name": "Upload BCF to SharePoint",
+      "id": "upload-bcf-sp",
+      "credentials": {
+        "microsoftSharepointOAuth2Api": {
+          "id": "yMILuYfiGScotoFc",
+          "name": "Microsoft Sharepoint account Nobel2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "sync",
+        "projectId": "13588"
+      },
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [2032, 400],
+      "name": "Trigger StreamBIM Sync",
+      "id": "trigger-sync",
+      "credentials": {
+        "streamBimApi": { "id": "v1oA21A76m4mWYvK", "name": "StreamBIM app account" }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ ({\n  success: true,\n  output_prefix: $('Build Coordination Result').item.json.output_prefix,\n  coordination_summary: $('Build Coordination Result').item.json.coordination_summary,\n  sharepoint_folder: '/General/StreamBIM',\n  ifc_filename: $('Build Coordination Result').item.json.output_filename,\n  bcf_filename: $('Build Coordination Result').item.json.output_prefix + '.bcfzip',\n  output_key: $('Build Coordination Result').item.json.output_key,\n  bcf_key: $('Build Coordination Result').item.json.bcf_key,\n  manifest_key: $('Build Coordination Result').item.json.manifest_key,\n  initial_clash_count: $('Build Coord Args').item.json.clash_count,\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2256, 400],
+      "name": "Return",
+      "id": "return"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "wVG7yrtD2xHCjvht",
+          "mode": "list",
+          "cachedResultName": "Teams Error"
+        },
+        "workflowInputs": { "mappingMode": "defineBelow", "value": {}, "matchingColumns": [], "schema": [], "attemptToConvertTypes": false, "convertFieldsToString": true },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [912, 560],
+      "name": "Call 'Teams Error'",
+      "id": "teams-error"
+    },
+    {
+      "parameters": {
+        "content": "# Nobel MEP Coordination (Elec vs Struct)\n\nRuns **CoordinateClashesFromReport** on E1 electrical vs S2 structural,\nuploads coordinated IFC + BCF to **General/StreamBIM**, then triggers\nStreamBIM sync (project 13588).\n\n**Inputs:** `elec_s3_key`, `struct_s3_key`, optional `output_prefix`,\n`policy_json`, `max_auto_apply` (default 25).\n\n**Morning BCF import:** open StreamBIM → import BCF from SharePoint path.\nSee `docs/MEP_COORDINATION_PRODUCTION_PLAN.md`.",
+        "height": 320,
+        "width": 480
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 80],
+      "name": "Sticky Note",
+      "id": "sticky-note"
+    }
+  ],
+  "connections": {
+    "Start": { "main": [[{ "node": "Resolve Inputs", "type": "main", "index": 0 }]] },
+    "Resolve Inputs": { "main": [[{ "node": "IFC Clash (Elec vs Struct)", "type": "main", "index": 0 }]] },
+    "IFC Clash (Elec vs Struct)": {
+      "main": [
+        [{ "node": "Build Coord Args", "type": "main", "index": 0 }],
+        [{ "node": "Call 'Teams Error'", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Coord Args": { "main": [[{ "node": "IFC Patch (Coordinate Clashes)", "type": "main", "index": 0 }]] },
+    "IFC Patch (Coordinate Clashes)": {
+      "main": [
+        [{ "node": "Build Coordination Result", "type": "main", "index": 0 }],
+        [{ "node": "Call 'Teams Error'", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Coordination Result": {
+      "main": [[{ "node": "Download Coordinated IFC", "type": "main", "index": 0 }]]
+    },
+    "Download Coordinated IFC": { "main": [[{ "node": "Upload IFC to SharePoint", "type": "main", "index": 0 }]] },
+    "Upload IFC to SharePoint": { "main": [[{ "node": "Download BCF", "type": "main", "index": 0 }]] },
+    "Download BCF": { "main": [[{ "node": "Upload BCF to SharePoint", "type": "main", "index": 0 }]] },
+    "Upload BCF to SharePoint": { "main": [[{ "node": "Trigger StreamBIM Sync", "type": "main", "index": 0 }]] },
+    "Trigger StreamBIM Sync": { "main": [[{ "node": "Return", "type": "main", "index": 0 }]] }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "all",
+    "binaryMode": "separate"
+  },
+  "staticData": {}
+}

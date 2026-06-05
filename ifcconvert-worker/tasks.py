@@ -68,6 +68,7 @@ def run_ifcconvert(job_data: dict) -> dict:
             s3_ctx = {
                 "tmpdir": tempfile.mkdtemp(prefix="ifcconvert-"),
                 "input_key": s3.normalize_input_key(request.input_filename),
+                "input_pin": s3.pin_for(request, request.input_filename),
                 "output_key": s3.normalize_output_key(request.output_filename, "converted"),
                 "log_key": s3.normalize_output_key(request.log_file, "converted") if request.log_file else None,
             }
@@ -84,8 +85,10 @@ def run_ifcconvert(job_data: dict) -> dict:
                 log_file_path = os.path.join(s3_ctx["tmpdir"], os.path.basename(s3_ctx["log_key"]))
             else:
                 log_file_path = os.path.join(s3_ctx["tmpdir"], f"{os.path.splitext(in_name)[0]}_convert.txt")
-            s3.get_client().download_file(
-                Bucket=s3.bucket_name(), Key=s3_ctx["input_key"], Filename=input_path
+            s3.download_to_path(
+                s3_ctx["input_key"],
+                input_path,
+                version_id=s3_ctx.get("input_pin"),
             )
         
         logger.info(f"Processing paths:")
@@ -311,7 +314,7 @@ def run_ifcconvert(job_data: dict) -> dict:
             command.append("--generate-uvs")
         
         # Geometry options - Validation and hierarchy
-        if request.validate:
+        if request.validate_geometry:
             command.append("--validate")
         if request.element_hierarchy:
             command.append("--element-hierarchy")
@@ -554,6 +557,10 @@ def run_ifcconvert(job_data: dict) -> dict:
         if s3_ctx is not None:
             try:
                 job_id = _current_job_id()
+                parent_pins = (
+                    {s3_ctx["input_key"]: s3_ctx["input_pin"]}
+                    if s3_ctx.get("input_pin") else None
+                )
                 out_audit = s3.upload_and_audit(
                     output_path,
                     key=s3_ctx["output_key"],
@@ -561,6 +568,7 @@ def run_ifcconvert(job_data: dict) -> dict:
                     worker=WORKER_NAME,
                     job_id=job_id,
                     parents=[("input", s3_ctx["input_key"])],
+                    parent_version_ids=parent_pins,
                     metadata={
                         "input_size_bytes": input_size,
                         "output_size_bytes": output_size,
@@ -589,6 +597,7 @@ def run_ifcconvert(job_data: dict) -> dict:
                             ("input", s3_ctx["input_key"]),
                             ("sibling", s3_ctx["output_key"]),
                         ],
+                        parent_version_ids=parent_pins,
                         metadata={"kind": "convert-log"},
                         content_type="text/plain",
                     )

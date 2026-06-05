@@ -42,8 +42,14 @@ def run_ifc_to_json_conversion(job_data: dict) -> dict:
             output_key = s3.normalize_output_key(request.output_filename, "json")
             input_path = os.path.join(tmpdir, os.path.basename(input_key) or "input.ifc")
             output_path = os.path.join(tmpdir, os.path.basename(output_key) or "output.json")
-            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=input_key, Filename=input_path)
-            s3_ctx = {"tmpdir": tmpdir, "output_key": output_key, "input_key": input_key}
+            input_pin = s3.pin_for(request, request.filename)
+            s3.download_to_path(input_key, input_path, version_id=input_pin)
+            s3_ctx = {
+                "tmpdir": tmpdir,
+                "output_key": output_key,
+                "input_key": input_key,
+                "input_pin": input_pin,
+            }
             logger.info("[s3] staged ifc2json input → %s, output → s3://%s/%s", input_path, s3.bucket_name(), output_key)
         else:
             input_dir = "/uploads"
@@ -90,6 +96,10 @@ def run_ifc_to_json_conversion(job_data: dict) -> dict:
                     worker=WORKER_NAME,
                     job_id=_current_job_id(),
                     parents=[("input", s3_ctx["input_key"])],
+                    parent_version_ids=(
+                        {s3_ctx["input_key"]: s3_ctx["input_pin"]}
+                        if s3_ctx.get("input_pin") else None
+                    ),
                     metadata={
                         "tool": "ConvertIfc2Json",
                         "input_filename": request.filename,

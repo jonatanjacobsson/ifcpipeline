@@ -1,0 +1,280 @@
+# DIN 276 2008.12 → 2018.12 (dual-column rows from WEKA PDF only)
+# din276_2008	title_2008	din276_2018	title_2018
+100	Grundstück	100	Grundstück
+110	Grundstückswert	110	Grundstückswert
+120	Grundstücksnebenkosten	120	Grundstücksnebenkosten
+121	Vermessungsgebühren	121	Vermessungsgebühren
+122	Gerichtsgebühren	122	Gerichtsgebühren
+123	Notariatsgebühren	123	Notargebühren
+124	Maklerprovisionen	129	Sonstiges zur KG 120
+125	Grunderwerbssteuer	124	Grunderwerbsteuer
+126	Wertermittlungen, Untersuchungen	125	Untersuchungen
+126	Wertermittlungen, Untersuchungen	126	Wertermittlungen
+127	Genehmigungsgebühren	127	Genehmigungsgebühren
+128	Bodenordnung, Grenzregulierung	128	Bodenordnung
+129	Grundstücksnebenkosten, sonstiges	129	Sonstiges zur KG 120
+130	Freimachen	130	Rechte Dritter
+131	Abfindungen	131	Abfindungen
+132	Ablösen dinglicher Rechte	132	Ablösen dinglicher Rechte
+139	Freimachen, sonstiges	139	Sonstiges zur KG 130
+200	Herrichten und Erschließen	200	Vorbereitende Maßnahmen
+210	Herrichten	210	Herrichten
+211	Sicherungsmaßnahmen	211	Sicherungsmaßnahmen
+212	Abbruchmaßnahmen	212	Abbruchmaßnahmen
+213	Altlastenbeseitigung	213	Altlastenbeseitigung
+214	Herrichten der Geländeoberfläche	214	Herrichten der Geländeoberfläche
+219	Herrichten, sonstiges	219	Sonstiges zur KG 210
+220	Öffentliche Erschließung	220	Öffentliche Erschließung
+221	Abwasserentsorgung	221	Abwasserentsorgung
+222	Wasserversorgung	222	Wasserversorgung
+223	Gasversorgung	223	Gasversorgung
+224	Fernwärmeversorgung	224	Fernwärmeversorgung
+225	Stromversorgung	225	Stromversorgung
+226	Telekommunikation	226	Telekommunikation
+227	Verkehrserschließung	227	Verkehrserschließung
+228	Abfallentsorgung	228	Abfallentsorgung
+229	Öffentliche Erschließung, sonstiges	229	Sonstiges zur KG 220
+230	Nichtöffentliche Erschließung	230	Nichtöffentliche Erschließung
+240	Ausgleichsabgaben	242	Ausgleichsabgaben
+250	Übergangsmaßnahmen	250	Übergangsmaßnahmen
+251	Provisorien	251	Bauliche Maßnahmen
+252	Auslagerungen	252	Organisatorische Maßnahmen
+300	Bauwerk – Baukonstruktionen	300	Bauwerk – Baukonstruktionen
+310	Baugrube	310	Baugrube/Erdbau
+311	Baugrubenherstellung	311	Herstellung
+312	Baugrubenumschließung	312	Umschließung
+313	Wasserhaltung	313	Wasserhaltung
+319	Baugrube, sonstiges	319	Sonstiges zur KG 310
+320	Gründung	320	Gründung, Unterbau
+321	Baugrundverbesserung	321	Baugrundverbesserung
+322	Flachgründungen	322	Flachgründungen und Bodenplatten
+323	Tiefgründungen	323	Tiefgründungen
+324	Unterböden und Bodenplatten	322	Flachgründungen und Bodenplatten
+325	Bodenbeläge	324	Gründungsbeläge
+326	Bauwerksabdichtungen	325	Abdichtungen und Bekleidungen
+327	Dränagen	326	Dränagen
+329	Gründung, sonstiges	329	Sonstiges zur KG 320
+330	Außenwände	330	Außenwände/Vertikale
+331	Tragende Außenwände	331	Tragende Außenwände
+332	Nichttragende Außenwände	332	Nichttragende Außenwände
+333	Außenstützen	333	Außenstützen
+334	Außentüren und -fenster	334	Außenwandöffnungen
+335	Außenwandbekleidungen, außen	335	Außenwandbekleidungen, außen
+336	Außenwandbekleidungen, innen	336	Außenwandbekleidungen, innen
+337	Elementierte Außenwände	337	Elementierte
+338	Sonnenschutz	338	Lichtschutz zur KG 330
+339	Außenwände, sonstiges	339	Sonstiges zur KG 330
+340	Innenwände	340	Innenwände/Vertikale
+341	Tragende Innenwände	341	Tragende Innenwände
+342	Nichttragende Innenwände	342	Nichttragende Innenwände
+343	Innenstützen	343	Innenstützen
+344	Innentüren und -fenster	344	Innenwandöffnungen
+345	Innenwandbekleidungen	345	Innenwandbekleidungen
+346	Elementierte Innenwände	346	Elementierte
+349	Innenwände, sonstiges	349	Sonstiges zur KG 340
+350	Decken	350	Decken/Horizontale
+351	Deckenkonstruktionen	351	Deckenkonstruktionen
+352	Deckenbeläge	353	Deckenbeläge
+353	Deckenbekleidungen	354	Deckenbekleidungen
+359	Decken, sonstiges	359	Sonstiges zur KG 350
+360	Dächer	360	Dächer
+361	Dachkonstruktionen	361	Dachkonstruktionen
+362	Dachfenster, Dachöffnungen	362	Dachöffnungen
+363	Dachbeläge	363	Dachbeläge
+364	Dachbekleidungen	364	Dachbekleidungen
+369	Dächer, sonstiges	369	Sonstiges zur KG 360
+370	Baukonstruktive Einbauten	380	Baukonstruktive Einbauten
+371	Allgemeine Einbauten	381	Allgemeine Einbauten
+372	Besondere Einbauten	382	Besondere Einbauten
+379	Baukonstruktive Einbauten,	389	Sonstiges zur KG 380
+390	Sonstige Maßnahmen für Baukon-	390	Sonstige Maßnahmen für Baukon-
+391	Baustelleneinrichtung	391	Baustelleneinrichtung
+392	Gerüste	392	Gerüste
+393	Sicherungsmaßnahmen	393	Sicherungsmaßnahmen
+394	Abbruchmaßnahmen	394	Abbruchmaßnahmen
+395	Instandsetzungen	395	Instandsetzungen
+396	Materialentsorgung	396	Materialentsorgung
+397	Zusätzliche Maßnahmen	397	Zusätzliche Maßnahmen
+398	Provisorische Baukonstruktionen	398	Provisorische Baukonstruktionen
+399	Sonstige Maßnahmen für	399	Sonstiges zur KG 390
+400	Bauwerk – Technische Anlagen	400	Bauwerk – Technische Anlagen
+410	Abwasser-, Wasser-, Gasanlagen	410	Abwasser-, Wasser-, Gasanlagen
+411	Abwasseranlagen	411	Abwasseranlagen
+412	Wasseranlagen	412	Wasseranlagen
+413	Gasanlagen	413	Gasanlagen
+419	Abwasser-, Wasser-, Gasanlagen,	419	Sonstiges zur KG 410
+420	Wärmeversorgungsanlagen	420	Wärmeversorgungsanlagen
+421	Wärmeerzeugungsanlagen	421	Wärmeerzeugungsanlagen
+422	Wärmeverteilnetze	422	Wärmeverteilnetze
+423	Raumheizflächen	423	Raumheizflächen
+429	Wärmeversorgungsanlagen,	429	Sonstiges zur KG 420
+430	Lufttechnische Anlagen	430	Raumlufttechnische Anlagen
+431	Lüftungsanlagen	431	Lüftungsanlagen
+432	Teilklimaanlagen	432	Teilklimaanlagen
+433	Klimaanlagen	433	Klimaanlagen
+434	Kälteanlagen	434	Kälteanlagen
+439	Lufttechnische Anlagen, sonstiges	439	Sonstiges zur KG 430
+440	Starkstromanlagen	440	Elektrische Anlagen
+441	Hoch- und Mittelspannungsanlagen	441	Hoch- und Mittelspannungsanlagen
+442	Eigenstromversorgungsanlagen	442	Eigenstromversorgungsanlagen
+443	Niederspannungsschaltanlagen	443	Niederspannungsschaltanlagen
+444	Niederspannungsinstallations-	444	Niederspannungsinstallations-
+445	Beleuchtungsanlagen	445	Beleuchtungsanlagen
+446	Blitzschutz- und Erdungsanlagen	446	Blitzschutz- und Erdungsanlagen
+449	Starkstromanlagen, sonstiges	449	Sonstiges zur KG 440
+450	Fernmelde- und informationstechni-	450	Kommunikations-, sicherheits- und
+451	Telekommunikationsanlagen	451	Telekommunikationsanlagen
+452	Such- und Signalanlagen	452	Such- und Signalanlagen
+453	Zeitdienstanlagen	453	Zeitdienstanlagen
+454	Elektroakustische Anlagen	454	Elektroakustische Anlagen
+455	Fernseh- und Antennenanlagen	455	Audiovisuelle Medien- und
+456	Gefahrenmelde- und Alarmanlagen	456	Gefahrenmelde- und Alarmanlagen
+457	Übertragungsnetze	457	Datenübertragungsnetze
+459	Fernmelde- und informationstechni-	459	Sonstiges zur KG 450
+460	Förderanlagen	460	Förderanlagen
+461	Aufzugsanlagen	461	Aufzugsanlagen
+462	Fahrtreppen, Fahrsteige	462	Fahrtreppen, Fahrsteige
+463	Befahranlagen	463	Befahranlagen
+464	Transportanlagen	464	Transportanlagen
+465	Krananlagen	465	Krananlagen
+469	Förderanlagen, sonstiges	469	Sonstiges zur KG 460
+470	Nutzungsspezifische Anlagen	470	Nutzungsspezifische und verfahrens-
+471	Küchentechnische Anlagen	471	Küchentechnische Anlagen
+472	Wäscherei- und Reinigungsanlagen	472	Wäscherei-, Reinigungs- und bade-
+473	Medienversorgungsanlagen	473	Medienversorgungsanlagen, Medi-
+474	Medizin- und labortechnische	473	Medienversorgungsanlagen, Medi-
+475	Feuerlöschanlagen	474	Feuerlöschanlagen
+476	Badetechnische Anlagen	472	Wäscherei-, Reinigungs- und bade-
+477	Prozesswärme-, kälte- und	475	Prozesswärme-, kälte- und
+478	Entsorgungsanlagen	476	Weitere nutzungsspezifische
+479	Nutzungsspezifische Anlagen,	479	Sonstiges zur KG 470
+480	Gebäudeautomation	480	Gebäude- und Anlagenautomation
+481	Automationssysteme	481	Automationseinrichtungen
+482	Schaltschränke	482	Schaltschränke, Automationsschwer-
+483	Management- und Bedieneinrichtun-	483	Automationsmanagement
+484	Raumautomationssysteme	481	Automationseinrichtungen
+485	Übertragungsnetze	485	Datenübertragungsnetze
+489	Gebäudeautomation, sonstiges	489	Sonstiges zur KG 480
+491	Baustelleneinrichtung	491	Baustelleneinrichtung
+492	Gerüste	492	Gerüste
+493	Sicherungsmaßnahmen	493	Sicherungsmaßnahmen
+494	Abbruchmaßnahmen	494	Abbruchmaßnahmen
+495	Instandsetzungen	495	Instandsetzungen
+496	Materialentsorgung	496	Materialentsorgung
+497	Zusätzliche Maßnahmen	497	Zusätzliche Maßnahmen
+498	Provisorische technische Anlagen	498	Provisorische technische Anlagen
+500	Außenanlagen	500	Außenanlagen und Freiflächen
+510	Geländeflächen	510	Erdbau
+511	Oberbodenarbeiten	511	Herstellung
+512	Bodenarbeiten	511	Herstellung
+519	Geländeflächen, sonstiges	519	Sonstiges zur KG 510
+520	Befestigte Flächen	530	Oberbau, Deckschichten
+521	Wege	531	Wege
+522	Straßen	532	Straßen
+523	Plätze, Höfe	533	Plätze, Höfe, Terrassen
+524	Stellplätze	534	Stellplätze
+525	Sportplatzflächen	535	Sportplatzflächen
+526	Spielplatzflächen	536	Spielplatzflächen
+527	Gleisanlagen	537	Gleisanlagen
+529	Befestigte Flächen, sonstiges	539	Sonstiges zur KG 530
+530	Baukonstruktionen in Außenanlagen	540	Baukonstruktionen
+531	Einfriedungen	541	Einfriedungen
+532	Schutzkonstruktionen	542	Schutzkonstruktionen
+533	Mauern, Wände	543	Wandkonstruktionen
+534	Rampen, Treppen, Tribünen	544	Rampen, Treppen, Tribünen
+535	Überdachungen	545	Überdachungen
+536	Brücken, Stege	546	Stege
+537	Kanal- und Schachtbauanlagen	547	Kanal- und Schachtkonstruktionen
+538	Wasserbauliche Anlagen	548	Wasserbecken
+540	Technische Anlagen in	550	Technische Anlagen
+541	Abwasseranlagen	551	Abwasseranlagen
+542	Wasseranlagen	552	Wasseranlagen
+543	Gasanlagen	553	Anlagen für Gase und Flüssigkeiten
+544	Wärmeversorgungsanlagen	554	Wärmeversorgungsanlagen
+545	Lufttechnische Anlagen	555	Raumlufttechnische Anlagen
+546	Starkstromanlagen	556	Elektrische Anlagen
+547	Fernmelde- und informationstechni-	557	Kommunikations-, sicherheits- und
+548	Nutzungsspezifische Anlagen	558	Nutzungsspezifische Anlagen
+549	Technische Anlagen in	559	Sonstiges zur KG 550
+550	Einbauten in Außenanlagen	560	Einbauten in Außenanlagen und
+551	Allgemeine Einbauten	561	Allgemeine Einbauten
+552	Besondere Einbauten	562	Besondere Einbauten
+559	Einbauten in Außenanlagen,	569	Sonstiges zur KG 560
+560	Wasserflächen	580	Wasserflächen
+561	Abdichtungen	582	Abdichtungen
+562	Bepflanzungen	583	Bepflanzungen
+569	Wasserflächen, sonstiges	589	Sonstiges zur KG 580
+570	Pflanz- und Saatflächen	570	Vegetationsflächen
+571	Oberbodenarbeiten	571	Vegetationstechnische
+572	Vegetationstechnische	571	Vegetationstechnische
+573	Sicherungsbauweisen	572	Sicherungsbauweisen
+574	Pflanzen	573	Pflanzflächen
+575	Rasen und Ansaaten	574	Rasen- und Saatflächen
+576	Begrünung unterbauter Flächen	363	Dachbeläge
+579	Pflanz- und Saatflächen, sonstiges	579	Sonstiges zur KG 570
+590	Sonstige Außenanlagen	590	Sonstige Maßnahmen für
+591	Baustelleneinrichtung	591	Baustelleneinrichtung
+592	Gerüste	592	Gerüste
+593	Sicherungsmaßnahmen	593	Sicherungsmaßnahmen
+594	Abbruchmaßnahmen	594	Abbruchmaßnahmen
+595	Instandsetzungen	595	Instandsetzungen
+596	Materialentsorgung	596	Materialentsorgung
+597	Zusätzliche Maßnahmen	597	Zusätzliche Maßnahmen
+598	Provisorische Außenanlagen	598	Provisorische Außenanlagen und
+599	Sonstige Maßnahmen für Außenan-	599	Sonstiges zur KG 590
+600	Ausstattung und Kunstwerke	600	Ausstattung und Kunstwerke
+610	Ausstattung	600	Ausstattung und Kunstwerke
+611	Allgemeine Ausstattung	610	Allgemeine Ausstattung
+612	Besondere Ausstattung	620	Besondere Ausstattung
+619	Ausstattung, sonstiges	690	Sonstige Ausstattung
+620	Kunstwerke	640	Künstlerische Ausstattung
+621	Kunstobjekte	641	Kunstobjekte
+622	Künstlerisch gestaltete Bauteile des	642	Künstlerische Gestaltung des Bau-
+623	Künstlerisch gestaltete Bauteile der	643	Künstlerische Gestaltung der
+629	Kunstwerke, sonstiges	649	Sonstiges zur KG 640
+700	Baunebenkosten	700	Baunebenkosten
+710	Bauherrenaufgaben	710	Bauherrenaufgaben
+711	Projektleitung	711	Projektleitung
+712	Bedarfsplanung	712	Bedarfsplanung
+713	Projektsteuerung	713	Projektsteuerung
+719	Bauherrenaufgaben, sonstiges	719	Sonstiges zur KG 710
+720	Vorbereitung der Objektplanung	720	Vorbereitung der Objektplanung
+721	Untersuchungen	721	Untersuchungen
+722	Wertermittlungen	722	Wertermittlungen
+723	Städtebauliche Leistungen	723	Städtebauliche Leistungen
+724	Landschaftsplanerische Leistungen	724	Landschaftsplanerische Leistungen
+725	Wettbewerbe	725	Wettbewerbe
+729	Vorbereitung der Objektplanung,	729	Sonstiges zur KG 720
+731	Gebäudeplanung	731	Gebäude und Innenräume
+732	Freianlagenplanung	732	Freianlagen
+733	Planung der raumbildenden	731	Gebäude und Innenräume
+734	Planung der Ingenieurbauwerke und	733	Ingenieurbauwerke
+734	Planung der Ingenieurbauwerke und	734	Verkehrsanlagen
+735	Tragwerksplanung	741	Tragwerksplanung
+739	Architekten- und Ingenieurleistun-	739	Sonstiges zur KG 730
+740	Gutachten und Beratung	740	Fachplanung
+741	Thermische Bauphysik	743	Bauphysik
+742	Schallschutz und Raumakustik	743	Bauphysik
+744	Vermessung	745	Ingenieurvermessung
+745	Lichttechnik, Tageslichttechnik	746	Lichttechnik, Tageslichttechnik
+746	Brandschutz	747	Brandschutz
+747	Sicherheits- und Gesundheitsschutz	714	Sicherheits- und Gesundheitsschutz-
+748	Umweltschutz, Altlasten	748	Altlasten, Kampfmittel,
+749	Gutachten und Beratung, sonstiges	749	Sonstiges zur KG 740
+750	Künstlerische Leistungen	750	Künstlerische Leistungen
+751	Kunstwettbewerbe	751	Kunstwettbewerbe
+752	Honorare	752	Honorare
+759	Künstlerische Leistungen, sonstiges	759	Sonstiges zur KG 750
+760	Finanzierungskosten	800	Finanzierung
+761	Finanzierungsbeschaffung	810	Finanzierungsnebenkosten
+762	Fremdkapitalzinsen	820	Fremdkapitalzinsen
+763	Eigenkapitalzinsen	830	Eigenkapitalzinsen
+769	Finanzierungskosten, sonstiges	890	Sonstige Finanzierungskosten
+770	Allgemeine Baunebenkosten	760	Allgemeine Baunebenkosten
+771	Prüfung, Genehmigungen,	762	Prüfungen, Genehmigungen,
+772	Bewirtschaftungskosten	763	Bewirtschaftungskosten
+773	Bemusterungskosten	764	Bemusterungskosten
+774	Betriebskosten nach der Abnahme	765	Betriebskosten nach der Abnahme
+775	Versicherungen	766	Versicherungen
+779	Allgemeine Baunebenkosten,	769	Sonstiges zur KG 760
+790	Sonstige Baunebenkosten	790	Sonstige Baunebenkosten

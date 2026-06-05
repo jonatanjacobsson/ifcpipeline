@@ -12,6 +12,36 @@ logger = logging.getLogger(__name__)
 WORKER_NAME = "ifccsv-worker"
 
 
+def _run_ifccsv_export_to_path(
+    model, elements, request: IfcCsvRequest, output_path: str
+) -> None:
+    """Single ifccsv export call (writes csv/ods/xlsx via format=)."""
+    attrs = list(request.attributes or [])
+    include_gid = request.include_global_id
+    if include_gid and "GlobalId" in attrs:
+        include_gid = False
+    fmt = (request.format or "csv").lower()
+    if fmt not in ("csv", "ods", "xlsx"):
+        raise ValueError(f"Unsupported format: {request.format}")
+    converter = ifccsv.IfcCsv()
+    headers = request.headers if request.headers else None
+    converter.export(
+        model,
+        elements,
+        attrs,
+        headers=headers,
+        output=output_path,
+        format=fmt,
+        delimiter=request.delimiter,
+        null=request.null_value,
+        groups=request.groups,
+        sort=request.sort,
+        summaries=request.summaries,
+        formatting=request.formatting,
+        include_global_id=include_gid,
+    )
+
+
 def _current_job_id():
     try:
         from rq import get_current_job
@@ -49,14 +79,15 @@ def run_ifc_to_csv_conversion(job_data: dict) -> dict:
 
 def _run_export_s3(request: IfcCsvRequest) -> dict:
     input_key = s3.build_upload_key(request.filename)
+    input_pin = s3.pin_for(request, request.filename)
     output_key = s3.build_output_key(request.format, request.output_filename)
     suffix = os.path.splitext(request.filename)[1] or ".ifc"
 
-    with s3.download_to_tempfile(input_key, suffix=suffix) as ifc_tmp:
+    with s3.download_to_tempfile(input_key, suffix=suffix, version_id=input_pin) as ifc_tmp:
         model = ifcopenshell.open(ifc_tmp)
         elements = (
             ifcopenshell.util.selector.filter_elements(model, request.query)
-            if request.query else model.by_type("IfcProduct")
+            if request.query else model.by_type("IfcElement")
         )
         logger.info("Processing %d elements with %s", len(elements), request.attributes)
 
@@ -64,17 +95,14 @@ def _run_export_s3(request: IfcCsvRequest) -> dict:
         import tempfile
         fd, out_tmp = tempfile.mkstemp(suffix=out_suffix)
         os.close(fd)
+        # mkstemp leaves a zero-byte file. ifccsv.export_xlsx() treats any existing
+        # path as a workbook to append to and calls openpyxl.load_workbook → BadZipFile.
         try:
-            converter = ifccsv.IfcCsv()
-            converter.export(model, elements, request.attributes)
-            if request.format == "csv":
-                converter.export_csv(out_tmp, delimiter=request.delimiter)
-            elif request.format == "ods":
-                converter.export_ods(out_tmp)
-            elif request.format == "xlsx":
-                converter.export_xlsx(out_tmp)
-            else:
-                raise ValueError(f"Unsupported format: {request.format}")
+            os.unlink(out_tmp)
+        except OSError:
+            pass
+        try:
+            _run_ifccsv_export_to_path(model, elements, request, out_tmp)
             audit = s3.upload_and_audit(
                 out_tmp,
                 key=output_key,
@@ -82,12 +110,14 @@ def _run_export_s3(request: IfcCsvRequest) -> dict:
                 worker=WORKER_NAME,
                 job_id=_current_job_id(),
                 parents=[("input", input_key)],
+                parent_version_ids={input_key: input_pin} if input_pin else None,
                 metadata={
                     "format": request.format,
                     "query": request.query,
                     "delimiter": request.delimiter,
                     "attribute_count": len(request.attributes or []),
                     "element_count": len(elements),
+                    "has_groups": bool(request.groups),
                 },
                 content_type=_csv_content_type(request.format),
             )
@@ -131,20 +161,11 @@ def _run_export_filesystem(request: IfcCsvRequest) -> dict:
     model = ifcopenshell.open(file_path)
     elements = (
         ifcopenshell.util.selector.filter_elements(model, request.query)
-        if request.query else model.by_type("IfcProduct")
+        if request.query else model.by_type("IfcElement")
     )
     logger.info("Processing %d elements with %s", len(elements), request.attributes)
 
-    converter = ifccsv.IfcCsv()
-    converter.export(model, elements, request.attributes)
-    if request.format == "csv":
-        converter.export_csv(output_path, delimiter=request.delimiter)
-    elif request.format == "ods":
-        converter.export_ods(output_path)
-    elif request.format == "xlsx":
-        converter.export_xlsx(output_path)
-    else:
-        raise ValueError(f"Unsupported format: {request.format}")
+    _run_ifccsv_export_to_path(model, elements, request, output_path)
 
     return {
         "success": True,
@@ -191,15 +212,21 @@ def _run_import_s3(request: IfcCsvImportRequest) -> dict:
     import tempfile
 
     ifc_key = s3.build_upload_key(request.ifc_filename)
+    ifc_pin = s3.pin_for(request, request.ifc_filename)
     # Treat csv_filename as a key under output/ (matches legacy data_input_dir=/output)
     csv_key = request.csv_filename.lstrip("/")
     if not csv_key.startswith("output/"):
         csv_key = f"output/{csv_key}"
+    csv_pin = s3.pin_for(request, request.csv_filename)
     out_name = _derive_updated_name(request.ifc_filename, request.output_filename)
     out_key = s3.build_output_key("ifc_updated", out_name)
 
-    with s3.download_to_tempfile(ifc_key, suffix=".ifc") as ifc_tmp, \
-         s3.download_to_tempfile(csv_key, suffix=os.path.splitext(request.csv_filename)[1] or ".csv") as data_tmp:
+    with s3.download_to_tempfile(ifc_key, suffix=".ifc", version_id=ifc_pin) as ifc_tmp, \
+         s3.download_to_tempfile(
+             csv_key,
+             suffix=os.path.splitext(request.csv_filename)[1] or ".csv",
+             version_id=csv_pin,
+         ) as data_tmp:
         model = ifcopenshell.open(ifc_tmp)
         importer = ifccsv.IfcCsv()
         importer.Import(model, data_tmp)
@@ -208,6 +235,11 @@ def _run_import_s3(request: IfcCsvImportRequest) -> dict:
         os.close(fd)
         try:
             model.write(out_tmp)
+            parent_pins = {}
+            if ifc_pin:
+                parent_pins[ifc_key] = ifc_pin
+            if csv_pin:
+                parent_pins[csv_key] = csv_pin
             audit = s3.upload_and_audit(
                 out_tmp,
                 key=out_key,
@@ -215,6 +247,7 @@ def _run_import_s3(request: IfcCsvImportRequest) -> dict:
                 worker=WORKER_NAME,
                 job_id=_current_job_id(),
                 parents=[("input", ifc_key), ("reference", csv_key)],
+                parent_version_ids=parent_pins or None,
                 metadata={
                     "ifc_filename": request.ifc_filename,
                     "csv_filename": request.csv_filename,

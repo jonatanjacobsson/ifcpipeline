@@ -1,0 +1,1103 @@
+{
+  "updatedAt": "2026-05-29T08:22:01.001Z",
+  "createdAt": "2026-05-29T08:22:01.001Z",
+  "id": "1hhknyxiLdRM5q6C",
+  "name": "StreamBIM: Register IFC Files",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "5e2003fc-526d-43dd-9ee0-af4e7fb9726b",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        400
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "projectId",
+              "type": "string"
+            },
+            {
+              "name": "buildingId",
+              "type": "string"
+            },
+            {
+              "name": "processedFilenames",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9cfabb55-fef4-41fe-90c6-2c74f0ef8637",
+      "name": "Defaults",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        620,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3949d9d0-1bdd-4c86-9801-03f7df85bbfd",
+              "name": "projectId",
+              "type": "string",
+              "value": "={{ $json.projectId || '13588' }}"
+            },
+            {
+              "id": "869810df-e3b0-40e0-a398-98a2119d0d55",
+              "name": "buildingId",
+              "type": "string",
+              "value": "={{ $json.buildingId || '1000' }}"
+            },
+            {
+              "id": "028ae9ec-04d1-4e53-91c6-9e2bc2a7ea7b",
+              "name": "processedFilenames",
+              "type": "string",
+              "value": "={{ $json.processedFilenames || '' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "cbb6d191-7a3d-4229-acba-1216c61cf759",
+      "name": "Set sync wait start",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        400
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "325965c4-b182-4736-976c-84327ae0de95",
+              "name": "loopStartMs",
+              "type": "number",
+              "value": "={{ $now.toMillis() }}"
+            },
+            {
+              "id": "9712638e-c91a-4d1b-81e3-691d504ac0e5",
+              "name": "projectId",
+              "type": "string",
+              "value": "={{ $('Defaults').item.json.projectId }}"
+            },
+            {
+              "id": "f2d347b4-cdff-4c33-8c31-b5ce6be358a5",
+              "name": "buildingId",
+              "type": "string",
+              "value": "={{ $('Defaults').item.json.buildingId }}"
+            },
+            {
+              "id": "2ceeee48-a58f-4b35-aafb-f8bf03d17c81",
+              "name": "processedFilenames",
+              "type": "string",
+              "value": "={{ $('Defaults').item.json.processedFilenames }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e3cff6b4-45a2-4edf-ac63-3ce2cf66df8e",
+      "name": "Get sync activity",
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        1060,
+        400
+      ],
+      "parameters": {
+        "resource": "sync",
+        "projectId": "={{ $('Defaults').item.json.projectId }}",
+        "operation": "getSyncActivity"
+      },
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "id": "cebc8dd5-e3b8-4c4e-b3fb-63a1f3f2181d",
+      "name": "Sync still running?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c317867c-c5b2-483a-b3bb-ef7b9d1d8b8b",
+              "leftValue": "={{ $json['started-at'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "dateTime",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d83ffe39-d514-4cf4-b8a1-0559cba6bc92",
+      "name": "Sync wait timeout?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1500,
+        280
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "5534bff7-cf20-4485-902d-0bd5e269291d",
+              "leftValue": "={{ $now.toMillis() - $('Set sync wait start').item.json.loopStartMs }}",
+              "rightValue": 1800000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f9acb3a3-27c5-4c94-b2bf-e3ca95fb3699",
+      "name": "Wait for sync",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1720,
+        360
+      ],
+      "parameters": {
+        "amount": 45,
+        "unit": "seconds"
+      },
+      "webhookId": "45ed2be5-33d3-4ad1-af33-ae654aea06e0"
+    },
+    {
+      "id": "b771d1f2-3bd2-4b0f-a2ee-8fc14b929224",
+      "name": "Sync timeout summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        160
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{\n  json: {\n    action: 'summary',\n    skipped: true,\n    registered: 0,\n    skippedCount: 0,\n    layersCreated: [],\n    details: [],\n    reason: 'sync_wait_timeout',\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "dc8cbf8c-9d39-411a-a8bb-d2502b76b367",
+      "name": "Get IFC files",
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        1500,
+        520
+      ],
+      "parameters": {
+        "resource": "ifcFile",
+        "projectId": "={{ $('Set sync wait start').item.json.projectId }}",
+        "buildingId": "={{ $('Set sync wait start').item.json.buildingId }}",
+        "returnAll": true,
+        "operation": "getMany"
+      },
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "id": "379c67ed-a2bd-40c2-a661-d2db628ea45f",
+      "name": "Get IFC documents",
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        1720,
+        520
+      ],
+      "parameters": {
+        "resource": "document",
+        "projectId": "={{ $('Set sync wait start').item.json.projectId }}",
+        "returnAll": true,
+        "filters": {
+          "fileExtensions": "ifc",
+          "isDeleted": false
+        },
+        "operation": "getMany"
+      },
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "id": "be839446-f5d5-4ca6-a630-d21332038e06",
+      "name": "Plan registrations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const input = $input.first()?.json ?? {};\nconst projectId = String(input.projectId ?? '13588').trim();\nconst buildingId = String(input.buildingId ?? '1000').trim();\nlet processedFilenames = input.processedFilenames ?? [];\nif (typeof processedFilenames === 'string') {\n  const raw = processedFilenames.trim();\n  if (raw.startsWith('[')) {\n    try { processedFilenames = JSON.parse(raw); } catch { processedFilenames = raw ? [raw] : []; }\n  } else if (raw.includes(',')) {\n    processedFilenames = raw.split(',').map((s) => s.trim()).filter(Boolean);\n  } else {\n    processedFilenames = raw ? [raw] : [];\n  }\n}\nif (!Array.isArray(processedFilenames)) processedFilenames = [];\n\nconst ifcItems = $('Get IFC files').all().map((i) => i.json);\nconst docItems = $('Get IFC documents').all().map((i) => i.json);\n\nconst linkedDocIds = new Set();\nconst existingLayers = new Set();\nconst markedForDeletionDocIds = new Set();\n\nfor (const row of ifcItems) {\n  const id = String(row.id ?? '');\n  const suffix = id.includes('-') ? id.split('-').slice(1).join('-') : id;\n  if (suffix) linkedDocIds.add(suffix);\n  const attrs = row.attributes ?? {};\n  if (attrs['marked-for-deletion'] === true) {\n    markedForDeletionDocIds.add(suffix);\n  }\n  const layerRaw = String(attrs.layer ?? attrs['active-layer'] ?? '').trim();\n  for (const token of layerRaw.split('~')) {\n    const t = token.trim();\n    if (t) existingLayers.add(t);\n  }\n}\n\nfunction extractPrefix(filename) {\n  const base = String(filename ?? '').trim().split(/[\\\\/]/).pop() ?? '';\n  const noExt = base.replace(/\\.ifc$/i, '');\n  const head = noExt.split('_')[0]?.trim();\n  return head ? head.toUpperCase() : '';\n}\n\nfunction scoreLayerMatch(prefix, layer) {\n  const p = prefix.toUpperCase();\n  const l = String(layer ?? '').toUpperCase();\n  if (!p || !l) return 0;\n  if (p === l) return 100;\n  const lHead = l.split('_')[0];\n  if (p === lHead) return 95;\n  if (l.startsWith(p) || p.startsWith(l)) return 80;\n  if (l.includes(p) || p.includes(l)) return 65;\n  return 0;\n}\n\nfunction pickLayer(prefix, layers) {\n  let best = null;\n  let bestScore = 0;\n  for (const layer of layers) {\n    const score = scoreLayerMatch(prefix, layer);\n    if (score > bestScore) {\n      bestScore = score;\n      best = layer;\n    }\n  }\n  if (bestScore >= 65) return { layer: best, reason: 'matched_existing', newLayer: false };\n  return { layer: prefix, reason: 'new_layer_from_prefix', newLayer: true };\n}\n\nconst scope = new Set(\n  processedFilenames.map((n) => String(n).trim().toLowerCase()).filter(Boolean),\n);\nconst useScope = scope.size > 0;\n\nconst details = [];\nconst creates = [];\nconst layersCreated = new Set();\n\nfor (const doc of docItems) {\n  const documentId = String(doc.id ?? '').trim();\n  const filename = String(doc.attributes?.filename ?? doc.attributes?.name ?? documentId).trim();\n  if (!documentId) continue;\n  if (useScope && !scope.has(filename.toLowerCase())) continue;\n  if (linkedDocIds.has(documentId)) continue;\n  if (markedForDeletionDocIds.has(documentId)) {\n    details.push({ documentId, filename, action: 'skip', reason: 'marked_for_deletion' });\n    continue;\n  }\n  const prefix = extractPrefix(filename);\n  if (!prefix) {\n    details.push({ documentId, filename, action: 'skip', reason: 'no_prefix' });\n    continue;\n  }\n  const pick = pickLayer(prefix, [...existingLayers]);\n  if (pick.newLayer) layersCreated.add(pick.layer);\n  existingLayers.add(pick.layer);\n  linkedDocIds.add(documentId);\n  const row = {\n    action: 'create',\n    projectId,\n    buildingId,\n    documentId,\n    filename,\n    layer: pick.layer,\n    reason: pick.reason,\n  };\n  creates.push(row);\n  details.push(row);\n}\n\nif (creates.length === 0) {\n  return [{\n    json: {\n      action: 'summary',\n      skipped: true,\n      registered: 0,\n      skippedCount: details.filter((d) => d.action === 'skip').length,\n      layersCreated: [],\n      details,\n      projectId,\n      buildingId,\n    },\n  }];\n}\n\nreturn creates.map((row) => ({ json: row }));\n"
+      }
+    },
+    {
+      "id": "01367e24-7390-4235-8825-26480178009d",
+      "name": "Any to create?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        520
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "fde5d894-34ae-44a5-8cc9-5051ea924e2b",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "88abc390-b0f1-427d-99b5-5539d617b3a4",
+      "name": "Create IFC file",
+      "type": "CUSTOM.streamBim",
+      "typeVersion": 8,
+      "position": [
+        2380,
+        440
+      ],
+      "parameters": {
+        "resource": "ifcFile",
+        "projectId": "={{ $json.projectId }}",
+        "buildingId": "={{ $json.buildingId }}",
+        "documentId": "={{ $json.documentId }}",
+        "layer": "={{ $json.layer }}",
+        "markedForDeletion": false,
+        "operation": "create"
+      },
+      "credentials": {
+        "streamBimApi": {
+          "id": "v1oA21A76m4mWYvK",
+          "name": "StreamBIM app account"
+        }
+      }
+    },
+    {
+      "id": "0554fcae-53ff-4a8f-b27e-c39d7b334829",
+      "name": "Build summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        520
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const planned = $('Plan registrations').all().map((i) => i.json);\nif (planned.length === 1 && planned[0].action === 'summary') {\n  return [{ json: planned[0] }];\n}\nconst timeout = $('Sync timeout summary').all().map((i) => i.json)[0];\nif (timeout?.action === 'summary') {\n  return [{ json: timeout }];\n}\nconst created = $('Create IFC file').all().map((i) => i.json);\nconst creates = planned.filter((p) => p.action === 'create');\nconst layersCreated = [...new Set(creates.filter((p) => p.reason === 'new_layer_from_prefix').map((p) => p.layer))];\nconst details = planned.map((p) => {\n  if (p.action !== 'create') return p;\n  const ok = created.some((c) => String(c.id ?? '').endsWith(`-${p.documentId}`) || String(c.id ?? '') === `${p.buildingId}-${p.documentId}`);\n  return { ...p, action: ok ? 'created' : 'create_failed' };\n});\nreturn [{\n  json: {\n    action: 'summary',\n    skipped: false,\n    registered: creates.length,\n    skippedCount: planned.filter((p) => p.action === 'skip').length,\n    layersCreated,\n    details,\n  },\n}];\n"
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Defaults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Defaults": {
+      "main": [
+        [
+          {
+            "node": "Set sync wait start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set sync wait start": {
+      "main": [
+        [
+          {
+            "node": "Get sync activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get sync activity": {
+      "main": [
+        [
+          {
+            "node": "Sync still running?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync still running?": {
+      "main": [
+        [
+          {
+            "node": "Sync wait timeout?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get IFC files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync wait timeout?": {
+      "main": [
+        [
+          {
+            "node": "Sync timeout summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for sync": {
+      "main": [
+        [
+          {
+            "node": "Get sync activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync timeout summary": {
+      "main": [
+        [
+          {
+            "node": "Build summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get IFC files": {
+      "main": [
+        [
+          {
+            "node": "Get IFC documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get IFC documents": {
+      "main": [
+        [
+          {
+            "node": "Plan registrations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan registrations": {
+      "main": [
+        [
+          {
+            "node": "Any to create?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any to create?": {
+      "main": [
+        [
+          {
+            "node": "Create IFC file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create IFC file": {
+      "main": [
+        [
+          {
+            "node": "Build summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "8aadada0-3180-4566-9be8-49afc63db4d5",
+  "activeVersionId": "8aadada0-3180-4566-9be8-49afc63db4d5",
+  "versionCounter": 3,
+  "triggerCount": 0,
+  "shared": [
+    {
+      "updatedAt": "2026-05-29T08:22:01.001Z",
+      "createdAt": "2026-05-29T08:22:01.001Z",
+      "role": "workflow:owner",
+      "workflowId": "1hhknyxiLdRM5q6C",
+      "projectId": "GzqzJbGJYB82REo0",
+      "project": {
+        "updatedAt": "2026-05-12T05:02:21.544Z",
+        "createdAt": "2024-09-11T10:51:49.985Z",
+        "id": "GzqzJbGJYB82REo0",
+        "name": "Jonatan Jacobsson <jonatan.jacobsson@byggstyrning.se>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "89796f97-0734-44e2-af42-6fdab3dde381"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-05-29T08:22:01.001Z",
+    "createdAt": "2026-05-29T08:22:01.001Z",
+    "versionId": "8aadada0-3180-4566-9be8-49afc63db4d5",
+    "workflowId": "1hhknyxiLdRM5q6C",
+    "nodes": [
+      {
+        "id": "5e2003fc-526d-43dd-9ee0-af4e7fb9726b",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          400,
+          400
+        ],
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              {
+                "name": "projectId",
+                "type": "string"
+              },
+              {
+                "name": "buildingId",
+                "type": "string"
+              },
+              {
+                "name": "processedFilenames",
+                "type": "string"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "9cfabb55-fef4-41fe-90c6-2c74f0ef8637",
+        "name": "Defaults",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          620,
+          400
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "3949d9d0-1bdd-4c86-9801-03f7df85bbfd",
+                "name": "projectId",
+                "type": "string",
+                "value": "={{ $json.projectId || '13588' }}"
+              },
+              {
+                "id": "869810df-e3b0-40e0-a398-98a2119d0d55",
+                "name": "buildingId",
+                "type": "string",
+                "value": "={{ $json.buildingId || '1000' }}"
+              },
+              {
+                "id": "028ae9ec-04d1-4e53-91c6-9e2bc2a7ea7b",
+                "name": "processedFilenames",
+                "type": "string",
+                "value": "={{ $json.processedFilenames || '' }}"
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "cbb6d191-7a3d-4229-acba-1216c61cf759",
+        "name": "Set sync wait start",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          840,
+          400
+        ],
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "325965c4-b182-4736-976c-84327ae0de95",
+                "name": "loopStartMs",
+                "type": "number",
+                "value": "={{ $now.toMillis() }}"
+              },
+              {
+                "id": "9712638e-c91a-4d1b-81e3-691d504ac0e5",
+                "name": "projectId",
+                "type": "string",
+                "value": "={{ $('Defaults').item.json.projectId }}"
+              },
+              {
+                "id": "f2d347b4-cdff-4c33-8c31-b5ce6be358a5",
+                "name": "buildingId",
+                "type": "string",
+                "value": "={{ $('Defaults').item.json.buildingId }}"
+              },
+              {
+                "id": "2ceeee48-a58f-4b35-aafb-f8bf03d17c81",
+                "name": "processedFilenames",
+                "type": "string",
+                "value": "={{ $('Defaults').item.json.processedFilenames }}"
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "e3cff6b4-45a2-4edf-ac63-3ce2cf66df8e",
+        "name": "Get sync activity",
+        "type": "CUSTOM.streamBim",
+        "typeVersion": 8,
+        "position": [
+          1060,
+          400
+        ],
+        "parameters": {
+          "resource": "sync",
+          "projectId": "={{ $('Defaults').item.json.projectId }}",
+          "operation": "getSyncActivity"
+        },
+        "credentials": {
+          "streamBimApi": {
+            "id": "v1oA21A76m4mWYvK",
+            "name": "StreamBIM app account"
+          }
+        }
+      },
+      {
+        "id": "cebc8dd5-e3b8-4c4e-b3fb-63a1f3f2181d",
+        "name": "Sync still running?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1280,
+          400
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "caseSensitive": true,
+              "typeValidation": "loose"
+            },
+            "combinator": "and",
+            "conditions": [
+              {
+                "id": "c317867c-c5b2-483a-b3bb-ef7b9d1d8b8b",
+                "leftValue": "={{ $json['started-at'] }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "dateTime",
+                  "operation": "notEmpty",
+                  "singleValue": true
+                }
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "d83ffe39-d514-4cf4-b8a1-0559cba6bc92",
+        "name": "Sync wait timeout?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1500,
+          280
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "combinator": "and",
+            "conditions": [
+              {
+                "id": "5534bff7-cf20-4485-902d-0bd5e269291d",
+                "leftValue": "={{ $now.toMillis() - $('Set sync wait start').item.json.loopStartMs }}",
+                "rightValue": 1800000,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "f9acb3a3-27c5-4c94-b2bf-e3ca95fb3699",
+        "name": "Wait for sync",
+        "type": "n8n-nodes-base.wait",
+        "typeVersion": 1.1,
+        "position": [
+          1720,
+          360
+        ],
+        "parameters": {
+          "amount": 45,
+          "unit": "seconds"
+        },
+        "webhookId": "45ed2be5-33d3-4ad1-af33-ae654aea06e0"
+      },
+      {
+        "id": "b771d1f2-3bd2-4b0f-a2ee-8fc14b929224",
+        "name": "Sync timeout summary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1720,
+          160
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "return [{\n  json: {\n    action: 'summary',\n    skipped: true,\n    registered: 0,\n    skippedCount: 0,\n    layersCreated: [],\n    details: [],\n    reason: 'sync_wait_timeout',\n  },\n}];\n"
+        }
+      },
+      {
+        "id": "dc8cbf8c-9d39-411a-a8bb-d2502b76b367",
+        "name": "Get IFC files",
+        "type": "CUSTOM.streamBim",
+        "typeVersion": 8,
+        "position": [
+          1500,
+          520
+        ],
+        "parameters": {
+          "resource": "ifcFile",
+          "projectId": "={{ $('Set sync wait start').item.json.projectId }}",
+          "buildingId": "={{ $('Set sync wait start').item.json.buildingId }}",
+          "returnAll": true,
+          "operation": "getMany"
+        },
+        "credentials": {
+          "streamBimApi": {
+            "id": "v1oA21A76m4mWYvK",
+            "name": "StreamBIM app account"
+          }
+        }
+      },
+      {
+        "id": "379c67ed-a2bd-40c2-a661-d2db628ea45f",
+        "name": "Get IFC documents",
+        "type": "CUSTOM.streamBim",
+        "typeVersion": 8,
+        "position": [
+          1720,
+          520
+        ],
+        "parameters": {
+          "resource": "document",
+          "projectId": "={{ $('Set sync wait start').item.json.projectId }}",
+          "returnAll": true,
+          "filters": {
+            "fileExtensions": "ifc",
+            "isDeleted": false
+          },
+          "operation": "getMany"
+        },
+        "credentials": {
+          "streamBimApi": {
+            "id": "v1oA21A76m4mWYvK",
+            "name": "StreamBIM app account"
+          }
+        }
+      },
+      {
+        "id": "be839446-f5d5-4ca6-a630-d21332038e06",
+        "name": "Plan registrations",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1940,
+          520
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "const input = $input.first()?.json ?? {};\nconst projectId = String(input.projectId ?? '13588').trim();\nconst buildingId = String(input.buildingId ?? '1000').trim();\nlet processedFilenames = input.processedFilenames ?? [];\nif (typeof processedFilenames === 'string') {\n  const raw = processedFilenames.trim();\n  if (raw.startsWith('[')) {\n    try { processedFilenames = JSON.parse(raw); } catch { processedFilenames = raw ? [raw] : []; }\n  } else if (raw.includes(',')) {\n    processedFilenames = raw.split(',').map((s) => s.trim()).filter(Boolean);\n  } else {\n    processedFilenames = raw ? [raw] : [];\n  }\n}\nif (!Array.isArray(processedFilenames)) processedFilenames = [];\n\nconst ifcItems = $('Get IFC files').all().map((i) => i.json);\nconst docItems = $('Get IFC documents').all().map((i) => i.json);\n\nconst linkedDocIds = new Set();\nconst existingLayers = new Set();\nconst markedForDeletionDocIds = new Set();\n\nfor (const row of ifcItems) {\n  const id = String(row.id ?? '');\n  const suffix = id.includes('-') ? id.split('-').slice(1).join('-') : id;\n  if (suffix) linkedDocIds.add(suffix);\n  const attrs = row.attributes ?? {};\n  if (attrs['marked-for-deletion'] === true) {\n    markedForDeletionDocIds.add(suffix);\n  }\n  const layerRaw = String(attrs.layer ?? attrs['active-layer'] ?? '').trim();\n  for (const token of layerRaw.split('~')) {\n    const t = token.trim();\n    if (t) existingLayers.add(t);\n  }\n}\n\nfunction extractPrefix(filename) {\n  const base = String(filename ?? '').trim().split(/[\\\\/]/).pop() ?? '';\n  const noExt = base.replace(/\\.ifc$/i, '');\n  const head = noExt.split('_')[0]?.trim();\n  return head ? head.toUpperCase() : '';\n}\n\nfunction scoreLayerMatch(prefix, layer) {\n  const p = prefix.toUpperCase();\n  const l = String(layer ?? '').toUpperCase();\n  if (!p || !l) return 0;\n  if (p === l) return 100;\n  const lHead = l.split('_')[0];\n  if (p === lHead) return 95;\n  if (l.startsWith(p) || p.startsWith(l)) return 80;\n  if (l.includes(p) || p.includes(l)) return 65;\n  return 0;\n}\n\nfunction pickLayer(prefix, layers) {\n  let best = null;\n  let bestScore = 0;\n  for (const layer of layers) {\n    const score = scoreLayerMatch(prefix, layer);\n    if (score > bestScore) {\n      bestScore = score;\n      best = layer;\n    }\n  }\n  if (bestScore >= 65) return { layer: best, reason: 'matched_existing', newLayer: false };\n  return { layer: prefix, reason: 'new_layer_from_prefix', newLayer: true };\n}\n\nconst scope = new Set(\n  processedFilenames.map((n) => String(n).trim().toLowerCase()).filter(Boolean),\n);\nconst useScope = scope.size > 0;\n\nconst details = [];\nconst creates = [];\nconst layersCreated = new Set();\n\nfor (const doc of docItems) {\n  const documentId = String(doc.id ?? '').trim();\n  const filename = String(doc.attributes?.filename ?? doc.attributes?.name ?? documentId).trim();\n  if (!documentId) continue;\n  if (useScope && !scope.has(filename.toLowerCase())) continue;\n  if (linkedDocIds.has(documentId)) continue;\n  if (markedForDeletionDocIds.has(documentId)) {\n    details.push({ documentId, filename, action: 'skip', reason: 'marked_for_deletion' });\n    continue;\n  }\n  const prefix = extractPrefix(filename);\n  if (!prefix) {\n    details.push({ documentId, filename, action: 'skip', reason: 'no_prefix' });\n    continue;\n  }\n  const pick = pickLayer(prefix, [...existingLayers]);\n  if (pick.newLayer) layersCreated.add(pick.layer);\n  existingLayers.add(pick.layer);\n  linkedDocIds.add(documentId);\n  const row = {\n    action: 'create',\n    projectId,\n    buildingId,\n    documentId,\n    filename,\n    layer: pick.layer,\n    reason: pick.reason,\n  };\n  creates.push(row);\n  details.push(row);\n}\n\nif (creates.length === 0) {\n  return [{\n    json: {\n      action: 'summary',\n      skipped: true,\n      registered: 0,\n      skippedCount: details.filter((d) => d.action === 'skip').length,\n      layersCreated: [],\n      details,\n      projectId,\n      buildingId,\n    },\n  }];\n}\n\nreturn creates.map((row) => ({ json: row }));\n"
+        }
+      },
+      {
+        "id": "01367e24-7390-4235-8825-26480178009d",
+        "name": "Any to create?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          2160,
+          520
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "combinator": "and",
+            "conditions": [
+              {
+                "id": "fde5d894-34ae-44a5-8cc9-5051ea924e2b",
+                "leftValue": "={{ $json.action }}",
+                "rightValue": "create",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "88abc390-b0f1-427d-99b5-5539d617b3a4",
+        "name": "Create IFC file",
+        "type": "CUSTOM.streamBim",
+        "typeVersion": 8,
+        "position": [
+          2380,
+          440
+        ],
+        "parameters": {
+          "resource": "ifcFile",
+          "projectId": "={{ $json.projectId }}",
+          "buildingId": "={{ $json.buildingId }}",
+          "documentId": "={{ $json.documentId }}",
+          "layer": "={{ $json.layer }}",
+          "markedForDeletion": false,
+          "operation": "create"
+        },
+        "credentials": {
+          "streamBimApi": {
+            "id": "v1oA21A76m4mWYvK",
+            "name": "StreamBIM app account"
+          }
+        }
+      },
+      {
+        "id": "0554fcae-53ff-4a8f-b27e-c39d7b334829",
+        "name": "Build summary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2600,
+          520
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "const planned = $('Plan registrations').all().map((i) => i.json);\nif (planned.length === 1 && planned[0].action === 'summary') {\n  return [{ json: planned[0] }];\n}\nconst timeout = $('Sync timeout summary').all().map((i) => i.json)[0];\nif (timeout?.action === 'summary') {\n  return [{ json: timeout }];\n}\nconst created = $('Create IFC file').all().map((i) => i.json);\nconst creates = planned.filter((p) => p.action === 'create');\nconst layersCreated = [...new Set(creates.filter((p) => p.reason === 'new_layer_from_prefix').map((p) => p.layer))];\nconst details = planned.map((p) => {\n  if (p.action !== 'create') return p;\n  const ok = created.some((c) => String(c.id ?? '').endsWith(`-${p.documentId}`) || String(c.id ?? '') === `${p.buildingId}-${p.documentId}`);\n  return { ...p, action: ok ? 'created' : 'create_failed' };\n});\nreturn [{\n  json: {\n    action: 'summary',\n    skipped: false,\n    registered: creates.length,\n    skippedCount: planned.filter((p) => p.action === 'skip').length,\n    layersCreated,\n    details,\n  },\n}];\n"
+        }
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Defaults",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Defaults": {
+        "main": [
+          [
+            {
+              "node": "Set sync wait start",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set sync wait start": {
+        "main": [
+          [
+            {
+              "node": "Get sync activity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get sync activity": {
+        "main": [
+          [
+            {
+              "node": "Sync still running?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sync still running?": {
+        "main": [
+          [
+            {
+              "node": "Sync wait timeout?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Get IFC files",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sync wait timeout?": {
+        "main": [
+          [
+            {
+              "node": "Sync timeout summary",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Wait for sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Wait for sync": {
+        "main": [
+          [
+            {
+              "node": "Get sync activity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sync timeout summary": {
+        "main": [
+          [
+            {
+              "node": "Build summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get IFC files": {
+        "main": [
+          [
+            {
+              "node": "Get IFC documents",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get IFC documents": {
+        "main": [
+          [
+            {
+              "node": "Plan registrations",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Plan registrations": {
+        "main": [
+          [
+            {
+              "node": "Any to create?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Any to create?": {
+        "main": [
+          [
+            {
+              "node": "Create IFC file",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Build summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create IFC file": {
+        "main": [
+          [
+            {
+              "node": "Build summary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Jonatan Jacobsson",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-05-29T08:22:01.067Z",
+        "id": 1527,
+        "workflowId": "1hhknyxiLdRM5q6C",
+        "versionId": "8aadada0-3180-4566-9be8-49afc63db4d5",
+        "event": "activated",
+        "userId": "89796f97-0734-44e2-af42-6fdab3dde381"
+      }
+    ]
+  }
+}
