@@ -1,8 +1,16 @@
-ifcclash==0.7.10
-ifcopenshell==0.7.10
+# 2026-05-14: unpinned back to 0.8.5 alongside ifcpatch-worker. The morning's
+# defensive downgrade was disproved by the parallel load test against
+# ifcpatch (5/156 crashes on 0.8.4.post1 vs 1/156 on 0.8.5 — see
+# ifcpipeline/IFCOPENSHELL_0.8.5_REGRESSION.md §4). No equivalent ifcclash
+# load test was run; this unpin is by association on the assumption that the
+# wrapper bug is shared across products and 0.8.4.post1 offers no real
+# protection. If ifcclash-specific SIGSEGVs appear, repin and isolate.
+ifcclash==0.8.5
+ifcopenshell==0.8.5
 numpy
 scikit-learn
 typing_extensions
 pydantic
 rq
 boto3>=1.34,<2
+redis>=5,<6
