@@ -1,0 +1,9 @@
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
+
+# Object storage
+boto3>=1.34,<2
+
+# HTTP client for the fragmenter sidecar
+httpx>=0.27,<1

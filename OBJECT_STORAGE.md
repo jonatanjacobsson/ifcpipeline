@@ -1,7 +1,12 @@
 # Object-storage port of ifcpipeline — full coverage
 
+> Evaluating whether to keep MinIO long-term? See
+> [OBJECT_STORAGE_ALTERNATIVES.md](OBJECT_STORAGE_ALTERNATIVES.md) for the
+> 2026 FOSS S3 backend comparison (SeaweedFS, RustFS, Ceph RGW, Zenko,
+> VersityGW, MinIO source-build) and the non-destructive pilot playbook.
+
 **Branch:** `feature/object-storage` on a *new* clone
-(`/home/bimbot-ubuntu/apps/ifcpipeline-objectstorage`).
+(`/home/bimbot-ubuntu/apps/ifcpipeline`).
 The original `/home/bimbot-ubuntu/apps/ifcpipeline` is untouched.
 
 ## Goal
@@ -28,6 +33,7 @@ S3-compatible object store so that:
   | --- | --- | --- |
   | `ifccsv-worker` | `uploads/<ifc>` | `output/csv/<name>.csv` |
   | `ifctester-worker` | `uploads/<ifc>`, `uploads/<ids>` | `output/ids/<report>` |
+  | `ifc-gherkin-worker` | `uploads/<ifc>` | `output/gherkin/<report>.json` |
   | `ifcconvert-worker` | `uploads/<ifc>` | `output/converted/<name>.<ext>`, `.log` |
   | `ifcclash-worker` | `uploads/<ifc>` × N | `output/clash/<name>.json` |
   | `ifcdiff-worker` | `uploads/<old>`, `uploads/<new>` | `output/diff/<report>.json` |
@@ -79,7 +85,7 @@ S3-compatible object store so that:
 ## Running the smoke test
 
 ```bash
-cd /home/bimbot-ubuntu/apps/ifcpipeline-objectstorage
+cd /home/bimbot-ubuntu/apps/ifcpipeline
 ./smoke-test.sh
 ```
 
@@ -132,8 +138,49 @@ upload — the library itself is the blocker.
 
 ## Accessing MinIO
 
-Console: <http://localhost:9001>  (user `minioadmin` / pass `minioadmin`).
-S3 API: <http://localhost:9000>  (path-style addressing, region `us-east-1`).
+Console: <http://localhost:9001> (credentials: `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env`).
+S3 API: <http://localhost:9000> (path-style addressing, region `us-east-1`).
+
+### Exposing the S3 API (e.g. Cloudflare Tunnel)
+
+Compose publishes MinIO on **127.0.0.1** only so the daemon is not reachable
+from arbitrary networks. To give browsers a public URL (for presigned
+redirects, e.g. `https://minio-api.example.com`):
+
+1. Run **cloudflared** on the **same host** as Docker (outside the compose
+   network is fine).
+2. Point a tunnel hostname at the **origin** the host can reach:
+
+   ```yaml
+   # Example ingress fragment — use your real tunnel name / hostname
+   - hostname: minio-api.byggstyrning.se
+     service: http://127.0.0.1:9000
+   ```
+
+3. Set **`S3_PUBLIC_ENDPOINT_URL`** to that public URL (`https://minio-api…`).
+4. Configure **CORS** on the MinIO bucket for your viewer origin
+   (`https://ifcpreview…`) so `fetch()` after the 307 can read the object.
+
+Expose the **console** (`:9001`) only if you need it remotely; prefer a
+separate tunnel, IP allowlist, or SSO in front of it — not the open internet
+with default creds.
+
+### Rotating MinIO root credentials
+
+`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` in compose come from **`S3_ACCESS_KEY`**
+and **`S3_SECRET_KEY`** in `.env`. All workers and the api-gateway must use the
+same values.
+
+- **New / empty `minio-data` volume:** set strong values in `.env`, then
+  `docker compose up -d --force-recreate minio` (and recreate services that
+  talk to S3).
+- **Existing volume already initialized** with old root credentials: MinIO may
+  keep the previous root until you change it in the **MinIO Console**
+  (Identity → Users → root) or via `mc` using the **old** password; then set
+  `.env` to match. If you only change `.env` without aligning MinIO, boto3
+  calls from the gateway/workers will fail with access denied. As a last
+  resort on non-production data, remove the `minio-data` volume and start
+  fresh (destructive).
 
 ## Environment variables
 
@@ -142,8 +189,8 @@ S3 API: <http://localhost:9000>  (path-style addressing, region `us-east-1`).
 | `USE_OBJECT_STORAGE` | `true` | gateway + workers | Flip to `false` for legacy mode |
 | `S3_ENDPOINT_URL` | `http://minio:9000` | gateway + workers | Internal MinIO URL |
 | `S3_PUBLIC_ENDPOINT_URL` | `http://localhost:9000` | gateway | Rewritten host for presigned URLs |
-| `S3_ACCESS_KEY` | `minioadmin` | all | MinIO credentials |
-| `S3_SECRET_KEY` | `minioadmin` | all | MinIO credentials |
+| `S3_ACCESS_KEY` | (set in `.env`) | all | MinIO root user (`MINIO_ROOT_USER`) |
+| `S3_SECRET_KEY` | (set in `.env`) | all | MinIO root password (`MINIO_ROOT_PASSWORD`) |
 | `S3_BUCKET` | `ifcpipeline` | all | Single bucket name |
 | `S3_REGION` | `us-east-1` | all | MinIO ignores this; boto3 needs it |
 
@@ -285,6 +332,151 @@ asserts:
 - **Actor tracking** is intentionally skipped in this iteration. Adding a
   `created_by` TEXT column to `object_versions` (+ a propagated request
   header) is the obvious follow-up.
+
+## Versioned keys (day-2 overwrites)
+
+MinIO bucket versioning is enabled at bootstrap (`minio-setup` runs
+`mc version enable local/<bucket>`), so overwriting a key creates a new
+object with its own `VersionId` while the previous bytes remain retrievable.
+The audit trail matches that model:
+
+- Every successful PUT (root upload or worker derivative) records a fresh
+  `object_versions` row carrying the MinIO `VersionId`. The uniqueness
+  target is the expression index
+  `UNIQUE (bucket, object_key, COALESCE(version_id, sha256))`, so two
+  uploads to the same key with the same bytes but different `VersionId`s
+  are distinct rows.
+- `GET /audit/history/{object_key:path}` returns every audited version for
+  a key, newest first. Each entry carries `sha256`, `version_id`,
+  `audit_id`, and the standard `kind`/`operation`/`worker` metadata.
+- `GET /lineage/{object_key:path}` accepts `?audit_id=<id>` or
+  `?version_id=<vid>` to anchor the lineage walk at a specific version;
+  without either, it uses the newest row for the key.
+
+### Auto-pin at enqueue
+
+The gateway resolves and stamps a `version_id` onto every job payload
+before it hits Redis. Clients don't have to think about versions — the job
+processes exactly the bytes that existed at enqueue time, even if the key
+is overwritten mid-flight. Callers that *do* want an exact pin (e.g. a
+replay, or a deterministic CI run) can send:
+
+```jsonc
+{
+  "input_file": "uploads/Arch.ifc",
+  "input_version_id": "a1b2c3..."   // MinIO VersionId
+  // OR:
+  // "input_audit_id": 42            // object_versions.id row
+  // Multi-input endpoints (clash, diff) also accept:
+  // "input_version_ids": { "uploads/Arch.ifc": "a1b2c3...", "uploads/Struct.ifc": "d4e5f6..." }
+}
+```
+
+All custom n8n nodes (`CUSTOM.*`) expose the same three fields under an
+optional **Version Pinning** collection; leaving it empty preserves the
+auto-pin behaviour.
+
+## MinIO-native checksums
+
+`shared/object_storage.py` controls its hashing strategy with the
+`S3_CHECKSUM_MODE` env var:
+
+- **`native`** — asks MinIO to compute SHA-256 server-side via the S3 spec's
+  `ChecksumAlgorithm=SHA256`. `TransferConfig(multipart_threshold=5 GiB)`
+  keeps the upload single-part so the returned checksum is a whole-object
+  hash, not a tree/composite digest. If native is unavailable or returns a
+  composite, the helper falls back to app-side hashing automatically.
+- **`app`** *(default for compatibility)* — streams the upload through a
+  `HashingReader` that accumulates the sha256 client-side.
+
+Toggle with `S3_CHECKSUM_MODE=native` in `.env` once the MinIO deployment
+has rolled out the checksum extension. The fallback path remains available
+for self-hosted backends that don't speak the native API.
+
+## GUID-level audit trail
+
+The audit tables above track objects (files). On top of them, an optional
+**GUID index** records which IFC `GlobalId`s live in which object
+versions, so you can answer "where did this element go?" without a
+separate BIM data lake.
+
+### Tables (created by `postgres/init/05-guid-index.sql`)
+
+- `object_guids (object_version_id, ifc_guid, entity_type, role)` with
+  UNIQUE `(object_version_id, ifc_guid, role)`. Roles are
+  `root` / `patched` / `split` / `exported` / `converted` / `qto_added` and
+  `diff_added` / `diff_deleted` / `diff_changed` for ifcdiff reports.
+- `tester_results (object_version_id, ifc_guid, ids_rule, passed, reason)` —
+  populated directly by `ifctester-worker`, never via the generic index.
+- `clash_pairs (object_version_id, guid_a, guid_b, distance, kind)` —
+  populated directly by `ifcclash-worker`.
+
+### How it's populated
+
+`shared/object_storage.upload_and_audit` and the gateway's `/upload/{ft}`
+enqueue a `tasks.index_object(audit_id, object_key, version_id, role)` job
+onto the `guid_index` RQ queue after each successful PUT.
+The `guid-index-worker` downloads the pinned `VersionId`, picks the right
+streaming extractor from `shared/guid_extract.py` (STEP regex for
+`.ifc`/`.ifczip`, `ijson` for JSON, pandas chunks for `.csv`/`.xlsx`,
+classified extraction for diff reports), and batches inserts through
+`audit_db.record_guids` at 5 000 rows per `execute_values` call with
+`ON CONFLICT DO NOTHING`.
+
+### Operator knob: `GUID_INDEX_MODE`
+
+| Value | Behavior |
+| --- | --- |
+| `off` *(default)* | Never enqueue, no DB writes. Safe default for fresh stacks. |
+| `async` | Enqueue on `guid_index`; the dedicated worker does the extraction. |
+| `sync` | Extract in-process on the caller — use only for smoke tests and small installs. |
+
+Set it per-service in `.env` / `docker-compose.yml`. Only the api-gateway
+and guid-index-worker need the variable for the async path.
+
+### Query endpoints
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /guid/{guid}` | Every `object_version` the GUID appears in, newest first. `limit` capped at 1000, default 100, `after_id` cursor. |
+| `GET /guid/{guid}/path?depth=N` | Recursive lineage graph around the GUID. Response contains `nodes` (each with `present: bool`), `edges` (with `parent_version_id`), and `dropped_at` edges where `parent.present && !child.present`, annotated with the operation that dropped it. |
+| `GET /guid/{guid}/diffs` | Versions where the GUID was flagged with a `diff_*` role. |
+| `GET /guid/{guid}/clashes` | Clash pairs referencing the GUID. |
+| `GET /guid/{guid}/tester` | ifctester verdicts (`passed`/`reason`) per run. |
+
+All endpoints accept `limit` (≤1000) and `after_id` for pagination and are
+protected by the same `X-API-Key` header as the rest of the gateway.
+
+### Backfilling existing objects
+
+`scripts/backfill_guids.py` iterates `object_versions` and enqueues one
+indexing job per row at its pinned `version_id`:
+
+```bash
+docker compose run --rm api-gateway \
+  python /app/scripts/backfill_guids.py --batch-size 500
+```
+
+`--dry-run` prints what would be enqueued without touching Redis.
+`--role-override <role>` forces a single role on every job. Idempotent by
+the UNIQUE `(object_version_id, ifc_guid, role)` index, so re-runs are
+no-ops.
+
+## Lifecycle & retention
+
+MinIO bucket versioning keeps non-current versions indefinitely by default,
+which is great for audit but does grow storage. Set an ILM rule to expire
+non-current versions after N days so the audit trail keeps the *row* but
+the old bytes get collected:
+
+```bash
+docker compose exec minio \
+  mc ilm add --expire-noncurrent-days 90 local/${S3_BUCKET:-ifcpipeline}
+```
+
+Tune the window to your compliance needs. The audit rows for expired
+versions remain in Postgres (so `GET /audit/history` still shows them),
+but downloads of those specific `version_id`s start returning 404.
 
 ## Still open / next steps
 

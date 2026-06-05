@@ -1,0 +1,89 @@
+DIN 276:2018-12 — Kostengruppen (reference summary)
+========================================================================
+
+IMPORTANT: The authoritative DIN 276 text is copyrighted (Beuth Verlag).
+This file is a compact 1st/2nd-level overview for mapping discussions only.
+Purchase DIN 276:2018-12 for complete 3rd-level titles and rules.
+
+Generated: 2026-05-26
+Public structure sources: industry summaries of DIN 276:2018-12 (KG 100–800).
+
+FORMAT:  <code>  <title>
+
+100  Grundstück
+  110  Grundstückswert
+  120  Grundstücksnebenkosten
+  130  Rechte Dritter
+
+200  Vorbereitende Maßnahmen
+  210  Herrichten
+  220  Öffentliche Erschließung
+  230  Nicht öffentliche Erschließung
+  240  Ausgleichsmaßnahmen und -abgaben
+  250  Sicherungsmaßnahmen
+  260  Unvorhergesehene Maßnahmen
+  270  Baustelleneinrichtung
+  280  Baustellenversorgung und -entsorgung
+  290  Sonstige Maßnahmen für vorbereitende Maßnahmen
+
+300  Bauwerk – Baukonstruktionen
+  310  Baugrube, Erdbau
+  320  Gründung, Unterbau
+  330  Außenwände / vertikale Baukonstruktionen, außen
+  340  Innenwände / vertikale Baukonstruktionen, innen
+  350  Decken / horizontale Baukonstruktionen
+  360  Dächer
+  370  Infrastrukturanlagen
+  380  Baukonstruktive Einbauten
+  390  Sonstige Maßnahmen für Baukonstruktionen
+
+400  Bauwerk – Technische Anlagen
+  410  Abwasser-, Wasser-, Gasanlagen
+  420  Wärmeversorgungsanlagen
+  430  Raumlufttechnische Anlagen
+  440  Elektrische Anlagen
+  450  Kommunikations-, sicherheits- und informationstechnische Anlagen
+  460  Förderanlagen
+  470  Nutzungsspezifische und verfahrenstechnische Anlagen
+  480  Gebäude- und Anlagenautomation
+  490  Sonstige Maßnahmen für technische Anlagen
+
+500  Außenanlagen und Freiflächen
+  510  Gelände
+  520  Befestigte Flächen
+  530  Baukonstruktionen in Außenanlagen
+  540  Technische Anlagen in Außenanlagen
+  550  Einbauten in Außenanlagen
+  560  Vegetationsflächen
+  570  Wasserflächen
+  580  Besondere Maßnahmen in Außenanlagen
+  590  Sonstige Maßnahmen für Außenanlagen
+
+600  Ausstattung und Kunstwerke
+  610  Ausstattung
+  620  Künstlerische Ausstattung
+
+700  Baunebenkosten
+  710  Bauherrenaufgaben
+  720  Vorbereitung der Objektplanung
+  730  Objektplanung
+  740  Allgemeine Baunebenkosten
+  750  Sonstige Baunebenkosten
+
+800  Finanzierung
+  810  Finanzierungsnebenkosten
+  820  Zinsen
+
+------------------------------------------------------------------------
+Common 3-digit prefixes in German arch IFC (project-specific suffixes):
+
+  342  Nichttragende Innenwände
+  343  Innenstützen
+  337  Fassade (often mapped under 330/332 in norm; check project convention)
+  351  Deckenkonstruktionen / Träger
+  361  Dachkonstruktionen
+  440  Elektrische Anlagen (e.g. PV, building electrical)
+
+Nobel A1 uses full strings on BIP.BSABe/Kostengruppe, e.g.:
+  "342 Innenwände nicht tragend.ARC"
+  "440 Elektro PV"

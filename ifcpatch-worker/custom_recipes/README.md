@@ -3,6 +3,14 @@
 ## Overview
 This directory contains custom IfcPatch recipes for the IFC Pipeline. Custom recipes allow you to define your own IFC file transformations beyond the built-in recipes provided by IfcOpenShell.
 
+- **`OrientFacetedBrepShells`** — After **`TessellateElements`**, unifies **manifold face winding** (edge-adjacency propagation) and applies a **signed-volume** check so solids are **outward-facing** (helps Solibri / viewers with reversed faces). Use `use_custom: true` and recipe name `OrientFacetedBrepShells`; arguments: optional selector (default `IfcFlowFitting`), optional `coord_decimals` (default `6`). For mesh-only fixes without editing IFC, prefer **`IfcConvert --reorient-shells`** or **`geom.settings().set("reorient-shells", True)`** (see `tests/test_reorient_kernel_vs_recipe.py`).
+
+- **`MagiadTessellateAndOrient`** — Runs **`TessellateElements`** then **`OrientFacetedBrepShells`** in one job (same logic as `scripts/repair_full_magiad_ifc.py`), including **per-type** tessellation for multi-class selectors and **batched GlobalIds** for **`IfcElement`**. Arguments: `types` (string, default `IfcFlowFitting`), `preset_mep_flow` (`"true"` / `"false"` — **IFC2×3**: fixed MEP distribution set; **IFC4+**: all `IfcDistributionElement` leaf classes such as `IfcDuctSilencer`, plus ancillary types **excluding** `IfcCovering` — add `IfcCovering` in `types` if needed; merges extra classes from `types`), `ifc_element_batch_size`, `coord_decimals`. For large models (e.g. V--57), use **`preset_mep_flow: true`** and raise the IfcPatch node **timeout** (e.g. 1–2 hours).
+
+  If **`IfcElement`** appears anywhere in **`types`** (directly or together with **`preset_mep_flow: true`**), the recipe **collapses** the class list to **`IfcElement` only** and uses the **batched** Tessellate + Orient pipeline. **`IfcElement`** subsumes the MEP preset classes; keeping both would build a huge multi-class selector (~10k+ products) and can **SIGSEGV** the ifcopenshell geometry kernel — the batched path avoids that.
+
+  The **ifcpatch-worker** runs this recipe in a **spawned subprocess** and, on kernel **SIGSEGV**, automatically **retries** with smaller batches (see **`IFC_MAGIAD_ORIENT_BATCH_CAP`** and **`IFC_MAGIAD_ELEMENT_BATCH`** in [`tasks.py`](../tasks.py) / [`_magaid_shell_repair.py`](_magaid_shell_repair.py)) so the RQ work horse is not killed by exit **139**.
+
 ## Creating a Custom Recipe
 
 ### Quick Start

@@ -105,8 +105,11 @@ if 'ifcopenshell.util.shape_builder' not in sys.modules:
     pass
 import tempfile
 import shutil
+import signal
+from multiprocessing import get_context
+from queue import Empty
 from pathlib import Path
-from typing import List, Dict, Any, get_type_hints, get_origin, get_args
+from typing import List, Dict, Any, Optional, get_type_hints, get_origin, get_args
 from shared.classes import IfcPatchRequest, IfcPatchListRecipesRequest
 from shared import object_storage as s3
 
@@ -123,6 +126,41 @@ def _current_job_id():
         return job.id if job else None
     except Exception:
         return None
+
+
+def _resolve_input_original_filename(
+    request: "IfcPatchRequest", s3_ctx: Optional[dict]
+) -> str:
+    """Best-effort resolve of the human-readable upload name for this job's
+    input. Falls back to the bare basename of ``request.input_file`` so the
+    job result always carries something printable.
+
+    Walks the audit lineage of the resolved input key so derivative inputs
+    (e.g. a patched file fed back in) still surface the *root* upload name.
+    """
+    fallback = os.path.basename(request.input_file) if request.input_file else ""
+    try:
+        input_key = (
+            s3_ctx["input_key"] if s3_ctx else s3.normalize_input_key(request.input_file)
+        )
+    except Exception:
+        input_key = None
+    pin = s3_ctx.get("input_pin") if s3_ctx else None
+    audit_id = getattr(request, "input_audit_id", None)
+
+    try:
+        from shared import audit_db
+        name = audit_db.resolve_original_filename(
+            object_key=input_key,
+            version_id=pin,
+            audit_id=audit_id,
+        )
+        if name:
+            return name
+    except Exception as e:
+        logger.debug("original_filename lookup failed for %s: %s", input_key, e)
+    return fallback
+
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +402,18 @@ def filter_arguments_for_recipe(recipe_name: str, arguments: List[Any], use_cust
     """
     if not arguments:
         return []
-    
+
+    # n8n IfcPatch nodes often send "" for unused optional argumentValues slots.
+    if use_custom and all(
+        isinstance(a, str) and not str(a).strip() for a in arguments
+    ):
+        logger.warning(
+            "Recipe '%s': all %s argument(s) were blank; using recipe defaults",
+            recipe_name,
+            len(arguments),
+        )
+        return []
+
     try:
         # Load the recipe module
         if use_custom:
@@ -461,13 +510,442 @@ def filter_arguments_for_recipe(recipe_name: str, arguments: List[Any], use_cust
         )
         return arguments
 
+
+def _ifc_patch_request_to_dict(request: IfcPatchRequest) -> dict:
+    if hasattr(request, "model_dump"):
+        return request.model_dump()
+    return request.dict()
+
+
+# Subprocess strategies for MagiadTessellateAndOrient: ifcopenshell.geom can SIGSEGV; smaller batches reduce risk.
+MAGIA_ISOLATION_STRATEGIES: list[tuple[str, dict[str, str]]] = [
+    ("default", {}),
+    ("orient_5_tess_25", {"IFC_MAGIAD_ORIENT_BATCH_CAP": "5", "IFC_MAGIAD_ELEMENT_BATCH": "25"}),
+    ("orient_3_tess_15", {"IFC_MAGIAD_ORIENT_BATCH_CAP": "3", "IFC_MAGIAD_ELEMENT_BATCH": "15"}),
+    ("orient_1_tess_10", {"IFC_MAGIAD_ORIENT_BATCH_CAP": "1", "IFC_MAGIAD_ELEMENT_BATCH": "10"}),
+]
+
+def _isolated_recipe_worker(result_queue, payload: dict) -> None:
+    """Top-level entry for multiprocessing spawn; isolates ifcopenshell C++
+    SIGSEGVs from the rq work-horse. Recipe-agnostic — used by both the
+    generic _run_recipe_in_spawn_isolation path and the magiad batch-cap
+    retry wrapper.
+    """
+    import logging as _logging
+
+    _logging.basicConfig(level=_logging.INFO)
+    wlog = _logging.getLogger("ifcpatch.isolated_recipe")
+    try:
+        env_overrides = payload.get("env_overrides") or {}
+        for k, v in env_overrides.items():
+            os.environ[k] = str(v)
+        if env_overrides:
+            wlog.info("Isolated recipe env overrides: %s", env_overrides)
+        req = IfcPatchRequest(**payload["request"])
+        result = _execute_ifcpatch_core(
+            req,
+            payload["input_path"],
+            payload["output_path"],
+            payload["output_dir"],
+            payload.get("s3_ctx"),
+        )
+        result_queue.put(("ok", result))
+    except Exception as e:
+        import traceback as _tb
+
+        tb_str = _tb.format_exc()
+        try:
+            result_queue.put(("err", f"{type(e).__name__}: {e}\n{tb_str}"))
+        except Exception:
+            pass
+        wlog.exception("Isolated recipe worker failed")
+        raise
+
+
+def _run_recipe_in_spawn_isolation(
+    request: IfcPatchRequest,
+    input_path: str,
+    output_path: str,
+    output_dir: str,
+    s3_ctx: Optional[dict],
+    *,
+    env_overrides: Optional[dict] = None,
+    label: str = "default",
+) -> dict:
+    """Run any ifcpatch recipe in a `multiprocessing.get_context("spawn")`
+    subprocess, single attempt. A SIGSEGV inside `_ifcopenshell_wrapper`
+    kills only the spawned child; the rq work-horse survives and converts
+    the non-zero child exit code into a clean RuntimeError that n8n can
+    retry. Caller is responsible for any retry policy on top of this.
+    """
+    ctx = get_context("spawn")
+    payload = {
+        "request": _ifc_patch_request_to_dict(request),
+        "input_path": input_path,
+        "output_path": output_path,
+        "output_dir": output_dir,
+        "s3_ctx": s3_ctx,
+        "env_overrides": env_overrides or {},
+    }
+    q = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=_isolated_recipe_worker, args=(q, payload))
+    proc.start()
+    proc.join()
+    if proc.exitcode == 0:
+        try:
+            status, data = q.get(timeout=60)
+        except Empty as e:
+            raise RuntimeError(
+                f"ifcpatch recipe {request.recipe!r} child exited 0 but sent no result"
+            ) from e
+        if status == "ok":
+            return data
+        raise RuntimeError(
+            f"ifcpatch recipe {request.recipe!r} isolated worker: {data}"
+        )
+    # Non-zero exit: try to collect any err message the child sent before dying.
+    child_err: Optional[str] = None
+    try:
+        status, data = q.get_nowait()
+        if status == "err":
+            child_err = data
+    except Empty:
+        pass
+    raise RuntimeError(
+        f"ifcpatch recipe {request.recipe!r} crashed in isolated subprocess "
+        f"(strategy={label!r}, exit={proc.exitcode}"
+        + (f", child={child_err!r}" if child_err else "")
+        + ")"
+    )
+
+
+def _run_magiad_with_isolation(
+    request: IfcPatchRequest,
+    input_path: str,
+    output_path: str,
+    output_dir: str,
+    s3_ctx: Optional[dict],
+) -> dict:
+    """Run MagiadTessellateAndOrient in a spawned subprocess; retry with
+    tighter batch caps after SIGSEGV. Thin wrapper over
+    _run_recipe_in_spawn_isolation that adds the magiad-specific
+    MAGIA_ISOLATION_STRATEGIES retry ladder on top.
+    """
+    last_failure: Optional[Exception] = None
+    for attempt, (label, env_overrides) in enumerate(MAGIA_ISOLATION_STRATEGIES):
+        try:
+            result = _run_recipe_in_spawn_isolation(
+                request,
+                input_path,
+                output_path,
+                output_dir,
+                s3_ctx,
+                env_overrides=env_overrides,
+                label=label,
+            )
+            if attempt > 0:
+                logger.info(
+                    "MagiadTessellateAndOrient succeeded with strategy %r (attempt %d/%d)",
+                    label,
+                    attempt + 1,
+                    len(MAGIA_ISOLATION_STRATEGIES),
+                )
+            return result
+        except RuntimeError as e:
+            last_failure = e
+            # Treat any subprocess failure as a retryable native-kernel failure.
+            # In practice the IfcOpenShell C++ geometry kernel either SIGSEGVs
+            # (-11) or corrupts Python object memory, surfacing as exotic
+            # TypeErrors such as "'cell' object is not callable", "'Item'
+            # object is not iterable", or "'tuple' object does not support the
+            # context manager protocol" deep inside ifcopenshell/file.py or
+            # shape_builder.py. These are not legitimate Python logic errors in
+            # our recipes, so we retry with the next (more conservative)
+            # strategy.
+            if attempt + 1 < len(MAGIA_ISOLATION_STRATEGIES):
+                logger.warning("%s, trying next strategy", e)
+                continue
+            logger.error("%s, no more strategies", e)
+            break
+    if last_failure is not None:
+        raise last_failure
+    raise RuntimeError(
+        "MagiadTessellateAndOrient: all isolation strategies exhausted (ifcopenshell kernel failure)"
+    )
+
+
+def _execute_ifcpatch_core(
+    request: IfcPatchRequest,
+    input_path: str,
+    output_path: str,
+    output_dir: str,
+    s3_ctx: Optional[dict],
+) -> dict:
+    """Load IFC, run recipe, write output, optional S3 upload. Used in-process and from isolated worker."""
+    logger.info(f"Input file found: {input_path}")
+
+    logger.info("Loading IFC file...")
+    ifc_file = ifcopenshell.open(input_path)
+
+    try:
+        element_count = len(ifc_file.by_type("IfcRoot"))
+        logger.info(f"IFC file loaded: schema={ifc_file.schema}, elements={element_count}")
+    except Exception:
+        logger.info(f"IFC file loaded: schema={ifc_file.schema}")
+
+    arguments = request.arguments or []
+
+    if request.recipe in ["MergeProject", "MergeProjects"]:
+        if arguments and isinstance(arguments[0], str):
+            if arguments[0].startswith("[") and arguments[0].endswith("]"):
+                try:
+                    import json
+
+                    arguments = [json.loads(arguments[0])]
+                    logger.info(f"Parsed JSON string arguments for {request.recipe}")
+                except Exception:
+                    arguments = [arguments]
+                    logger.info(f"Wrapped arguments in list for {request.recipe}")
+            else:
+                arguments = [arguments]
+                logger.info(f"Wrapped arguments in list for {request.recipe}")
+
+    if "ifcopenshell.util.shape_builder" not in sys.modules or not hasattr(
+        sys.modules.get("ifcopenshell.util.shape_builder", None), "ShapeBuilder"
+    ):
+        logger.debug("Applying circular import fix before argument filtering")
+        _fix_circular_import()
+
+    if not request.use_custom:
+        original_arg_count = len(arguments) if arguments else 0
+        arguments = filter_arguments_for_recipe(request.recipe, arguments, use_custom=False)
+        if original_arg_count != len(arguments):
+            logger.info(
+                f"Filtered arguments for recipe '{request.recipe}': "
+                f"{original_arg_count} -> {len(arguments) if arguments else 0} argument(s)"
+            )
+
+    patch_args = {
+        "input": input_path,
+        "file": ifc_file,
+        "recipe": request.recipe,
+        "arguments": arguments,
+    }
+
+    logger.info(f"Recipe: {request.recipe}")
+    logger.info(f"Arguments count: {len(arguments) if arguments else 0}")
+    logger.info(f"Arguments: {arguments}")
+
+    # Pre-flight breadcrumb so any subsequent SIGSEGV in the work-horse can be
+    # tied to a specific input file + recipe + arg set when post-mortem'ing
+    # core dumps under /var/crash/cores. Always logged (cheap), and when
+    # IFCPATCH_DEBUG=1 we also dump file size + element count breakdown by
+    # IFC type (the most common segfault triggers in 0.8.x are unusual
+    # entity counts vs. selector predicates).
+    try:
+        import os as _os
+        _input_size = _os.path.getsize(input_path) if _os.path.exists(input_path) else -1
+        logger.info(
+            f"PRE-IFCOPENSHELL: pid={_os.getpid()} recipe={request.recipe} "
+            f"input={input_path} input_bytes={_input_size} "
+            f"use_custom={request.use_custom} arg_count={len(arguments) if arguments else 0}"
+        )
+        if _os.environ.get("IFCPATCH_DEBUG") == "1":
+            from collections import Counter as _Counter
+            _types = _Counter(e.is_a() for e in ifc_file)
+            logger.info(
+                f"PRE-IFCOPENSHELL DEBUG: top types = "
+                f"{_types.most_common(15)}"
+            )
+            logger.info(f"PRE-IFCOPENSHELL DEBUG: full args = {arguments!r}")
+    except Exception as _bcerr:
+        logger.warning(f"PRE-IFCOPENSHELL breadcrumb failed: {_bcerr}")
+
+    patcher_instance = None
+    artifact_paths: dict[str, str] = {}
+
+    if request.use_custom:
+        logger.info(f"Loading custom recipe: {request.recipe}")
+        custom_patcher = load_custom_recipe(request.recipe)
+        ifc_file._input_file_path = input_path
+        custom_args = filter_arguments_for_recipe(request.recipe, arguments, use_custom=True)
+        if custom_args:
+            patcher_instance = custom_patcher(ifc_file, logger, *custom_args)
+        else:
+            patcher_instance = custom_patcher(ifc_file, logger)
+        patcher_instance.patch()
+        output = patcher_instance.get_output()
+        if hasattr(patcher_instance, "get_artifacts"):
+            raw_artifacts = patcher_instance.get_artifacts()
+            if isinstance(raw_artifacts, dict):
+                artifact_paths = {
+                    name: path
+                    for name, path in raw_artifacts.items()
+                    if path and os.path.isfile(path)
+                }
+    else:
+        logger.info(f"Executing built-in recipe: {request.recipe}")
+        needs_fix = False
+        if "ifcopenshell.util.shape_builder" not in sys.modules:
+            needs_fix = True
+            logger.debug("shape_builder not in sys.modules, applying fix")
+        else:
+            sb_module = sys.modules.get("ifcopenshell.util.shape_builder")
+            if sb_module is None or not hasattr(sb_module, "ShapeBuilder"):
+                needs_fix = True
+                logger.debug("shape_builder missing ShapeBuilder attribute, applying fix")
+
+        if needs_fix:
+            logger.info("Applying circular import fix before recipe execution")
+            try:
+                _fix_circular_import()
+                if "ifcopenshell.util.shape_builder" in sys.modules:
+                    sb = sys.modules["ifcopenshell.util.shape_builder"]
+                    if hasattr(sb, "ShapeBuilder"):
+                        logger.debug("Circular import fix applied successfully")
+                        try:
+                            recipe_module_name = f"ifcpatch.recipes.{request.recipe}"
+                            if recipe_module_name not in sys.modules:
+                                logger.debug(f"Pre-importing recipe module: {recipe_module_name}")
+                                importlib.import_module(recipe_module_name)
+                                logger.debug(f"Successfully pre-imported {recipe_module_name}")
+                        except Exception as pre_import_error:
+                            logger.warning(
+                                f"Failed to pre-import recipe module (will try normal import): {pre_import_error}"
+                            )
+                    else:
+                        logger.warning("Fix applied but ShapeBuilder not available")
+                else:
+                    logger.warning("Fix applied but shape_builder not in sys.modules")
+            except Exception as e:
+                logger.error(f"Failed to apply circular import fix: {e}", exc_info=True)
+
+        output = ifcpatch.execute(patch_args)
+
+    local_tmp = os.path.join(output_dir, f".tmp_{os.path.basename(output_path)}")
+    logger.info(f"Writing output to local temp: {local_tmp}")
+    ifcpatch.write(output, local_tmp)
+    output_size = os.path.getsize(local_tmp)
+    logger.info(f"Local write done ({output_size} bytes), copying to: {output_path}")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    shutil.copy2(local_tmp, output_path)
+    os.remove(local_tmp)
+
+    if not os.path.exists(output_path):
+        raise RuntimeError("Output file was not created successfully")
+    logger.info(f"IfcPatch completed successfully. Output size: {output_size} bytes")
+
+    original_filename = _resolve_input_original_filename(request, s3_ctx)
+    output_filename = os.path.basename(
+        s3_ctx["output_key"] if s3_ctx else (request.output_file or output_path)
+    )
+
+    result: dict = {
+        "success": True,
+        "message": f"Successfully applied recipe '{request.recipe}'",
+        "output_path": output_path,
+        "recipe": request.recipe,
+        "is_custom": request.use_custom,
+        "output_size_bytes": output_size,
+        "arguments_used": request.arguments,
+        "original_filename": original_filename,
+        "output_filename": output_filename,
+    }
+    if s3_ctx is not None:
+        try:
+            audit = s3.upload_and_audit(
+                output_path,
+                key=s3_ctx["output_key"],
+                operation="ifcpatch",
+                worker=WORKER_NAME,
+                job_id=_current_job_id(),
+                parents=[("input", s3_ctx["input_key"])],
+                parent_version_ids=(
+                    {s3_ctx["input_key"]: s3_ctx["input_pin"]} if s3_ctx.get("input_pin") else None
+                ),
+                guid_role="patched",
+                metadata={
+                    "recipe": request.recipe,
+                    "is_custom": request.use_custom,
+                    "arguments": request.arguments,
+                    "output_size_bytes": output_size,
+                    "original_filename": original_filename,
+                    "output_filename": output_filename,
+                },
+                content_type="application/x-step",
+            )
+            result.update(
+                {
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "output_key": s3_ctx["output_key"],
+                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
+                    "sha256": audit["sha256"],
+                    "size_bytes": audit["size_bytes"],
+                    "audit_id": audit["audit_id"],
+                    "version_id": audit["version_id"],
+                }
+            )
+            stem = os.path.splitext(os.path.basename(s3_ctx["output_key"]))[0]
+            base_dir = os.path.dirname(s3_ctx["output_key"])
+            _ARTIFACT_CONTENT_TYPES = {
+                ".json": "application/json",
+                ".bcf": "application/octet-stream",
+                ".ifc": "application/x-step",
+            }
+            for art_name, art_path in artifact_paths.items():
+                suffix = os.path.splitext(art_path)[1] or ""
+                if base_dir:
+                    art_key = f"{base_dir}/{stem}_{art_name}{suffix}"
+                else:
+                    art_key = s3.normalize_output_key(f"{stem}_{art_name}{suffix}", "patch")
+                art_audit = s3.upload_and_audit(
+                    art_path,
+                    key=art_key,
+                    operation="ifcpatch",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[("input", s3_ctx["input_key"])],
+                    parent_version_ids=(
+                        {s3_ctx["input_key"]: s3_ctx["input_pin"]} if s3_ctx.get("input_pin") else None
+                    ),
+                    guid_role="coordination_artifact",
+                    metadata={
+                        "recipe": request.recipe,
+                        "artifact_name": art_name,
+                        "original_filename": os.path.basename(art_path),
+                    },
+                    content_type=_ARTIFACT_CONTENT_TYPES.get(suffix.lower(), "application/octet-stream"),
+                )
+                result[f"{art_name}_key"] = art_key
+                result[f"{art_name}_path"] = f"s3://{s3.bucket_name()}/{art_key}"
+                result[f"{art_name}_audit_id"] = art_audit["audit_id"]
+                logger.info(
+                    "Uploaded coordination artifact %s → s3://%s/%s",
+                    art_name,
+                    s3.bucket_name(),
+                    art_key,
+                )
+            if patcher_instance is not None and hasattr(patcher_instance, "get_summary"):
+                summary = patcher_instance.get_summary()
+                if isinstance(summary, dict):
+                    result["coordination_summary"] = summary
+        finally:
+            shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
+    return result
+
+
 def run_ifcpatch(job_data: dict) -> dict:
     """
     Execute an IfcPatch recipe on an IFC file.
-    
+
+    ``MagiadTessellateAndOrient`` runs in a **spawned subprocess** with progressive
+    batch-size strategies so ifcopenshell **SIGSEGV** does not kill the RQ work horse;
+    failed strategies retry with smaller ``IFC_MAGIAD_ORIENT_BATCH_CAP`` / tessellation batches.
+
     Args:
         job_data: Dictionary containing job parameters conforming to IfcPatchRequest.
-        
+
     Returns:
         Dictionary containing the operation results.
     """
@@ -483,8 +961,14 @@ def run_ifcpatch(job_data: dict) -> dict:
             input_path = os.path.join(tmpdir, os.path.basename(input_key) or "input.ifc")
             output_dir = tmpdir
             output_path = os.path.join(tmpdir, os.path.basename(output_key) or "output.ifc")
-            s3.get_client().download_file(Bucket=s3.bucket_name(), Key=input_key, Filename=input_path)
-            s3_ctx = {"tmpdir": tmpdir, "output_key": output_key, "input_key": input_key}
+            input_pin = s3.pin_for(request, request.input_file)
+            s3.download_to_path(input_key, input_path, version_id=input_pin)
+            s3_ctx = {
+                "tmpdir": tmpdir,
+                "output_key": output_key,
+                "input_key": input_key,
+                "input_pin": input_pin,
+            }
             logger.info("[s3] staged ifcpatch input → %s, output → s3://%s/%s", input_path, s3.bucket_name(), output_key)
         else:
             models_dir = "/uploads"
@@ -496,201 +980,24 @@ def run_ifcpatch(job_data: dict) -> dict:
                 logger.error(f"Input IFC file not found: {input_path}")
                 raise FileNotFoundError(f"Input file {request.input_file} not found")
 
-        logger.info(f"Input file found: {input_path}")
-        
-        # Load IFC file
-        logger.info("Loading IFC file...")
-        ifc_file = ifcopenshell.open(input_path)
-        
-        # Count elements (IfcOpenShell file doesn't support len() directly)
-        try:
-            element_count = len(ifc_file.by_type('IfcRoot'))
-            logger.info(f"IFC file loaded: schema={ifc_file.schema}, elements={element_count}")
-        except Exception:
-            logger.info(f"IFC file loaded: schema={ifc_file.schema}")
-        
-        # Prepare ifcpatch arguments
-        arguments = request.arguments or []
-        
-        # Special handling for MergeProject/MergeProjects recipe
-        # This recipe expects arguments to be wrapped in a list because it unpacks with *args
-        # and then expects to iterate over a list of filepaths
-        if request.recipe in ["MergeProject", "MergeProjects"]:
-            # Check if arguments are strings (JSON stringified arrays from n8n)
-            if arguments and isinstance(arguments[0], str):
-                # Try to parse if it looks like a JSON array string
-                if arguments[0].startswith('[') and arguments[0].endswith(']'):
-                    try:
-                        import json
-                        arguments = [json.loads(arguments[0])]
-                        logger.info(f"Parsed JSON string arguments for {request.recipe}")
-                    except:
-                        # If parsing fails, wrap the arguments in a list
-                        arguments = [arguments]
-                        logger.info(f"Wrapped arguments in list for {request.recipe}")
-                else:
-                    # Not a JSON string, just wrap the list
-                    arguments = [arguments]
-                    logger.info(f"Wrapped arguments in list for {request.recipe}")
-        
-        # Apply circular import fix before filtering (filtering needs to import the recipe)
-        # This ensures the introspection in filter_arguments_for_recipe works
-        if 'ifcopenshell.util.shape_builder' not in sys.modules or \
-           not hasattr(sys.modules.get('ifcopenshell.util.shape_builder', None), 'ShapeBuilder'):
-            logger.debug("Applying circular import fix before argument filtering")
-            _fix_circular_import()
-        
-        # Filter arguments to match what the recipe actually expects
-        # This prevents passing too many arguments that would cause TypeError
-        if not request.use_custom:
-            original_arg_count = len(arguments) if arguments else 0
-            arguments = filter_arguments_for_recipe(request.recipe, arguments, use_custom=False)
-            if original_arg_count != len(arguments):
-                logger.info(
-                    f"Filtered arguments for recipe '{request.recipe}': "
-                    f"{original_arg_count} -> {len(arguments) if arguments else 0} argument(s)"
-                )
-        
-        # Build patch_args for ifcpatch.execute()
-        # With ifcpatch 0.8.4, we can include "input" for all recipes - it's optional
-        patch_args = {
-            "input": input_path,
-            "file": ifc_file,
-            "recipe": request.recipe,
-            "arguments": arguments
-        }
-        
-        # Debug: Log the arguments being passed
-        logger.info(f"Recipe: {request.recipe}")
-        logger.info(f"Arguments count: {len(arguments) if arguments else 0}")
-        logger.info(f"Arguments: {arguments}")
-        
-        # If using custom recipe, load it
-        if request.use_custom:
-            logger.info(f"Loading custom recipe: {request.recipe}")
-            custom_patcher = load_custom_recipe(request.recipe)
-            
-            # Set the actual input path as an attribute on the IFC file object
-            # This allows custom recipes to know the real filename
-            ifc_file._input_file_path = input_path
-            
-            # Filter arguments for custom recipe as well
-            custom_args = filter_arguments_for_recipe(request.recipe, arguments, use_custom=True)
-            
-            # Instantiate and execute custom patcher
-            # Pass filtered arguments if any
-            if custom_args:
-                patcher_instance = custom_patcher(ifc_file, logger, *custom_args)
-            else:
-                patcher_instance = custom_patcher(ifc_file, logger)
-            
-            patcher_instance.patch()
-            output = patcher_instance.get_output()
-            
-        else:
-            logger.info(f"Executing built-in recipe: {request.recipe}")
-            # Ensure circular import fix is applied before executing recipe
-            # This is needed because recipe imports happen when ifcpatch.execute() is called
-            # Some recipes (like OffsetObjectPlacements) require shape_builder which has a circular import issue
-            needs_fix = False
-            if 'ifcopenshell.util.shape_builder' not in sys.modules:
-                needs_fix = True
-                logger.debug("shape_builder not in sys.modules, applying fix")
-            else:
-                sb_module = sys.modules.get('ifcopenshell.util.shape_builder')
-                if sb_module is None or not hasattr(sb_module, 'ShapeBuilder'):
-                    needs_fix = True
-                    logger.debug("shape_builder missing ShapeBuilder attribute, applying fix")
-            
-            if needs_fix:
-                logger.info("Applying circular import fix before recipe execution")
-                try:
-                    _fix_circular_import()
-                    # Verify fix worked
-                    if 'ifcopenshell.util.shape_builder' in sys.modules:
-                        sb = sys.modules['ifcopenshell.util.shape_builder']
-                        if hasattr(sb, 'ShapeBuilder'):
-                            logger.debug("Circular import fix applied successfully")
-                            
-                            # Pre-import the recipe module to ensure it uses the fixed shape_builder
-                            # This prevents the circular import when ifcpatch.execute() imports it
-                            try:
-                                recipe_module_name = f"ifcpatch.recipes.{request.recipe}"
-                                if recipe_module_name not in sys.modules:
-                                    logger.debug(f"Pre-importing recipe module: {recipe_module_name}")
-                                    importlib.import_module(recipe_module_name)
-                                    logger.debug(f"Successfully pre-imported {recipe_module_name}")
-                            except Exception as pre_import_error:
-                                logger.warning(f"Failed to pre-import recipe module (will try normal import): {pre_import_error}")
-                        else:
-                            logger.warning("Fix applied but ShapeBuilder not available")
-                    else:
-                        logger.warning("Fix applied but shape_builder not in sys.modules")
-                except Exception as e:
-                    logger.error(f"Failed to apply circular import fix: {e}", exc_info=True)
-                    # Continue anyway - might work for recipes that don't need shape_builder
-            
-            # Execute built-in recipe using ifcpatch.execute()
-            # With ifcpatch 0.8.4 and ifcopenshell 0.8.4, this works correctly for all recipes
-            # including ExtractElements with assume_asset_uniqueness_by_name parameter
-            output = ifcpatch.execute(patch_args)
-        
-        # Write output - use a local temp file first, then copy to the final
-        # destination.  This avoids slow streaming writes to network mounts
-        # like /interaxo/ (WebDAV/CIFS).
-        local_tmp = os.path.join(output_dir, f".tmp_{os.path.basename(output_path)}")
-        logger.info(f"Writing output to local temp: {local_tmp}")
-        ifcpatch.write(output, local_tmp)
-        output_size = os.path.getsize(local_tmp)
-        logger.info(f"Local write done ({output_size} bytes), copying to: {output_path}")
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        shutil.copy2(local_tmp, output_path)
-        os.remove(local_tmp)
-        
-        # Verify output file was created
-        if not os.path.exists(output_path):
-            raise RuntimeError("Output file was not created successfully")
-        logger.info(f"IfcPatch completed successfully. Output size: {output_size} bytes")
-        
-        result = {
-            "success": True,
-            "message": f"Successfully applied recipe '{request.recipe}'",
-            "output_path": output_path,
-            "recipe": request.recipe,
-            "is_custom": request.use_custom,
-            "output_size_bytes": output_size,
-            "arguments_used": request.arguments,
-        }
-        if s3_ctx is not None:
-            try:
-                audit = s3.upload_and_audit(
-                    output_path,
-                    key=s3_ctx["output_key"],
-                    operation="ifcpatch",
-                    worker=WORKER_NAME,
-                    job_id=_current_job_id(),
-                    parents=[("input", s3_ctx["input_key"])],
-                    metadata={
-                        "recipe": request.recipe,
-                        "is_custom": request.use_custom,
-                        "arguments": request.arguments,
-                        "output_size_bytes": output_size,
-                    },
-                    content_type="application/x-step",
-                )
-                result.update({
-                    "storage": "s3",
-                    "bucket": s3.bucket_name(),
-                    "output_key": s3_ctx["output_key"],
-                    "output_path": f"s3://{s3.bucket_name()}/{s3_ctx['output_key']}",
-                    "sha256": audit["sha256"],
-                    "size_bytes": audit["size_bytes"],
-                    "audit_id": audit["audit_id"],
-                })
-            finally:
-                shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
-        return result
-    
+        if request.recipe == "MagiadTessellateAndOrient":
+            logger.info(
+                "Using subprocess isolation + batch-cap retry strategies for MagiadTessellateAndOrient "
+                "(protects RQ worker from ifcopenshell SIGSEGV)"
+            )
+            return _run_magiad_with_isolation(request, input_path, output_path, output_dir, s3_ctx)
+
+        # Every ifcpatch recipe runs in a spawn-isolated subprocess so an
+        # ifcopenshell SIGSEGV kills only the child, not the rq work-horse. See
+        # ifcpipeline/HUNT_REPORT_2026-05-14.md for the load-induced SIGSEGV
+        # this protects against.
+        logger.info(
+            "Running %r in spawn-isolated subprocess (use_custom=%s)",
+            request.recipe,
+            request.use_custom,
+        )
+        return _run_recipe_in_spawn_isolation(request, input_path, output_path, output_dir, s3_ctx)
+
     except FileNotFoundError as e:
         logger.error(f"File not found error: {str(e)}", exc_info=True)
         raise

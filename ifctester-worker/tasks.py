@@ -5,6 +5,7 @@ import tempfile
 
 from shared.classes import IfcTesterRequest
 from shared.db_client import save_tester_result
+from shared import audit_db
 from shared import object_storage as s3
 import ifcopenshell
 import ifctester
@@ -38,6 +39,57 @@ def run_ifctester_validation(job_data: dict) -> dict:
     except Exception:
         logger.exception("Error during ifctester validation")
         raise
+
+
+def _tester_rows_from_report(report: dict):
+    """Best-effort projection of an ifctester JSON report into
+    `(ifc_guid, ids_rule, passed, reason)` tuples suitable for
+    `audit_db.record_tester_results`.
+
+    The report shape varies between ifctester versions, so this helper is
+    defensive: it tolerates missing fields and never raises.
+
+    `ids_rule` is a `spec_name|req_description` compound to keep the unique
+    index (object_version_id, ifc_guid, ids_rule) tight without dropping
+    rule context.
+    """
+    if not isinstance(report, dict):
+        return
+    specs = report.get("specifications") or []
+    for spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        spec_name = str(spec.get("name") or spec.get("description") or "spec").strip()
+        for req in spec.get("requirements") or []:
+            if not isinstance(req, dict):
+                continue
+            req_desc = str(req.get("description") or req.get("name") or "req").strip()
+            rule = f"{spec_name}|{req_desc}"[:500]
+            passing = _ids_collect_guids(req.get("passed_entities"))
+            for guid in passing:
+                yield (guid, rule, True, None)
+            for entity in (req.get("failed_entities") or []):
+                guid = _ids_guid(entity)
+                if guid:
+                    reason = entity.get("reason") if isinstance(entity, dict) else None
+                    yield (guid, rule, False, (str(reason)[:500] if reason else None))
+
+
+def _ids_collect_guids(entities):
+    if not entities:
+        return
+    for e in entities:
+        g = _ids_guid(e)
+        if g:
+            yield g
+
+
+def _ids_guid(entity):
+    if isinstance(entity, str) and len(entity) == 22:
+        return entity
+    if isinstance(entity, dict):
+        return entity.get("GlobalId") or entity.get("global_id") or entity.get("guid")
+    return None
 
 
 def _validate_and_report(ifc_path: str, ids_path: str, output_path: str, report_type: str):
@@ -89,19 +141,26 @@ def _validate_and_report(ifc_path: str, ids_path: str, output_path: str, report_
 def _run_s3(request: IfcTesterRequest) -> dict:
     ifc_key = s3.build_upload_key(request.ifc_filename)
     ids_key = s3.build_upload_key(request.ids_filename)
+    ifc_pin = s3.pin_for(request, request.ifc_filename)
+    ids_pin = s3.pin_for(request, request.ids_filename)
     out_key = s3.build_output_key("ids", request.output_filename)
     out_suffix = os.path.splitext(request.output_filename)[1] or (
         ".json" if request.report_type == "json" else ".html"
     )
 
-    with s3.download_to_tempfile(ifc_key, suffix=".ifc") as ifc_tmp, \
-         s3.download_to_tempfile(ids_key, suffix=".ids") as ids_tmp:
+    with s3.download_to_tempfile(ifc_key, suffix=".ifc", version_id=ifc_pin) as ifc_tmp, \
+         s3.download_to_tempfile(ids_key, suffix=".ids", version_id=ids_pin) as ids_tmp:
         fd, out_tmp = tempfile.mkstemp(suffix=out_suffix)
         os.close(fd)
         try:
             payload, test_results, passed, failed = _validate_and_report(
                 ifc_tmp, ids_tmp, out_tmp, request.report_type
             )
+            parent_pins = {}
+            if ifc_pin:
+                parent_pins[ifc_key] = ifc_pin
+            if ids_pin:
+                parent_pins[ids_key] = ids_pin
             audit = s3.upload_and_audit(
                 out_tmp,
                 key=out_key,
@@ -109,6 +168,7 @@ def _run_s3(request: IfcTesterRequest) -> dict:
                 worker=WORKER_NAME,
                 job_id=_current_job_id(),
                 parents=[("input", ifc_key), ("reference", ids_key)],
+                parent_version_ids=parent_pins or None,
                 metadata={
                     "report_type": request.report_type,
                     "pass_count": passed,
@@ -116,7 +176,20 @@ def _run_s3(request: IfcTesterRequest) -> dict:
                     "total_specifications": passed + failed,
                 },
                 content_type="application/json" if request.report_type == "json" else "text/html",
+                # Tester output doesn't index into object_guids; we write our
+                # own richer rows into tester_results below.
+                guid_role=None,
             )
+            # Direct-write tester_results rows for the IFC input (anchored
+            # on its audit row, not the report). The guid-level audit
+            # survives even if the report JSON gets pruned.
+            if audit.get("audit_id") and request.report_type == "json":
+                try:
+                    rows = list(_tester_rows_from_report(test_results))
+                    if rows:
+                        audit_db.record_tester_results(audit["audit_id"], rows)
+                except Exception as e:
+                    logger.warning("tester_results write failed: %s", e)
         finally:
             try:
                 os.remove(out_tmp)

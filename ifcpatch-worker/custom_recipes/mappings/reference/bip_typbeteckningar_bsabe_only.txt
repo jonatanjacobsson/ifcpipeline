@@ -1,0 +1,247 @@
+BIP typbeteckningar — entries with BSABe set
+========================================================================
+Source: https://storage.googleapis.com/storage.infopack.io/bim-alliance/bipkoder-data/latest/typbeteckningar.json
+Generated: 2026-05-26
+Count: 239
+
+Discipline	Category	TypeID	underkategori	BSABe	BSABwr
+
+Bygg	Bärverk	BBxx	Balk, betong	27.E/31	GSC.4
+Bygg	Inre rumsbildande byggdelar	BExx	Beläggningar och beklädnader på väggyta	44.C	M
+Bygg	Klimatskiljande delar och kompletteringar	BJLTxx	Terrassbjälklag	41.C	GS
+Bygg	Bärverk	BJLxx	Bjälklag	27.F	GS
+Bygg	Bärverk	BLxx	Balk, limträ	27.E/35	GSN.2
+Bygg	Huskomplettering	BPxx	Balkongplatta	45.BB	GS
+Bygg	Bärverk	BSxx	Balk, stål	27.E/34	GSM.1
+Bygg	Bärverk	BTxx	Balk, element av trä	27.E/35	GSN.1
+Bygg	Bärverk	Bxx	Balk	27.E	GS
+Bygg	Öppningskomplettering	DAxx	Dörr, aluminium	43.CCE	NSC.2213
+Bygg	Rumskomplettering	DFxx	Dörrfoder	46.Z	NSC.71
+Bygg	Öppningskomplettering	DSxx	Dörr, stål	43.CCE	NSC.221
+Bygg	Öppningskomplettering	DTxx	Dörr, trä	43.CCE	NSC.222
+Bygg	Öppningskomplettering	Dxx	Dörr	43.CCE	NSC.22
+Bygg	Rumskomplettering	FBxx	Fönsterbänkar	46.Z	NSC.72
+Bygg	Öppningskomplettering	FDxx	Fönsterdörr	42.DB	NSC.11
+Bygg	Rumskomplettering	FFDxx	Fönsterfoder	46.Z	NSC.71
+Bygg	Öppningskomplettering	FFxx	Fönster, fast, ej öppningsbart	42.DB	NSC.11
+Bygg	Öppningskomplettering	FLxx	Fönster, funktion röklucka	42.DB	NSC.2535
+Bygg	Öppningskomplettering	FOxx	Fönster, öppningsbart	42.DB	NSC.11
+Bygg	Grundkonstruktioner	FUxx	Fundament	15.ST	ESE
+Bygg	Öppningskomplettering	Fxx	Fönster	42.DB	NSC.11
+Bygg	Grundkonstruktioner	GBxx	Grundbalk, kantbalk	15.SJ	ESE
+Bygg	Öppningskomplettering	GFxx	Fasadgaller	42.Z	NSC.74
+Bygg	Kompletteringar till yttertak	GLSKxx	Glidskydd, stege	41.FD	NSJ
+Bygg	Grundkonstruktioner	GMxx	Grundmur	15.SK	ESE
+Bygg	Öppningskomplettering	GPAxx	Glasparti, aluminium	43.CCD	NSC.1313
+Bygg	Grundkonstruktioner	GPLxx	Grundplatta	15.SG	ESE
+Bygg	Öppningskomplettering	GPSxx	Glasparti, stål	43.CCD	NSC.131
+Bygg	Öppningskomplettering	GPTxx	Glasparti, trä	43.CCD	NSC.132
+Bygg	Öppningskomplettering	GPxx	Glasparti	43.CCD	NSC.13
+Bygg	Grundkonstruktioner	GRPxx	Grop	15.S	ESE
+Bygg	Öppningskomplettering	GRxx	Grind, invändig	43.CCE	NSC.31
+Bygg	Rumskomplettering	GSxx	Golvsockel	46.Z	NSM
+Bygg	Inre rumsbildande byggdelar	GVBxx	Golvbeläggning	44.BB	M
+Bygg	Kompletteringar till yttertak	GVKxx	Gavelkomplettering	41.F	HSD.133
+Bygg	Transportsystem	HFBxx	Hängställning, fasadbryggor	78.B	WYB
+Bygg	Transportsystem	HFVxx	Hissfrontsvägg	71	WB
+Bygg	Transportsystem	HFxx	Hissfront	71	WB
+Bygg	Transportsystem	HLYxx	Lyftbord, pelarlyft, fordonslyft mm	78.C	WYC
+Bygg	Transportsystem	HPLxx	Plattformshiss	71	WB
+Bygg	Transportsystem	HPxx	Personhiss	71	WB
+Bygg	Kompletteringar till yttertak	HRxx	Hängränna, utvändig	41.FB	JTJ.8
+Bygg	Transportsystem	HSGxx	Sänghiss	71	WB
+Bygg	Transportsystem	HSOxx	Soptransporthiss	78.F	WYF
+Bygg	Transportsystem	HTRxx	Trapphiss	78.G	WYG
+Bygg	Transportsystem	HUxx	Utrymningshiss	71	WB
+Bygg	Transportsystem	HVxx	Varu, småvaruhiss	78.E	WYE
+Bygg	Transportsystem	Hxx	Hiss	71	WB
+Bygg	Inre rumsbildande byggdelar	IGxx	Installationsgolv	43.DB	NSE
+Bygg	Inre rumsbildande byggdelar	ITxx	Innertak	43.E	NS
+Bygg	Bärverk	IVBxx	Innervägg, bärande	27.B	GS
+Bygg	Inre rumsbildande byggdelar	IVGxx	Nät och gallerväggar	43.CB	NSG.3
+Bygg	Inre rumsbildande byggdelar	IVIxx	Innervägg, väggskikt för installationer	43.CB	HS
+Bygg	Inre rumsbildande byggdelar	IVxx	Innervägg	43.CB	HS
+Bygg	Dörrar, dörrpartier, portar, väggluckor o d	JRxx	Jalusi för speciell användning, invändig	76.B	NSC.252
+Bygg	Kompletteringar till fönster, dörrar o.d.	Jxx	Jalusi, invändig	43.CC	NSC.732
+Bygg	Grundkonstruktioner	KOSxx	Konstruktiv sockel	27.C	GS
+Bygg	Kompletteringar till yttertak	LLFxx	Livlinefäste, fästögla	41.FD	NSJ
+Bygg	Huskomplettering	LPxx	Loftgångsplatta	45.BC	GS
+Bygg	Huskomplettering	LSxx	Ledstång	45.C	NSK.322
+Bygg	Öppningskomplettering	LUBxx	Lucka, bjälklag	43.DEG	NSB.2
+Bygg	Öppningskomplettering	LUIxx	Inspektionslucka	43.CC	NSC.25
+Bygg	Öppningskomplettering	LURTxx	Rök- och Taklucka	41.EF	NSC.2535
+Bygg	Öppningskomplettering	LURxx	Röklucka	41.EF	NSC.2535
+Bygg	Öppningskomplettering	LUTxx	Taklucka	41.EG	NSD.26
+Bygg	Öppningskomplettering	LUxx	Lucka	42.CC	NSC.24
+Bygg	Kompletteringar till fönster, dörrar o.d.	MRKxx	Markiser, invändig	43.CC	NSC.733
+Bygg	Kompletteringar till fönster, dörrar o.d.	MRxx	Mörkläggningsridåer	43.CC	NSC.735
+Bygg	Bärverk	PBxx	Pelare, betong	27.D/31	GSC.4
+Bygg	Grundkonstruktioner	PEGxx	Prefabelement för gjutning	15.SZ	ESB
+Bygg	Kompletteringar till fönster, dörrar o.d.	PExx	Persienner, invändiga	43.CC	NSC.731
+Bygg	Grundkonstruktioner	PHxx	Pelarholk	15.SF	ESE.1
+Bygg	Rumskomplettering	PKSxx	Påkörningsskydd, avbärarlister	46.Z	NSM
+Bygg	Grundkonstruktioner	PLBxx	Påle, betong	15.SB	GS
+Bygg	Huskomplettering	PLFFxx	Plattform, fasad	42.E	NSJ
+Bygg	Kompletteringar till yttertak	PLFTxx	Plattform, tak	41.F	NSJ
+Bygg	Huskomplettering	PLFxx	Plattform, innomhus	45.C	NSJ
+Bygg	Grundkonstruktioner	PLGxx	Påle	15.SB	GS
+Bygg	Grundkonstruktioner	PLKxx	Pålkrage	15.SE	GS
+Bygg	Grundkonstruktioner	PLPxx	Pålplint, pålfundament, 	15.SE	GS
+Bygg	Grundkonstruktioner	PLSxx	Påle, stål	15.SB	GS
+Bygg	Grundkonstruktioner	PLTxx	Påle, trä	15.SB	GS
+Bygg	Bärverk	PLxx	Pelare, limträ	27.D/35	GSN.2
+Bygg	Transportsystem	POMxx	Port, maskindriven	76.B	WH
+Bygg	Öppningskomplettering	POxx	Port, invändig	43.CCF	NSC.23
+Bygg	Bärverk	PSxx	Pelare, stål	27.D/34	GSM.1
+Bygg	Bärverk	PTxx	Pelare, element av trä	27.D/35	GSN.1
+Bygg	Bärverk	Pxx	Pelare	27.D	GS
+Bygg	Huskomplettering	RAxx	Ramp	45.BH	NSK.2
+Bygg	Huskomplettering	RBUxx	Balustrad	45.C	NSK
+Bygg	Huskomplettering	RBxx	Balkongräcke, balkongfront, utvändigt	45.B	NSK.312
+Bygg	Kompletteringar till fönster, dörrar o.d.	RGxx	Rullgardiner	43.CC	NSC.734
+Bygg	Transportsystem	RLBxx	Rullband, rullramp	73	WD
+Bygg	Öppningskomplettering	ROKxx	Rökkanal	57.D	PQ
+Bygg	Transportsystem	RTRxx	Rulltrappa	73	WD
+Bygg	Huskomplettering	RTxx	Trappräcke, invändigt	45.C	NSK.3112
+Bygg	Grundkonstruktioner	SABxx	Sarg, bottenplatta	15.SU	ESB
+Bygg	Transportsystem	SASxx	Solavskärmning, maskindriven	76.F	WH
+Bygg	Rumskomplettering	SBxx	Smygbrädor	46.Z	NSC.71
+Bygg	Öppningskomplettering	SKOxx	Skorsten, murad	57.D	FS
+Bygg	Huskomplettering	SKTxx	Skärmtak	45.BD	NSH.1
+Bygg	Huskomplettering	SKVxx	Skärmvägg	43.Z	NSG
+Bygg	Kompletteringar till yttertak	SKYRTxx	Skyddsräcke, tak	41.FD	NSJ
+Bygg	Kompletteringar till yttertak	SRSxx	Snörasskydd	41.FD	NSJ
+Bygg	Bärverk	STAxx	Stag, lina	27.Z	GS
+Bygg	Huskomplettering	STFxx	Stege, fasad	45.BF	NSJ
+Bygg	Kompletteringar till yttertak	STPRxx	Stuprör, invändig	41.FC	JTJ.8
+Bygg	Bärverk	STRxx	Sträva, stötta	27.Z	GS
+Bygg	Rumskomplettering	STSxx	Stänkskydd	44.B	MB
+Bygg	Huskomplettering	STTxx	Stege, tak	41.FE	NSJ
+Bygg	Kompletteringar till yttertak	TABRxx	Takbrygga	41.FE	NSJ
+Bygg	Kompletteringar till yttertak	TAFKxx	Takfotskomplettering	41.FY	HSD.133
+Bygg	Kompletteringar till yttertak	TARxx	Takfotsräcke, nockräcke	41.FD	NSJ
+Bygg	Transportsystem	TBxx	Transportband, transportramper	78.D	WYD
+Bygg	Öppningskomplettering	TFxx	Takfönster	41.EB	NSD.11
+Bygg	Bärverk	TKSxx	Takstol	27.G	GS
+Bygg	Bärverk	TKYxx	Yttertaks- och ytterbjälklagsstommar	27.G	GS
+Bygg	Rumskomplettering	TLxx	Taklister	46.Z	NSM
+Bygg	Transportsystem	TRAxx	Kransystem, travers, telfer	74	WG
+Bygg	Rumskomplettering	TRLxx	Tröskel	43.CC	NSM
+Bygg	Bärverk	TRSxx	Trappa, stomme	27.HB	GSC.7
+Bygg	Bärverk	TRTxx	Trappa, terräng	32.G	GBC.2
+Bygg	Huskomplettering	TRxx	Trappa, invändig	45.CB	NSK.1
+Bygg	Kompletteringar till yttertak	TTBRxx	Tillträdesbrygga	41.FE	NSJ
+Bygg	Inre rumsbildande byggdelar	UGxx	Undergolv	43.DC	HSD.12
+Bygg	Kompletteringar till yttertak	UTBRxx	Utrymningsbrygga	41.FD	NSJ
+Bygg	Inre rumsbildande byggdelar	UTxx	Undertak, installationsstak	43.E	NSF
+Bygg	Transportsystem	VRMxx	Vägg, rörlig, maskindriven	76.E	NSC.4
+Bygg	Inre rumsbildande byggdelar	VRxx	Vägg, rörlig	43.CA	NSC.4
+Bygg	Klimatskiljande delar och kompletteringar	YBExx	Beläggningar och beklädnader på del av väggyta, utvändigt	42.E	M
+Bygg	Öppningskomplettering	YDAxx	Dörr, aluminium, utvändig	42.DE	NSC.2113
+Bygg	Öppningskomplettering	YDSxx	Dörr, stål, utvändig	42.DE	NSC.211
+Bygg	Öppningskomplettering	YDTxx	Dörr, trä, utvändig	42.DE	NSC.212
+Bygg	Öppningskomplettering	YDxx	Dörr, utvändig	42.DE	NSC.21
+Bygg	Öppningskomplettering	YGPAxx	Glasparti, aluminium, utvändig	42.DC	NSC.1313
+Bygg	Öppningskomplettering	YGPSxx	Glasparti, stål, utvändig	42.DC	NSC.131
+Bygg	Öppningskomplettering	YGPTxx	Glasparti, trä, utvändig	42.DC	NSC.132
+Bygg	Öppningskomplettering	YGPxx	Glasparti, utvändigt	42.DC	NSC.13
+Bygg	Öppningskomplettering	YGRxx	Grind, utvändig	42.DE	NSC.31
+Bygg	Dörrar, dörrpartier, portar, väggluckor o d	YJRxx	Jalusi för speciell användning, utvändig	76.B	NSC.252
+Bygg	Kompletteringar till fönster, dörrar o.d.	YJSxx	Intrångsskydd	42.D	NSC.74
+Bygg	Kompletteringar till fönster, dörrar o.d.	YJxx	Jalusi, utvändig	42.D	NSC.73
+Bygg	Grundkonstruktioner	YKOSxx	Konstruktiv sockel, utvändig	27.C	GS
+Bygg	Huskomplettering	YLSxx	Ledstång, yttre	45.B	NSK.321
+Bygg	Öppningskomplettering	YLUIxx	Inspektionslucka, utvändig	42.D	NSC.25
+Bygg	Öppningskomplettering	YLUxx	Lucka, utvändig	42.D	NSC.24
+Bygg	Kompletteringar till fönster, dörrar o.d.	YMRKxx	Markiser, utvändig	42.D	NSC.73
+Bygg	Kompletteringar till fönster, dörrar o.d.	YPExx	Persienner, utvändiga	42.D	NSC.73
+Bygg	Transportsystem	YPOMxx	Port, maskindriven, ytter	76.B	WH
+Bygg	Öppningskomplettering	YPOxx	Port, ytter	42.DF	NSC.23
+Bygg	Huskomplettering	YRBUxx	Balustrad, utvändigt	45.B	NSK
+Bygg	Huskomplettering	YRTxx	Trappräcke, utvändigt	45.B	NSK.3111
+Bygg	Transportsystem	YSASxx	Solavskärmning, yttre,  maskindriven	76.F	WH
+Bygg	Huskomplettering	YSKVxx	Skärmvägg, utvändig	45.BY	NSG
+Bygg	Klimatskiljande delar och kompletteringar	YTBxx	Yttertak - beklädnad	41.C	J
+Bygg	Huskomplettering	YTRxx	Trappa, utvändig	45.BE	NSK.1
+Bygg	Klimatskiljande delar och kompletteringar	YTSxx	Yttertak, ytterklimatskärm	41.C	GS
+Bygg	Klimatskiljande delar och kompletteringar	YTxx	Yttertak, sammansatt	41.A	GS
+Bygg	Klimatskiljande delar och kompletteringar	YVBxx	Yttervägg, bärande	27.C	HS
+Bygg	Klimatskiljande delar och kompletteringar	YVFxx	Yttervägg, Fasad	42.B	HS
+Bygg	Huskomplettering	YVGxx	Nät och gallerväggar, utvändig	45.BY	NSG.3
+Bygg	Klimatskiljande delar och kompletteringar	YVKxx	Yttervägg i källare	27.C	GS
+Bygg	Klimatskiljande delar och kompletteringar	YVUxx	Yttervägg, Utfackningsvägg	42.B	HS
+Bygg	Klimatskiljande delar och kompletteringar	YVxx	Yttervägg, icke bärande	42.A	HS
+Inredning	Tappventiler, blandare	BBLxx	Badkarsarmatur	46.B	PVB.22
+Inredning	Sanitetsenheter	BKxx	Badkar	46.B	PUB.1
+Inredning	Tappventiler, blandare	BLAxx	Blandare	46.B	PVB.2
+Inredning	Bordsenhet	BSKAxx	Bänkskiva	46.B	XBE.2
+Inredning	Förvaringsenheter	BSKxx	Bänkskåp	46.B	XBD.1
+Inredning	Tvättutrustning	CDSxx	Centraldammsugare	53.CB	XKH.6
+Inredning	Laboratorieutrustning	DBK1xx	Dragbänk	46.C	XNB.2
+Inredning	Tappventiler, blandare	DBLxx	Duscharmatur	46.B	PVB.21
+Inredning	Sanitetsenheter	DBxx	Diskbänk	46.B	PUF.1
+Inredning	Laboratorieutrustning	DH1xx	Draghuv	46.C	XNB.3
+Inredning	Sanitetsenheter	DLxx	Disklåda, diskho	46.B	PUF.12
+Inredning	Komplettering	DMxx	Diskmaskin	46.B	XKF
+Inredning	Laboratorieutrustning	DS1xx	Dragskåp	46.C	XNB.1
+Inredning	Sanitetsenheter	DVxx	Duschvägg	46.B	PUB.4
+Inredning	Komplettering	FRxx	Frys	46.B	XMB.22
+Inredning	Förvaringsenheter	GSKJxx	Skjutdörrsgarderober	46.B	XBD.1
+Inredning	Förvaringsenheter	Gxx	Garderob	46.B	XBD.1
+Inredning	Sanitetsenheter	HDTExx	Handdukstork, elektrisk	63.H	SPB.183
+Inredning	Sanitetsenheter	HDTxx	Handdukstork	56.B	PTB.62
+Inredning	Förvaringsenheter	HSUMxx	Högskåp, ugn, micro	46.B	XBD.1
+Inredning	Förvaringsenheter	HSxx	Högskåp	46.B	XBD.1
+Inredning	Sanitetsenheter	HTxx	Handtork	63.H	SPB.42
+Inredning	Förvaringsenheter	ITRxx	IT-rack	46.C	XBY.1
+Inredning	Förvaringsenheter	ITSxx	IT-skåp	46.B	XBY.1
+Inredning	Komplettering	KFxx	Kyl/Frys	46.B	XMB
+Inredning	Förvaringsenheter	KLDSxx	Klädstång	46.B	XBD.5
+Inredning	Förvaringsenheter	KMDxx	Kommod	46.B	XBD
+Inredning	Komplettering	KMxx	Kaffemaskin	46.C	XBZ
+Inredning	Förvaringsenheter	KPHxx	Kapphyllor	46.B	XBD.5
+Inredning	Förvaringsenheter	KRxx	Krokar, hängare, hållare	46.B	XBD.5
+Inredning	Förvaringsenheter	KSBxx	Källsortering	46.B	XBD.6
+Inredning	Komplettering	KSxx	Kyl/Sval	46.B	XMB
+Inredning	Förvaringsenheter	KTxx	Kökstyp	46.B	XBA
+Inredning	Komplettering	Kxx	Kyl	46.B	XMB.11
+Inredning	Förvaringsenheter	MKxx	Köksmodul	46.B	XBD.0
+Inredning	Komplettering	Mxx	Micro	46.B	XKC.23
+Inredning	Förvaringsenheter	PBTxx	Passbit till skåp och inredning	46.B	XBD
+Inredning	Platshållare	PLHxx	Platshållare för (DM, TT, TM mfl-> PLHDM, PLHTT, PLHTM mfl)	46.B	XBZ
+Inredning	Förvaringsenheter	POBxx	Postboxar	46.B	XBD
+Inredning	Komplettering	SFAxx	Spisfläkt, ansluten till imkanal	46.B	QEA.2
+Inredning	Komplettering	SFUxx	Spisfläkt, utan anslutning till imkanal	46.B	QEA.21
+Inredning	Förvaringsenheter	SFxx	Sockel, förvaring	46.B	XBD
+Inredning	Komplettering	SGxx	Skrapgaller	46.B	NSB.3
+Inredning	Komplettering	SHAxx	Spishäll, ansluten till imkanal	46.C	XKC.1
+Inredning	Komplettering	SHxx	Spishäll	46.B	XKC.1
+Inredning	Bordsenhet	SKBxx	Skötbord	46.B	XBE.9
+Inredning	Komplettering	SKxx	Spiskåpa	46.B	QMA.1
+Inredning	Förvaringsenheter	SLxx	Sockellåda, ej förvaring	46.B	XBD.6
+Inredning	Tavelenheter	SPGLxx	Spegel	46.C	XBC.5
+Inredning	Förvaringsenheter	STxx	Städskåp	46.B	XBD.1
+Inredning	Komplettering	Sxx	Spis	46.B	XKC.1
+Inredning	Tappventiler, blandare	TBLxx	Tvättställsarmatur	46.B	PVB.23
+Inredning	Tavelenheter	TLAxx	Register, skyltar od	46.C	XBC.3
+Inredning	Tavelenheter	TLIxx	Dynamisk skylt, skärm, monitor	46.Z	TFC.7
+Inredning	Tvättutrustning	TMKxx	Kombimaskin (Tvätt/Torktumlare)	46.B	XKH
+Inredning	Tvättutrustning	TMxx	Tvättmaskin	46.B	XKH.1
+Inredning	Förvaringsenheter	TPSxx	Toppskåp/Överskåp	46.B	XBD.1
+Inredning	Förvaringsenheter	TRHxx	Toarullehållare	46.B	XBD.5
+Inredning	Komplettering	TRMxx	Torkmatta	46.C	NSB.4
+Inredning	Förvaringsenheter	TSDxx	Täcksida för inredningar	46.B	XBD
+Inredning	Tvättutrustning	TSxx	Torkskåp	46.B	XKH.3
+Inredning	Tvättutrustning	TTxx	Torktumlare	46.B	XKH.2
+Inredning	Förvaringsenheter	TVDxx	Tvåldsispenser	46.B	XBD.6
+Inredning	Tvättutrustning	TVPxx	Tvättpelare med tex Tvättmaskin/Torktumlare	46.B	XKH
+Inredning	Sanitetsenheter	TVSxx	Tvättställ	46.B	PUC.1
+Inredning	Sanitetsenheter	UBxx	Utslagsback	46.B	PUF.4
+Inredning	Sanitetsenheter	URIxx	Urinoar	46.B	PUE.2
+Inredning	Komplettering	Uxx	Ugn	46.B	XKC.2
+Inredning	Komplettering	VAUTxx	Varuautomat	46.C	XMB
+Inredning	Förvaringsenheter	VSMxx	Väggskåp för micro	46.B	XBD.1
+Inredning	Förvaringsenheter	VSxx	Väggskåp	46.B	XBD.1
+Inredning	Tappventiler, blandare	VUKxx	Väggvattenutkastare	46.B	PVB.12
+Inredning	Sanitetsenheter	WCSRxx	RWC-stol	46.B	PUE.13
+Inredning	Sanitetsenheter	WCSxx	WC-stol	46.B	PUE.1

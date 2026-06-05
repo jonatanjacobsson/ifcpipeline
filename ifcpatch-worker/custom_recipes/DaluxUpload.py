@@ -138,10 +138,12 @@ class Patcher:
         if properties:
             try:
                 self.properties = json.loads(properties)
-                # Ensure each property has a "key" field (use "name" as key if missing)
+                # Ensure each property has both "key" and "name" fields
                 for prop in self.properties:
                     if 'key' not in prop and 'name' in prop:
                         prop['key'] = prop['name']
+                    if 'name' not in prop and 'key' in prop:
+                        prop['name'] = prop['key']
                 self.logger.info(f"Loaded {len(self.properties)} custom properties")
             except Exception as e:
                 self.logger.warning(f"Failed to parse properties JSON: {str(e)}")
@@ -346,76 +348,83 @@ class Patcher:
         """
         Check if a file with the same name already exists in the folder.
         Returns the fileId if it exists, None otherwise.
+        Follows pagination via nextPage links (Blossom ListResponse pattern).
         """
         headers = {
             "X-API-KEY": self.api_key,
             "Accept": "application/json"
         }
-        
-        # Try multiple API endpoints to find existing files
-        # Based on Dalux Build API documentation (SwaggerHub)
+
+        # Try endpoints newest-first; stop at first one that responds with 200
         endpoints_to_try = [
-            f"{self.base_url}/6.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",  # Current version
-            f"{self.base_url}/5.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",  # Fallback
-            f"{self.base_url}/2.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",  # Older version
+            f"{self.base_url}/6.1/projects/{self.project_id}/file_areas/{self.file_area_id}/files",
+            f"{self.base_url}/6.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",
+            f"{self.base_url}/5.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",
+            f"{self.base_url}/2.0/projects/{self.project_id}/file_areas/{self.file_area_id}/files",
         ]
-        
-        for url in endpoints_to_try:
+
+        target_folder_id = str(self.folder_id)
+
+        for base_url in endpoints_to_try:
             try:
-                self.logger.info(f"Trying to check files at: {url}")
-                response = requests.get(url, headers=headers, timeout=30)
-                
-                if response.status_code == 404:
-                    self.logger.debug(f"Endpoint not found, trying next: {url}")
-                    continue
-                    
-                response.raise_for_status()
-                data = response.json()
-                
-                # Log response structure for debugging
-                self.logger.info(f"API response keys: {data.keys() if isinstance(data, dict) else 'not a dict'}")
-                
-                # Search for file with matching name and folder (compare as strings to avoid type issues)
-                target_folder_id = str(self.folder_id)
-                files_to_check = []
-                
-                # Handle different response formats
-                if "items" in data:
-                    files_to_check = data.get("items", [])
-                    self.logger.info(f"Found {len(files_to_check)} files in 'items' response")
-                elif "data" in data and isinstance(data["data"], list):
-                    files_to_check = data["data"]
-                    self.logger.info(f"Found {len(files_to_check)} files in 'data' response")
-                elif isinstance(data, list):
-                    files_to_check = data
-                    self.logger.info(f"Found {len(files_to_check)} files in list response")
-                
-                for item in files_to_check:
-                    # Handle different structures
-                    file_data = item.get("data", item) if "data" in item else item
-                    file_name = file_data.get("fileName")
-                    folder_id = str(file_data.get("folderId", ""))
-                    
-                    self.logger.debug(f"Checking file: '{file_name}' in folder '{folder_id}' (target: '{self.file_name}' in '{target_folder_id}')")
-                    
-                    if file_name == self.file_name and folder_id == target_folder_id:
-                        file_id = file_data.get("fileId")
-                        self.logger.info(f"File already exists with ID: {file_id}. Will upload as new version.")
-                        return file_id
-                
-                # If we got here and processed files, endpoint worked but file not found
-                self.logger.info(f"Successfully checked files at {url}, but file does not exist yet.")
-                return None
-                
+                next_url: Optional[str] = base_url
+                page = 0
+                self.logger.info(f"Checking for existing file at: {base_url}")
+
+                while next_url:
+                    page += 1
+                    response = requests.get(next_url, headers=headers, timeout=30)
+
+                    if response.status_code == 404:
+                        self.logger.debug(f"Endpoint not found: {base_url}")
+                        break
+
+                    response.raise_for_status()
+                    data = response.json()
+
+                    # Collect items regardless of wrapper shape
+                    if "items" in data:
+                        files_to_check = data["items"]
+                    elif "data" in data and isinstance(data["data"], list):
+                        files_to_check = data["data"]
+                    elif isinstance(data, list):
+                        files_to_check = data
+                    else:
+                        files_to_check = []
+
+                    self.logger.info(f"Page {page}: {len(files_to_check)} files")
+
+                    for item in files_to_check:
+                        file_data = item.get("data", item) if isinstance(item, dict) and "data" in item else item
+                        file_name = file_data.get("fileName")
+                        folder_id = str(file_data.get("folderId", ""))
+
+                        if file_name == self.file_name and folder_id == target_folder_id:
+                            file_id = file_data.get("fileId")
+                            self.logger.info(f"Found existing file on page {page}, fileId={file_id}")
+                            return file_id
+
+                    # Follow nextPage link if present (Blossom pagination)
+                    next_url = None
+                    for link in data.get("links", []):
+                        if isinstance(link, dict) and link.get("rel") == "nextPage":
+                            next_url = link.get("href")
+                            break
+
+                    remaining = data.get("metadata", {}).get("totalRemainingItems", 0)
+                    if next_url:
+                        self.logger.info(f"Following nextPage link ({remaining} items remaining)")
+                    else:
+                        self.logger.info(f"All pages checked via {base_url}, file not found")
+                        return None
+
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 404:
-                    self.logger.debug(f"Endpoint returned 404, trying next: {url}")
                     continue
-                else:
-                    self.logger.warning(f"HTTP error checking for existing file at {url}: {e}")
+                self.logger.warning(f"HTTP error checking for existing file at {base_url}: {e}")
             except Exception as e:
-                self.logger.warning(f"Error checking for existing file at {url}: {e}")
-        
+                self.logger.warning(f"Error checking for existing file at {base_url}: {e}")
+
         self.logger.warning("Could not check for existing files at any endpoint. Proceeding with new file upload (using folderId)")
         return None
     
@@ -477,8 +486,14 @@ class Patcher:
             if hasattr(e.response, 'text'):
                 self.logger.error(f"Response body: {e.response.text}")
             
-            # If we got a 400 error with "file already exists", try to find the file and upload as version
-            if e.response.status_code == 400 and "already exists" in e.response.text.lower():
+            # If we got a 400 error indicating the file already exists (any language),
+            # try to find the file ID and retry as a new version
+            _already_exists_phrases = ["already exists", "finns redan", "existe déjà", "existiert bereits"]
+            _is_already_exists = (
+                e.response.status_code == 400
+                and any(phrase in e.response.text.lower() for phrase in _already_exists_phrases)
+            )
+            if _is_already_exists:
                 self.logger.warning("Got 400 'file already exists' error. Attempting to find file ID and retry as version...")
                 try:
                     # Force a fresh check for the existing file
