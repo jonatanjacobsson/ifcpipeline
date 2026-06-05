@@ -111,6 +111,25 @@ def download_to_tempfile(key: str, suffix: str = "", bucket: Optional[str] = Non
             pass
 
 
+def download_to_path(
+    key: str,
+    local_path: str,
+    *,
+    version_id: Optional[str] = None,
+    bucket: Optional[str] = None,
+) -> None:
+    """Download an object to a local path (optional S3 VersionId pin)."""
+    bucket = bucket or bucket_name()
+    extra: Optional[Dict[str, Any]] = {"VersionId": version_id} if version_id else None
+    logger.info(
+        "GET s3://%s/%s%s → %s",
+        bucket, key, f"?versionId={version_id}" if version_id else "", local_path,
+    )
+    get_client().download_file(
+        Bucket=bucket, Key=key, Filename=local_path, ExtraArgs=extra,
+    )
+
+
 def build_upload_key(filename: str) -> str:
     """Translate a legacy `/uploads/<filename>` reference into an S3 key."""
     filename = filename.lstrip("/")

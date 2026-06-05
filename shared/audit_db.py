@@ -36,6 +36,11 @@ def _json():
     return Json
 
 
+def _execute_values():
+    from psycopg2.extras import execute_values  # type: ignore
+    return execute_values
+
+
 def _lookup_version_id(cursor, bucket: str, object_key: str) -> Optional[int]:
     """Return the newest version id for (bucket, key), or None."""
     cursor.execute(
@@ -405,6 +410,60 @@ def fetch_by_hash(sha256: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error("audit: fetch_by_hash failed: %s", e)
         return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def record_clash_pairs(
+    object_version_id: int,
+    rows: Iterable[Tuple[str, str, Optional[float], Optional[str]]],
+    *,
+    batch_size: int = 5000,
+) -> int:
+    """Bulk insert `(guid_a, guid_b, distance, kind)` rows for clash reports."""
+    conn = db_client.get_connection()
+    if not conn:
+        return 0
+    total = 0
+    try:
+        cursor = conn.cursor()
+        execute_values = _execute_values()
+        buf: List[Tuple[int, str, str, Optional[float], Optional[str]]] = []
+
+        def flush():
+            nonlocal total
+            if not buf:
+                return
+            execute_values(
+                cursor,
+                """
+                INSERT INTO clash_pairs
+                    (object_version_id, guid_a, guid_b, distance, kind)
+                VALUES %s
+                """,
+                buf,
+                page_size=1000,
+            )
+            total += len(buf)
+            buf.clear()
+
+        for a, b, dist, kind in rows:
+            if not a or not b:
+                continue
+            buf.append((object_version_id, a, b, dist, kind))
+            if len(buf) >= batch_size:
+                flush()
+                conn.commit()
+        flush()
+        conn.commit()
+        logger.info("record_clash_pairs: vid=%s inserted=%d", object_version_id, total)
+        return total
+    except Exception as e:
+        logger.error("record_clash_pairs failed: %s", e)
+        if conn:
+            conn.rollback()
+        return 0
     finally:
         if conn:
             conn.close()
