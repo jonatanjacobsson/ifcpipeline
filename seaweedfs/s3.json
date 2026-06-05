@@ -1,0 +1,21 @@
+{
+  "_comment": "SeaweedFS S3 identity config for the dual-write pilot. Keep accessKey/secretKey in sync with .env's S3_SHADOW_ACCESS_KEY/S3_SHADOW_SECRET_KEY. Anonymous identity has no actions so unauthenticated requests are rejected the same way MinIO rejects them. See SEAWEEDFS_PILOT.md for rotation guidance.",
+  "identities": [
+    {
+      "name": "admin",
+      "credentials": [
+        {
+          "accessKey": "seaweedfs-pilot",
+          "secretKey": "change-me-to-a-secure-password"
+        }
+      ],
+      "actions": [
+        "Admin",
+        "Read",
+        "Write",
+        "List",
+        "Tagging"
+      ]
+    }
+  ]
+}

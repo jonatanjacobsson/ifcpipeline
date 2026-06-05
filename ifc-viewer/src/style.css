@@ -182,12 +182,43 @@ bim-grid[floating] .dashboard-card {
   flex-shrink: 0;
 }
 
-.viewer-message-label {
-  justify-self: center;
-  background-color: #dad588;
-  padding: 0.75rem;
+.viewer-message-host:empty {
+  display: none !important;
+}
+
+.viewer-message-label,
+.viewer-message-ok,
+.viewer-message-err {
+  padding: 0.75rem 1rem;
   border-radius: 0.25rem;
+  text-align: center;
+  box-shadow: 0 2px 8px var(--bim-ui_bg-contrast-10);
+}
+
+.viewer-message-label {
+  background-color: #dad588;
   color: #424025;
+}
+
+.viewer-message-ok {
+  background-color: #2d6a4f;
+  color: #d8f3dc;
+}
+
+.viewer-message-err {
+  background-color: #9b2226;
+  color: #ffddd2;
+}
+
+.selection-data-hint {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.35;
+}
+
+.left-explorer-column bim-panel-section {
+  min-height: 0;
 }
 
 .sidebar {

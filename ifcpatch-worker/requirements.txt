@@ -4,12 +4,31 @@ pydantic>=2.9.0,<3.0.0
 requests>=2.32.0,<3.0.0
 
 # IFC dependencies
-ifcopenshell==0.8.4
-ifcpatch==0.8.4
+# 2026-05-14: unpinned back to 0.8.5 after the parallel load test (see
+# ifcpipeline/IFCOPENSHELL_0.8.5_REGRESSION.md §4) showed 0.8.4.post1 crashes
+# 5/156 vs 0.8.5 1/156 under N≥3 parallel pressure — i.e. the morning's
+# defensive downgrade was not protective. The actual fix is the load-reduction
+# package: replicas 3→2, mem 6G→4G, +16G swap, retries on every IFC node.
+# A real load-induced SIGSEGV affecting BOTH versions still exists upstream
+# (~1–3 % per execution under parallel pressure) — see §6 of the doc for the
+# upstream report we need to file.
+ifcopenshell==0.8.5
+ifcpatch==0.8.5
 
 # Additional utilities
 typing-extensions>=4.12.0
 networkx>=3.3,<4.0.0  # Required for sequence.recalculate_schedule API
+numpy>=1.26.0,<3.0.0
+bcf-client==0.8.5
 
 # Object storage
 boto3>=1.34,<2
+
+# Geometric expansion (used by ExpandSpacesToMidplanes recipe)
+shapely>=2.0,<3.0
+scipy>=1.11,<2.0
+
+# ifc_coord v2 synthesis (MTV separation, CP-SAT candidates)
+ortools>=9.10,<10
+trimesh>=4.0,<5
+python-fcl>=0.7,<1

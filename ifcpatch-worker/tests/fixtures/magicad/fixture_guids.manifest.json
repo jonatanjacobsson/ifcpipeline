@@ -1,0 +1,101 @@
+{
+  "source_file": "V--57_V01000.ifc",
+  "generated_at": "2026-04-21T08:26:53.744165+00:00",
+  "ifcopenshell_note": "Regenerate with scripts/build_magicad_duct_fixture.py after MagiCAD export changes.",
+  "repair_note": "TessellateElements (tests) remeshes geometry; surface styles are not preserved.",
+  "required_guid_included": "0lDxsGSSH6mA_TeU0yyyLT",
+  "global_ids": [
+    "0lDxsGSSH6mA_TeU0yyyLT",
+    "3ON1K7CYHETORHtAaM9Xzc",
+    "2yrO5dfU12IxvOLPfWzl5I",
+    "24krvDIIj698ZfePyiEC1D",
+    "1p3MNUYxvAkOTb1vP3GW9f",
+    "0$7MNFIWL5jgUIB56UStd9"
+  ],
+  "elements": [
+    {
+      "global_id": "0lDxsGSSH6mA_TeU0yyyLT",
+      "name": null,
+      "representation_type": "MappedRepresentation",
+      "has_open_shell": true,
+      "has_closed_shell": false,
+      "face_count": 22,
+      "cluster": [
+        "MappedRepresentation",
+        true,
+        false,
+        0
+      ]
+    },
+    {
+      "global_id": "3ON1K7CYHETORHtAaM9Xzc",
+      "name": null,
+      "representation_type": "MappedRepresentation",
+      "has_open_shell": true,
+      "has_closed_shell": false,
+      "face_count": 24,
+      "cluster": [
+        "MappedRepresentation",
+        true,
+        false,
+        0
+      ]
+    },
+    {
+      "global_id": "2yrO5dfU12IxvOLPfWzl5I",
+      "name": null,
+      "representation_type": "MappedRepresentation",
+      "has_open_shell": true,
+      "has_closed_shell": false,
+      "face_count": 32,
+      "cluster": [
+        "MappedRepresentation",
+        true,
+        false,
+        32
+      ]
+    },
+    {
+      "global_id": "24krvDIIj698ZfePyiEC1D",
+      "name": null,
+      "representation_type": "MappedRepresentation",
+      "has_open_shell": true,
+      "has_closed_shell": false,
+      "face_count": 64,
+      "cluster": [
+        "MappedRepresentation",
+        true,
+        false,
+        64
+      ]
+    },
+    {
+      "global_id": "1p3MNUYxvAkOTb1vP3GW9f",
+      "name": null,
+      "representation_type": "MappedRepresentation",
+      "has_open_shell": true,
+      "has_closed_shell": false,
+      "face_count": 144,
+      "cluster": [
+        "MappedRepresentation",
+        true,
+        false,
+        128
+      ]
+    },
+    {
+      "global_id": "0$7MNFIWL5jgUIB56UStd9",
+      "name": null,
+      "representation_type": "MappedRepresentation",
+      "has_open_shell": true,
+      "has_closed_shell": false,
+      "face_count": 32,
+      "cluster": [
+        "MappedRepresentation",
+        true,
+        false,
+        32
+      ]
+    }
+  ]
+}

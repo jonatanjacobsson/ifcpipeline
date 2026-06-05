@@ -1,0 +1,831 @@
+{
+  "id": "G1ArKSIzZRE2o3Vk",
+  "name": "IfcPipeline: Wait for jobs",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## IfcPipeline: Wait for jobs\n\nPolls until `finished` / `failed`. On retryable failure, calls `POST /jobs/{job_id}/requeue` (same job_id).\n\n**Required:** `job_id`",
+        "width": 420,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        208,
+        -208
+      ],
+      "id": "sticky-readme",
+      "name": "Readme"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "job_id",
+              "type": "any"
+            },
+            {
+              "name": "max_retries",
+              "type": "number"
+            },
+            {
+              "name": "retry_delay_seconds",
+              "type": "number"
+            },
+            {
+              "name": "poll_interval_seconds",
+              "type": "number"
+            },
+            {
+              "name": "timeout_seconds",
+              "type": "number"
+            },
+            {
+              "name": "job_label"
+            }
+          ]
+        }
+      },
+      "id": "b4c306c0-a118-4726-933d-02b1970237fc",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "i1",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "i2",
+              "name": "max_retries",
+              "value": "={{ $json.max_retries ?? 3 }}",
+              "type": "number"
+            },
+            {
+              "id": "i3",
+              "name": "retry_delay_seconds",
+              "value": "={{ $json.retry_delay_seconds ?? 5 }}",
+              "type": "number"
+            },
+            {
+              "id": "i4",
+              "name": "poll_interval_seconds",
+              "value": "={{ $json.poll_interval_seconds ?? 1 }}",
+              "type": "number"
+            },
+            {
+              "id": "i5",
+              "name": "timeout_seconds",
+              "value": "={{ $json.timeout_seconds ?? 7200 }}",
+              "type": "number"
+            },
+            {
+              "id": "i8",
+              "name": "job_label",
+              "value": "={{ $json.job_label || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "i9",
+              "name": "attempt",
+              "value": "={{ $json.attempt ?? 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "i10",
+              "name": "started_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        720,
+        0
+      ],
+      "id": "init-state",
+      "name": "Init state"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        960,
+        0
+      ],
+      "id": "71cc2284-e205-45bd-873e-137a50a17e98",
+      "name": "Loop driver"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "wt",
+              "leftValue": "={{ Date.now() - Date.parse($json.started_at || $now.toISO()) }}",
+              "rightValue": "={{ ($json.timeout_seconds || 7200) * 1000 }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        128
+      ],
+      "id": "wall-timeout-if",
+      "name": "Wall timeout?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "t1",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "t2",
+              "name": "status",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "t3",
+              "name": "error",
+              "value": "={{ \"Job wait timeout after \" + ($json.timeout_seconds || 7200) + \"s\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        0
+      ],
+      "id": "set-timeout",
+      "name": "Set timeout"
+    },
+    {
+      "parameters": {
+        "operation": "getJobStatus",
+        "jobId": "={{ $json.job_id }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        208
+      ],
+      "id": "343881f2-b27e-4bd7-a898-ac9878d7812b",
+      "name": "Get job status",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const raw = $input.item.json;\nconst ctx = $getWorkflowStaticData('global').jobWaitCtx || {};\nconst status = raw.status || (raw.error ? 'failed' : undefined);\nconst err = raw.error ?? raw.message ?? null;\nreturn {\n  json: {\n    ...ctx,\n    status,\n    result: raw.result ?? null,\n    error: err,\n  },\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        320
+      ],
+      "id": "merge-status",
+      "name": "Merge status"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "started",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "r-started"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "started"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "queued",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "r-queued"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "queued"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "r-failed"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "finished",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "r-finished"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "finished"
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": true
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1920,
+        208
+      ],
+      "id": "02ef1930-eb04-45ff-9e97-0c98e8476e46",
+      "name": "Job status"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.poll_interval_seconds || 1 }}"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2368,
+        448
+      ],
+      "id": "8252ef29-afe5-450b-85f5-1a8114080f8c",
+      "name": "Wait poll",
+      "webhookId": "53b7c51d-2ee3-43d3-92d1-54cec032c6d3"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst msg = String(item.error || item.message || 'Unknown error');\nconst RETRYABLE = [/Work-horse terminated/i,/waitpid returned/i,/signal \\d+/i,/timeout/i,/timed out/i,/ConnectionError/i,/MemoryError/i,/ENOMEM/i,/Temporary failure/i,/isolation strategies exhausted/i,/kernel failure/i,/Broken pipe/i,/child.*exit/i];\nconst NON_RETRYABLE = [/VisitError/i,/SyntaxError/i,/JSONDecodeError/i,/Invalid.*selector/i,/KeyError/i,/ValueError/i,/FileNotFoundError/i,/No such file/i,/Recipe.*not found/i,/Invalid JSON/i];\nfunction isRetryable(m) {\n  if (RETRYABLE.some(p => p.test(m))) return true;\n  if (NON_RETRYABLE.some(p => p.test(m))) return false;\n  return true;\n}\nconst retryable = isRetryable(msg);\nconst attempt = Number(item.attempt ?? 0);\nconst maxRetries = Number(item.max_retries ?? 3);\nconst canRetry = retryable && attempt < maxRetries;\nconst out = { ...item, retryable, can_retry: canRetry, error_message: msg };\n$getWorkflowStaticData('global').jobWaitCtx = out;\nreturn { json: out };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        256
+      ],
+      "id": "classify-error",
+      "name": "Classify error"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cr",
+              "leftValue": "={{ $json.can_retry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2496,
+        256
+      ],
+      "id": "can-retry-if",
+      "name": "Can retry?"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.retry_delay_seconds || 5 }}"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2736,
+        176
+      ],
+      "id": "wait-retry",
+      "name": "Wait retry",
+      "webhookId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    {
+      "parameters": {
+        "operation": "requeueJob",
+        "jobId": "={{ $json.job_id }}"
+      },
+      "type": "n8n-nodes-ifcpipeline.ifcPipeline",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        176
+      ],
+      "id": "reenqueue-http",
+      "name": "Requeue job",
+      "credentials": {
+        "ifcPipelineApi": {
+          "id": "HegPhb3qE1FTgAYI",
+          "name": "IFC Pipeline account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const prev = $getWorkflowStaticData('global').jobWaitCtx || {};\nconst next = {\n  ...prev,\n  attempt: Number(prev.attempt ?? 0) + 1,\n};\n$getWorkflowStaticData('global').jobWaitCtx = next;\nreturn { json: next };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3216,
+        176
+      ],
+      "id": "after-reenqueue",
+      "name": "After re-enqueue"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "ok",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "s2",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "s3",
+              "name": "result",
+              "value": "={{ $json.result }}",
+              "type": "object"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2160,
+        448
+      ],
+      "id": "set-success",
+      "name": "Set success"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "f2",
+              "name": "status",
+              "value": "failed",
+              "type": "string"
+            },
+            {
+              "id": "f3",
+              "name": "error",
+              "value": "={{ $json.error_message || $json.error || \"Job failed\" }}",
+              "type": "string"
+            },
+            {
+              "id": "f4",
+              "name": "retryable",
+              "value": "={{ $json.retryable ?? false }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2736,
+        368
+      ],
+      "id": "set-failure",
+      "name": "Set failure"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nstaticData.jobWaitCtx = $input.item.json;\nreturn $input.item;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        200
+      ],
+      "id": "be8556e4-4568-4525-b658-3f42845bcbcf",
+      "name": "Save context"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nstaticData.jobWaitCtx = $input.first().json;\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ],
+      "id": "0be8fe0c-932a-4e7c-9a1f-cbd354feda1b",
+      "name": "Init static"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Init state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init state": {
+      "main": [
+        [
+          {
+            "node": "Init static",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop driver": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wall timeout?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wall timeout?": {
+      "main": [
+        [
+          {
+            "node": "Set timeout",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set timeout": {
+      "main": [
+        [
+          {
+            "node": "Loop driver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get job status": {
+      "main": [
+        [
+          {
+            "node": "Merge status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge status": {
+      "main": [
+        [
+          {
+            "node": "Job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job status": {
+      "main": [
+        [
+          {
+            "node": "Wait poll",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait poll",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classify error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait poll": {
+      "main": [
+        [
+          {
+            "node": "Save context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify error": {
+      "main": [
+        [
+          {
+            "node": "Can retry?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Can retry?": {
+      "main": [
+        [
+          {
+            "node": "Wait retry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait retry": {
+      "main": [
+        [
+          {
+            "node": "Requeue job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requeue job": {
+      "main": [
+        [
+          {
+            "node": "After re-enqueue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "After re-enqueue": {
+      "main": [
+        [
+          {
+            "node": "Save context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set success": {
+      "main": [
+        [
+          {
+            "node": "Loop driver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set failure": {
+      "main": [
+        [
+          {
+            "node": "Loop driver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init static": {
+      "main": [
+        [
+          {
+            "node": "Loop driver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save context": {
+      "main": [
+        [
+          {
+            "node": "Get job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": {},
+  "pinData": {}
+}

@@ -2,6 +2,10 @@ export const CONTENT_GRID_ID = "app-content";
 export const CONTENT_GRID_GAP = "1rem";
 export const SMALL_COLUMN_WIDTH = "22rem";
 export const MEDIUM_COLUMN_WIDTH = "25rem";
+/** Left stack (models + tree + viewpoints) — wider for tree browsing */
+export const LEFT_EXPLORER_COLUMN = "minmax(24rem, 28vw)";
+/** Right panel (selection / psets) */
+export const ELEMENT_DATA_COLUMN = "minmax(22rem, 28vw)";
 
 export const appIcons = {
   ADD: "mdi:plus",
@@ -22,6 +26,7 @@ export const appIcons = {
   ISOLATE: "mdi:selection-ellipse",
   RULER: "solar:ruler-bold",
   MODEL: "mage:box-3d-fill",
+  TREE: "mdi:file-tree-outline",
   LAYOUT: "tabler:layout-filled",
 };
 

@@ -4,7 +4,7 @@ from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 import socket
 import os
 import json
@@ -20,10 +20,12 @@ from datetime import datetime, timedelta
 from shared.classes import (
     IfcConvertRequest,
     IfcCsvRequest,
+    IfcFastRequest,
     IfcClashRequest,
     IfcTesterRequest,
     IfcDiffRequest,
     IFC2JSONRequest,
+    FragmentsRequest,
     DownloadLink,
     DownloadRequest,
     IfcQtoRequest,
@@ -43,12 +45,13 @@ from pydantic import BaseModel, HttpUrl
 from redis import Redis
 from shared import object_storage as s3
 from shared import audit_db
-from rq import Queue
+from rq import Queue, Retry
 from rq.job import Job, JobStatus
 from rq.worker import Worker
 import aiohttp
 from aiohttp import ClientTimeout
 import httpx
+from botocore.exceptions import ClientError
 
 # Add this at the beginning of your file
 logging.basicConfig(level=logging.INFO)
@@ -69,10 +72,13 @@ JOB_RESULT_TTL = 86400  # 24 hours
 default_queue = Queue('default', connection=redis_conn)
 ifcconvert_queue = Queue('ifcconvert', connection=redis_conn)
 ifccsv_queue = Queue('ifccsv', connection=redis_conn)
+ifcfast_queue = Queue('ifcfast', connection=redis_conn)
 ifcclash_queue = Queue('ifcclash', connection=redis_conn)
 ifctester_queue = Queue('ifctester', connection=redis_conn)
+# ifc_gherkin / beast_pdf_gherkin queues moved to cde/pipeline-gateway (2026-05).
 ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
 ifc2json_queue = Queue('ifc2json', connection=redis_conn)
+ifcfrag_queue = Queue('ifcfrag', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 revit_queue = Queue('revit', connection=redis_conn)
@@ -89,6 +95,12 @@ class JobStatusResponse(BaseModel):
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
+
+
+class JobRequeueResponse(BaseModel):
+    job_id: str
+    status: str
+    requeued: bool
 
 # Define the load_config function
 def load_config():
@@ -271,10 +283,12 @@ async def health_check():
         "ifcconvert_queue": "waiting",
         "ifcclash_queue": "waiting",
         "ifccsv_queue": "waiting",
+        "ifcfast_queue": "waiting",
         "ifctester_queue": "waiting",
         "ifcdiff_queue": "waiting",
         "ifc5d_queue": "waiting",
         "ifc2json_queue": "waiting",
+        "ifcfrag_queue": "waiting",
         "ifcpatch_queue": "waiting",
         "revit_queue": "waiting",
         "ifccoord_queue": "waiting",
@@ -300,10 +314,12 @@ async def health_check():
         "ifcconvert_queue": ifcconvert_queue,
         "ifcclash_queue": ifcclash_queue,
         "ifccsv_queue": ifccsv_queue,
+        "ifcfast_queue": ifcfast_queue,
         "ifctester_queue": ifctester_queue,
         "ifcdiff_queue": ifcdiff_queue,
         "ifc5d_queue": ifc5d_queue,
         "ifc2json_queue": ifc2json_queue,
+        "ifcfrag_queue": ifcfrag_queue,
         "ifcpatch_queue": ifcpatch_queue,
         "revit_queue": revit_queue,
         "ifccoord_queue": ifccoord_queue,
@@ -341,8 +357,11 @@ async def health_check():
                  health_status[key] = f"error checking ({str(e)})"
 
     # Determine overall status
-    # Healthy only if API Gateway, Redis, and all queues are healthy or waiting
-    is_healthy = all(status in ["healthy", "waiting (no jobs yet)"] for key, status in health_status.items() if key != "api-gateway")
+    is_healthy = all(
+        status in ["healthy", "waiting (no jobs yet)"]
+        for key, status in health_status.items()
+        if key != "api-gateway"
+    )
     is_degraded = any("degraded" in status for status in health_status.values())
     
     if is_healthy and health_status["redis"] == "healthy": # Double check redis explicitly
@@ -454,6 +473,32 @@ async def get_job_status(job_id: str, _: str = Depends(verify_access)):
         logger.error(f"Error getting job status: {str(e)}")
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
+
+@app.post("/jobs/{job_id}/requeue", response_model=JobRequeueResponse, tags=["Jobs"])
+async def requeue_job(job_id: str, _: str = Depends(verify_access)):
+    """
+    Requeue a failed or stopped RQ job using the same job_id.
+
+    Used by n8n wait sub-workflows for per-job retry without caller-supplied enqueue URLs.
+    """
+    try:
+        job = Job.fetch(job_id, connection=redis_conn)
+        status = job.get_status()
+        if status not in (JobStatus.FAILED, JobStatus.STOPPED):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job {job_id} is not in a requeueable state (status: {status})",
+            )
+        job.requeue()
+        logger.info(f"Requeued job {job_id}")
+        return {"job_id": job_id, "status": "queued", "requeued": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error requeueing job {job_id}: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+
 @app.post("/ifcconvert", tags=["Conversion"])
 async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)):
     """
@@ -470,7 +515,7 @@ async def ifcconvert(request: IfcConvertRequest, _: str = Depends(verify_access)
         # Enqueue job to the dedicated ifcconvert worker queue
         job = ifcconvert_queue.enqueue(
             "tasks.run_ifcconvert",  # Points directly to function in /app/tasks.py for ifcconvert-worker
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",  # Adjust timeout as needed
             result_ttl=JOB_RESULT_TTL
         )
@@ -497,7 +542,7 @@ async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
         # Enqueue job to the dedicated ifccsv worker queue
         job = ifccsv_queue.enqueue(
             "tasks.run_ifc_to_csv_conversion", # Points to function in /app/tasks.py for ifccsv-worker
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",
             result_ttl=JOB_RESULT_TTL
         )
@@ -507,6 +552,78 @@ async def ifccsv(request: IfcCsvRequest, _: str = Depends(verify_access)):
     except Exception as e:
         logger.error(f"Error enqueueing ifccsv export job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+IFCFAST_OPERATIONS_DOC = {
+    "export_products": "Tier-1 products → CSV/JSON/Parquet (default; replaces legacy export-only body).",
+    "export_layer": "One data layer: products, psets, quantities, materials, classifications, drift, …",
+    "extract_all": "All schema layers to separate files (artifacts[] in job result).",
+    "summary": "Model summary JSON (schema, counts, cache key, parse_seconds).",
+    "schemas": "Column dtypes for every extractable table.",
+    "traverse": "Spatial graph: parent, children, ancestors, descendants, storey_of, building_of, products_in.",
+    "types": "Entity type counts.",
+    "type_bank": "TypeBank extraction sample.",
+    "type_summary": "Per-type summary sample.",
+    "preview": "First N rows of a table (preview_table, preview_n).",
+    "diff": "Compare with other_filename (second IFC in uploads/).",
+    "filter_products": "model.filter(entity/mode/storey_guid) → table.",
+    "by_type": "model.by_type(entity_type) → table.",
+    "mesh_qto": "Geometric QTO products + surfaces tables.",
+    "point_cloud": "Surface point sample (Parquet recommended).",
+    "meshes_summary": "Per-mesh vertex/face counts (not full topology).",
+}
+
+
+@app.get("/ifcfast/operations", tags=["Conversion"])
+async def ifcfast_operations(_: str = Depends(verify_access)):
+    """List native ifcfast operations and data layers exposed by POST /ifcfast."""
+    from shared.ifcfast_ops import DATA_LAYERS, TRAVERSE_OPS
+
+    return {
+        "operations": IFCFAST_OPERATIONS_DOC,
+        "data_layers": list(DATA_LAYERS),
+        "traverse_ops": sorted(TRAVERSE_OPS),
+        "output_formats": ["csv", "json", "parquet"],
+    }
+
+
+@app.post("/ifcfast", tags=["Conversion"])
+async def ifcfast(request: IfcFastRequest, _: str = Depends(verify_access)):
+    """
+    Run a native **ifcfast** (Rust) operation on an IFC in uploads/.
+
+    Set ``operation`` (default ``export_products``). See ``GET /ifcfast/operations``.
+    For ifcopenshell/ifccsv import, XLSX, or arbitrary selectors use ``/ifccsv``.
+    """
+    try:
+        validate_input_file_exists(request.filename)
+        if request.operation == "diff" and request.other_filename:
+            validate_input_file_exists(request.other_filename)
+        timeout = "2h" if request.operation in {
+            "mesh_qto",
+            "point_cloud",
+            "meshes_summary",
+            "extract_all",
+            "diff",
+        } else "1h"
+        job = ifcfast_queue.enqueue(
+            "tasks.run_ifcfast_export",
+            request.model_dump(exclude_none=True),
+            job_timeout=timeout,
+            result_ttl=JOB_RESULT_TTL,
+        )
+        logger.info(
+            "Enqueued ifcfast job op=%s id=%s",
+            request.operation,
+            job.id,
+        )
+        return {"job_id": job.id, "operation": request.operation}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enqueueing ifcfast job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/ifccsv/import", tags=["Conversion"])
 async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verify_access)):
@@ -525,7 +642,7 @@ async def import_csv_to_ifc(request: IfcCsvImportRequest, _: str = Depends(verif
         # Enqueue job to the dedicated ifccsv worker queue
         job = ifccsv_queue.enqueue(
             "tasks.run_csv_to_ifc_import", # Points to function in /app/tasks.py for ifccsv-worker
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",
             result_ttl=JOB_RESULT_TTL
         )
@@ -554,7 +671,7 @@ async def ifcclash(request: IfcClashRequest, _: str = Depends(verify_access)):
         # Use the direct function path to the worker task
         job = ifcclash_queue.enqueue(
             "tasks.run_ifcclash_detection",  # Points directly to function in /app/tasks.py
-            request.dict(),
+            request.model_dump(),
             job_timeout="2h",  # Clash detection can be time-consuming
             result_ttl=JOB_RESULT_TTL
         )
@@ -607,7 +724,7 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
         # Use the correct path now that tasks.py is directly in /app for this worker
         job = ifctester_queue.enqueue(
             "tasks.run_ifctester_validation", # Correct path relative to /app
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",
             result_ttl=JOB_RESULT_TTL
         )
@@ -617,6 +734,10 @@ async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
     except Exception as e:
         logger.error(f"Error enqueueing ifctester job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# /ifc-gherkin moved to cde/pipeline-gateway (2026-05) — see CDE's
+# app.services.validation._gherkin_endpoint for the new client wiring.
 
 
 @app.post("/ifcdiff", tags=["Diff"])
@@ -633,12 +754,21 @@ async def ifcdiff(request: IfcDiffRequest, _: str = Depends(verify_access)):
     try:
         validate_input_file_exists(request.old_file)
         validate_input_file_exists(request.new_file)
-        # Enqueue job to the dedicated ifcdiff worker queue
+        # Enqueue job to the dedicated ifcdiff worker queue.
+        #
+        # `retry` recovers from non-deterministic SIGSEGV crashes inside
+        # ifcopenshell/ifcdiff C extensions (signal 11 / "Work-horse terminated
+        # unexpectedly; waitpid returned 139"). The same inputs reliably succeed
+        # on a fresh work-horse, so up to 3 retries with backoff (5s, 30s, 90s)
+        # gives close-to-100% completion without manual intervention.
+        # Deterministic failures (e.g. botocore 404 on a missing pinned version)
+        # still surface after the retries are exhausted.
         job = ifcdiff_queue.enqueue(
             "tasks.run_ifcdiff",  # Points to function in /app/tasks.py for ifcdiff-worker
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",
-            result_ttl=JOB_RESULT_TTL
+            result_ttl=JOB_RESULT_TTL,
+            retry=Retry(max=3, interval=[5, 30, 90]),
         )
         
         logger.info(f"Enqueued ifcdiff job with ID: {job.id}")
@@ -663,7 +793,7 @@ async def ifc2json(request: IFC2JSONRequest, _: str = Depends(verify_access)):
         # Enqueue job to the dedicated ifc2json worker queue
         job = ifc2json_queue.enqueue(
             "tasks.run_ifc_to_json_conversion", # Points to function in /app/tasks.py for ifc2json-worker
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",
             result_ttl=JOB_RESULT_TTL
         )
@@ -716,6 +846,140 @@ async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
 
     raise HTTPException(status_code=404, detail=f"File {filename} not found")
 
+
+def _frag_output_candidates(filename: str) -> list[str]:
+    """Resolve possible S3 keys for a ``.frag`` artifact."""
+    base = os.path.basename(filename)
+    stem, ext = os.path.splitext(base)
+    if ext.lower() == ".frag":
+        names = [base]
+    else:
+        names = [f"{stem or base}.frag", f"{base}.frag"]
+    keys: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        for candidate in (
+            s3.normalize_output_key(name, "frag"),
+            s3.normalize_output_key(filename, "frag"),
+            f"output/frag/{name}",
+        ):
+            if candidate not in seen:
+                seen.add(candidate)
+                keys.append(candidate)
+    return keys
+
+
+def _frag_input_from_filename(filename: str) -> str:
+    """Derive the IFC input key used to bake a frag for ``filename``."""
+    base = os.path.basename(filename)
+    stem, ext = os.path.splitext(base)
+    if ext.lower() == ".frag":
+        ifc_name = f"{stem}.ifc"
+    elif ext.lower() == ".ifc":
+        ifc_name = base
+    else:
+        ifc_name = f"{base}.ifc"
+    return s3.normalize_input_key(ifc_name)
+
+
+@app.post("/fragments", tags=["Conversion"])
+async def fragments_generate(request: FragmentsRequest, _: str = Depends(verify_access)):
+    """Enqueue IFC → ``.frag`` conversion (ifcfrag-worker)."""
+    try:
+        validate_input_file_exists(request.input_filename)
+        job = ifcfrag_queue.enqueue(
+            "tasks.run_ifcfrag",
+            request.model_dump(),
+            job_timeout="1h",
+            result_ttl=JOB_RESULT_TTL,
+        )
+        logger.info("Enqueued ifcfrag job with ID: %s", job.id)
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error("Error enqueueing ifcfrag job: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/fragments/{filename:path}", tags=["Conversion"])
+async def fragments_ensure(
+    filename: str,
+    _: str = Depends(verify_access),
+    input_version_id: Optional[str] = None,
+):
+    """Return an existing ``output/frag/*.frag`` or enqueue generation on first request."""
+    if not s3.is_enabled():
+        raise HTTPException(status_code=503, detail="Object storage is disabled")
+
+    frag_key: Optional[str] = None
+    frag_meta: Optional[dict] = None
+    for candidate in _frag_output_candidates(filename):
+        try:
+            if s3.object_exists(candidate):
+                frag_key = candidate
+                frag_meta = s3.head_metadata(candidate)
+                break
+        except Exception as exc:
+            logger.warning("frag lookup for %s failed: %s", candidate, exc)
+
+    if frag_key:
+        presigned = s3.presigned_get_url_public(frag_key, expires_in=1800)
+        return {
+            "status": "ready",
+            "bucket": s3.bucket_name(),
+            "object_key": frag_key,
+            "presigned_url": presigned,
+            "sha256": (frag_meta or {}).get("sha256"),
+            "size_bytes": (frag_meta or {}).get("size_bytes"),
+            "version_id": (frag_meta or {}).get("version_id"),
+        }
+
+    input_key = _frag_input_from_filename(filename)
+    validate_input_file_exists(input_key)
+    payload: dict = {"input_filename": input_key}
+    if input_version_id:
+        payload["input_version_id"] = input_version_id
+    job = ifcfrag_queue.enqueue(
+        "tasks.run_ifcfrag",
+        payload,
+        job_timeout="1h",
+        result_ttl=JOB_RESULT_TTL,
+    )
+    logger.info("Lazy-enqueued ifcfrag job %s for %s", job.id, input_key)
+    return {
+        "status": "generating",
+        "job_id": job.id,
+        "input_key": input_key,
+        "expected_output_prefix": "output/frag/",
+    }
+
+
+@app.get("/artifacts/{subdir}/{filename:path}", tags=["File Operations"])
+async def get_artifact_bytes(
+    subdir: str,
+    filename: str,
+    _: str = Depends(verify_access),
+):
+    """Download a worker output file from object storage (e.g. output/xlsx/…)."""
+    from fastapi.responses import Response
+
+    base_name = os.path.basename(filename)
+    if s3.is_enabled():
+        key = s3.build_output_key(subdir, base_name)
+        if not s3.object_exists(key):
+            raise HTTPException(
+                status_code=404, detail=f"Artifact not found: {key}"
+            )
+        obj = s3.get_client().get_object(Bucket=s3.bucket_name(), Key=key)
+        body = obj["Body"].read()
+        ct = obj.get("ContentType") or "application/octet-stream"
+        return Response(content=body, media_type=ct)
+
+    local = os.path.join("/output", subdir, base_name)
+    if os.path.isfile(local):
+        return FileResponse(local)
+    raise HTTPException(status_code=404, detail=f"Artifact not found: {local}")
+
+
 @app.get("/lineage/job/{job_id}", tags=["Audit"])
 async def lineage_for_job(job_id: str, _: str = Depends(verify_access)):
     """Return every object version produced by the given RQ job along with
@@ -754,6 +1018,180 @@ async def audit_dedupe(sha256: str, _: str = Depends(verify_access)):
     return {"sha256": sha256.lower(), "versions": audit_db.fetch_by_hash(sha256.lower())}
 
 
+@app.get("/audit/guid-duplicates", tags=["Audit"])
+async def audit_guid_duplicates(
+    limit: int = 100,
+    object_keys: Optional[str] = None,
+    products_only: bool = True,
+    _: str = Depends(verify_access),
+):
+    """Find IFC GUIDs that appear in multiple files.
+    
+    Returns duplicate GUIDs across indexed files, useful for detecting
+    copy-paste issues or unintended element sharing between models.
+    
+    Args:
+        limit: Maximum number of duplicate GUIDs to return (default 100).
+        object_keys: Optional comma-separated list of object keys to filter by.
+                    If provided, only checks for duplicates within these files.
+        products_only: If True (default), only return IfcProduct duplicates,
+                      excluding property sets, relationships, and other non-physical entities.
+    
+    Returns:
+        dict: Summary stats and list of duplicate GUIDs with their occurrences.
+    """
+    from shared.db_client import db_client
+    
+    conn = db_client.get_connection()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    
+    # Entity types to exclude (non-physical elements and type definitions)
+    excluded_types = (
+        # Property sets and properties
+        'IFCPROPERTYSET', 'IFCPROPERTYSINGLEVALUE', 'IFCPROPERTYLISTVALUE',
+        # Relationships
+        'IFCRELDEFINESBYPROPERTIES', 'IFCRELDEFINESBYTYPE', 'IFCRELDEFINESBYOBJECT',
+        'IFCRELASSOCIATESMATERIAL', 'IFCRELASSOCIATESCLASSIFICATION', 'IFCRELASSOCIATESDOCUMENT',
+        'IFCRELAGGREGATES', 'IFCRELCONTAINEDINSPATIALSTRUCTURE', 'IFCRELVOIDSELEMENT',
+        'IFCRELFILLSELEMENT', 'IFCRELSPACEBOUNDARY', 'IFCRELCONNECTS',
+        'IFCRELASSIGNS', 'IFCRELASSIGNSTOGROUP', 'IFCRELNESTS',
+        # Materials
+        'IFCMATERIALLAYERSETUSAGE', 'IFCMATERIALLAYERSET', 'IFCMATERIALLAYER', 'IFCMATERIAL',
+        # Geometry
+        'IFCSHAPEREPRESENTATION', 'IFCPRODUCTDEFINITIONSHAPE', 'IFCGEOMETRICREPRESENTATIONCONTEXT',
+        'IFCLOCALPLACEMENT', 'IFCAXIS2PLACEMENT3D', 'IFCCARTESIANPOINT', 'IFCDIRECTION',
+        # Project/ownership
+        'IFCOWNERHISTORY', 'IFCPERSON', 'IFCORGANIZATION', 'IFCPERSONANDORGANIZATION',
+        'IFCAPPLICATION', 'IFCUNITASSIGNMENT', 'IFCSIUNIT', 'IFCDERIVEDUNIT',
+        # Classification
+        'IFCCLASSIFICATION', 'IFCCLASSIFICATIONREFERENCE',
+        # Presentation
+        'IFCPRESENTATIONSTYLEASSIGNMENT', 'IFCSURFACESTYLE', 'IFCSURFACESTYLERENDERING',
+        'IFCCOLOURRGB', 'IFCSTYLEDITEM', 'IFCSTYLEDREPRESENTATION',
+        # Type definitions (we only want instances, not types)
+        'IFCWALLTYPE', 'IFCSLABTYPE', 'IFCBEAMTYPE', 'IFCCOLUMNTYPE', 'IFCMEMBERTYPE',
+        'IFCPLATETYPE', 'IFCDOORTYPE', 'IFCWINDOWTYPE', 'IFCCOVERINGTYPE', 'IFCRAILINGTYPE',
+        'IFCSTAIRTYPE', 'IFCSTAIRFLIGHTTYPE', 'IFCRAMPTYPE', 'IFCRAMPFLIGHTTYPE',
+        'IFCROOFTYPE', 'IFCCURTAINWALLTYPE', 'IFCBUILDINGELEMENTPROXYTYPE',
+        'IFCFLOWTERMINALTYPE', 'IFCFLOWSEGMENTTYPE', 'IFCFLOWFITTINGTYPE',
+        'IFCFLOWCONTROLLERTYPE', 'IFCFLOWMOVINGDEVICETYPE', 'IFCFLOWSTORAGEDEVICETYPE',
+        'IFCFLOWTREATMENTDEVICETYPE', 'IFCENERGYCONVERSIONDEVICETYPE',
+        'IFCDISTRIBUTIONELEMENTTYPE', 'IFCDISTRIBUTIONFLOWELEMENTTYPE',
+        'IFCDISTRIBUTIONCONTROLELEMENTTYPE', 'IFCDISTRIBUTIONCHAMBERELEMENTTYPE',
+        'IFCFURNISHINGELEMENTTYPE', 'IFCFURNITURETYPE', 'IFCSYSTEMFURNITUREELEMENTTYPE',
+        'IFCSPACETYPE', 'IFCOPENINGELEMENTTYPE', 'IFCPABOREANTYPE',
+        'IFCELEMENTASSEMBLYTYPE', 'IFCTRANSPORTELEMENTTYPE',
+    )
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Build query based on whether object_keys filter is provided
+        if object_keys:
+            keys = [k.strip() for k in object_keys.split(",") if k.strip()]
+            if products_only:
+                cursor.execute("""
+                    SELECT 
+                        og.ifc_guid,
+                        og.entity_type,
+                        COUNT(DISTINCT ov.object_key) as file_count,
+                        array_agg(DISTINCT ov.object_key ORDER BY ov.object_key) as files
+                    FROM object_guids og
+                    JOIN object_versions ov ON og.object_version_id = ov.id
+                    WHERE ov.object_key = ANY(%s)
+                      AND og.entity_type NOT IN %s
+                    GROUP BY og.ifc_guid, og.entity_type
+                    HAVING COUNT(DISTINCT ov.object_key) > 1
+                    ORDER BY file_count DESC, og.ifc_guid
+                    LIMIT %s;
+                """, (keys, excluded_types, limit))
+            else:
+                cursor.execute("""
+                    SELECT 
+                        og.ifc_guid,
+                        og.entity_type,
+                        COUNT(DISTINCT ov.object_key) as file_count,
+                        array_agg(DISTINCT ov.object_key ORDER BY ov.object_key) as files
+                    FROM object_guids og
+                    JOIN object_versions ov ON og.object_version_id = ov.id
+                    WHERE ov.object_key = ANY(%s)
+                    GROUP BY og.ifc_guid, og.entity_type
+                    HAVING COUNT(DISTINCT ov.object_key) > 1
+                    ORDER BY file_count DESC, og.ifc_guid
+                    LIMIT %s;
+                """, (keys, limit))
+        else:
+            if products_only:
+                cursor.execute("""
+                    SELECT 
+                        og.ifc_guid,
+                        og.entity_type,
+                        COUNT(DISTINCT ov.object_key) as file_count,
+                        array_agg(DISTINCT ov.object_key ORDER BY ov.object_key) as files
+                    FROM object_guids og
+                    JOIN object_versions ov ON og.object_version_id = ov.id
+                    WHERE og.entity_type NOT IN %s
+                    GROUP BY og.ifc_guid, og.entity_type
+                    HAVING COUNT(DISTINCT ov.object_key) > 1
+                    ORDER BY file_count DESC, og.ifc_guid
+                    LIMIT %s;
+                """, (excluded_types, limit))
+            else:
+                cursor.execute("""
+                    SELECT 
+                        og.ifc_guid,
+                        og.entity_type,
+                        COUNT(DISTINCT ov.object_key) as file_count,
+                        array_agg(DISTINCT ov.object_key ORDER BY ov.object_key) as files
+                    FROM object_guids og
+                    JOIN object_versions ov ON og.object_version_id = ov.id
+                    GROUP BY og.ifc_guid, og.entity_type
+                    HAVING COUNT(DISTINCT ov.object_key) > 1
+                    ORDER BY file_count DESC, og.ifc_guid
+                    LIMIT %s;
+                """, (limit,))
+        
+        duplicates = []
+        for row in cursor.fetchall():
+            duplicates.append({
+                "guid": row[0],
+                "entity_type": row[1],
+                "file_count": row[2],
+                "files": row[3],
+            })
+        
+        # Get summary stats
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_guids,
+                COUNT(DISTINCT ifc_guid) as unique_guids,
+                COUNT(DISTINCT object_version_id) as indexed_files
+            FROM object_guids;
+        """)
+        stats = cursor.fetchone()
+        
+        # Get list of indexed files
+        cursor.execute("""
+            SELECT DISTINCT ov.object_key
+            FROM object_guids og
+            JOIN object_versions ov ON og.object_version_id = ov.id
+            ORDER BY ov.object_key;
+        """)
+        indexed_files_list = [row[0] for row in cursor.fetchall()]
+        
+        return {
+            "total_guids_indexed": stats[0] if stats else 0,
+            "unique_guids": stats[1] if stats else 0,
+            "indexed_files": stats[2] if stats else 0,
+            "indexed_files_list": indexed_files_list,
+            "duplicate_count": len(duplicates),
+            "duplicates": duplicates,
+        }
+    finally:
+        conn.close()
+
+
 @app.get("/lineage/{object_key:path}", tags=["Audit"])
 async def lineage_for_key(object_key: str, depth: int = 10, _: str = Depends(verify_access)):
     """Return the full lineage tree (ancestors + descendants) of the latest
@@ -787,7 +1225,7 @@ async def calculate_qtos(request: IfcQtoRequest, _: str = Depends(verify_access)
         # Enqueue job to the dedicated ifc5d worker queue
         job = ifc5d_queue.enqueue(
             "tasks.run_qto_calculation", # Points to function in /app/tasks.py for ifc5d-worker
-            request.dict(),
+            request.model_dump(),
             job_timeout="1h",
             result_ttl=JOB_RESULT_TTL
         )
@@ -869,39 +1307,77 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
     if not filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
 
+    safe_basename = s3.safe_upload_basename(filename)
     upload_dir = upload_config["dir"]
-    file_path = os.path.join(upload_dir, filename)
+    file_path = os.path.join(upload_dir, safe_basename)
 
     try:
         if s3.is_enabled():
             s3.ensure_bucket()
-            key = s3.build_upload_key(filename)
+            key = s3.build_upload_key(safe_basename)
             content_type = file.content_type or None
-            sha256, size_bytes = s3.upload_fileobj_and_hash(
-                file.file, key, content_type=content_type
-            )
+            try:
+                uploaded = s3.upload_fileobj_and_hash(
+                    file.file, key, content_type=content_type
+                )
+                sha256 = uploaded["sha256"]
+                size_bytes = uploaded["size_bytes"]
+                s3_version_id = uploaded.get("version_id")
+            except ClientError as e:
+                err = (e.response or {}).get("Error") or {}
+                code = err.get("Code") or ""
+                msg = err.get("Message") or str(e)
+                if code in ("XMinioStorageFull", "InsufficientStorage"):
+                    logger.error(
+                        "S3 storage full for key %s: %s %s", key, code, msg
+                    )
+                    raise HTTPException(
+                        status_code=507,
+                        detail=(
+                            "Object storage is full; free disk space on the host or prune the "
+                            f"MinIO/S3 bucket. ({code}: {msg})"
+                        ),
+                    ) from e
+                raise
+            # Shadow (SeaweedFS pilot): when the dual-write path produced a
+            # second VersionId, stash it in the audit metadata so the parity
+            # monitor + weekly summary can cross-check primary vs shadow
+            # without a schema migration.
+            audit_metadata = {
+                "file_type": file_type,
+                "original_filename": filename,
+            }
+            shadow_payload = uploaded.get("shadow") if isinstance(uploaded, dict) else None
+            if shadow_payload:
+                audit_metadata["shadow_version_id"] = shadow_payload.get("version_id")
+                audit_metadata["shadow_sha256"] = shadow_payload.get("sha256")
+                audit_metadata["shadow_size_bytes"] = shadow_payload.get("size_bytes")
+                audit_metadata["shadow_bucket"] = shadow_payload.get("bucket")
+                audit_metadata["shadow_object_key"] = shadow_payload.get("object_key")
             audit_id = audit_db.record_upload(
                 bucket=s3.bucket_name(),
                 object_key=key,
                 sha256=sha256,
                 size_bytes=size_bytes,
+                version_id=s3_version_id,
                 content_type=content_type,
-                metadata={
-                    "file_type": file_type,
-                    "original_filename": filename,
-                },
+                metadata=audit_metadata,
             )
-            return {
+            out = {
                 "message": f"{file_type.upper()} file {filename} uploaded successfully",
                 "storage": "s3",
                 "bucket": s3.bucket_name(),
                 "object_key": key,
                 "object_url": f"s3://{s3.bucket_name()}/{key}",
                 "file_path": f"s3://{s3.bucket_name()}/{key}",
+                "original_filename": filename,
                 "sha256": sha256,
                 "size_bytes": size_bytes,
                 "audit_id": audit_id,
             }
+            if s3_version_id:
+                out["version_id"] = s3_version_id
+            return out
 
         os.makedirs(upload_dir, exist_ok=True)
         with open(file_path, "wb") as buffer:
@@ -910,6 +1386,7 @@ async def upload_file(file_type: str, file: UploadFile = File(...), _: str = Dep
         return {
             "message": f"{file_type.upper()} file {filename} uploaded successfully",
             "file_path": file_path,
+            "original_filename": filename,
         }
     except HTTPException:
         raise
@@ -1014,6 +1491,17 @@ async def create_download_link(request: DownloadRequest, _: str = Depends(verify
     return response
 
 
+def _attachment_disposition_for_basename(basename: str) -> str:
+    """RFC 6266-style Content-Disposition for S3 ResponseContentDisposition."""
+    base = (basename or "model.ifc").strip() or "model.ifc"
+    ascii_safe = "".join(
+        c if 32 <= ord(c) <= 126 and c not in ('"', "\\", ";") else "_"
+        for c in base
+    )[:200] or "model.ifc"
+    encoded = quote(base, safe="")
+    return f"attachment; filename=\"{ascii_safe}\"; filename*=UTF-8''{encoded}"
+
+
 @app.get("/download/{token}", tags=["File Operations"])
 async def download_file(token: str):
     """Download a file using a temporary token. For S3-backed tokens we issue
@@ -1033,7 +1521,12 @@ async def download_file(token: str):
             del download_links[token]
             raise HTTPException(status_code=404, detail="File not found in object storage")
         remaining = max(int((download_link.expiry - datetime.now()).total_seconds()), 60)
-        url = s3.presigned_get_url_public(target, expires_in=remaining)
+        disp = _attachment_disposition_for_basename(os.path.basename(target))
+        url = s3.presigned_get_url_public(
+            target,
+            expires_in=remaining,
+            response_content_disposition=disp,
+        )
         return RedirectResponse(url=url, status_code=307)
 
     if not os.path.exists(target):
@@ -1113,15 +1606,89 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
     """
     Download a file from a URL and save it to the uploads directory.
 
+    When object storage is enabled, the file is uploaded to S3 and an audit
+    record is created. If `source_etag` is provided and matches an existing
+    audit row, the download is skipped and the cached file metadata is returned.
+
     Args:
         request (DownloadUrlRequest): The request containing the download URL.
 
     Returns:
-        dict: A message indicating success or failure, and the path to the downloaded file.
+        dict: A message indicating success or failure, file metadata, and
+        version_id when using S3.
     """
     # DNS-pin to defeat rebinding TOCTOU: resolve once, validate every IP is
     # public, then force aiohttp to use those exact IPs for the connection.
     hostname, resolved_ips = _resolve_and_validate_public(str(request.url))
+
+    # Determine the filename we'll use for storage
+    raw_filename = request.output_filename or os.path.basename(urlparse(str(request.url)).path) or "download"
+    try:
+        original_filename, storage_basename, key = s3.build_upload_key_from_original(raw_filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Short-circuit: if source_etag provided, check if we already have this exact version
+    source_etag = (request.source_etag or "").strip()
+    if source_etag and s3.is_enabled():
+        existing = audit_db.lookup_by_source_etag(source_etag, object_key=key)
+        if not existing:
+            # Key may differ across sanitization rules; etag is still unique per SP version.
+            existing = audit_db.lookup_by_source_etag(source_etag)
+            if existing and existing.get("object_key"):
+                key = existing["object_key"]
+        if existing:
+            # Verify the audited version still exists in MinIO before returning a cache
+            # hit. Lifecycle expiration of non-current versions (or manual cleanup) can
+            # leave the audit row pointing at a now-deleted VersionId, in which case
+            # downstream callers that pin to that VersionId hit 404. If the pinned
+            # version is gone but the current version of the key has the same sha256,
+            # the bytes are still available — return a cache hit using the current
+            # VersionId. Otherwise fall through and re-download.
+            cached_version_id = existing.get("version_id")
+            cached_sha256 = (existing.get("sha256") or "").lower()
+            resolved_version_id = None
+
+            if cached_version_id and s3.object_exists(key, version_id=cached_version_id):
+                resolved_version_id = cached_version_id
+            else:
+                current = s3.head_metadata(key)
+                if current is not None:
+                    current_sha = (current.get("sha256") or "").lower()
+                    if cached_sha256 and current_sha and current_sha == cached_sha256:
+                        resolved_version_id = current.get("version_id")
+                        logger.info(
+                            "download_from_url: audited version %s missing, using current "
+                            "version %s (sha256 matches) for key=%s",
+                            cached_version_id, resolved_version_id, key,
+                        )
+
+            if resolved_version_id is not None or (not cached_version_id and s3.object_exists(key)):
+                logger.info("download_from_url: cache hit for source_etag=%s, key=%s", source_etag, key)
+                out = {
+                    "message": f"File cached (source_etag match) as {original_filename}",
+                    "storage": "s3",
+                    "bucket": s3.bucket_name(),
+                    "object_key": key,
+                    "object_url": f"s3://{s3.bucket_name()}/{key}",
+                    "file_path": f"s3://{s3.bucket_name()}/{key}",
+                    "original_filename": original_filename,
+                    "storage_basename": os.path.basename(key),
+                    "sha256": existing.get("sha256"),
+                    "size_bytes": existing.get("size_bytes"),
+                    "audit_id": existing.get("id"),
+                    "cached": True,
+                }
+                if resolved_version_id:
+                    out["version_id"] = resolved_version_id
+                return out
+
+            logger.warning(
+                "download_from_url: stale cache for source_etag=%s key=%s "
+                "(audited version_id=%s missing and current sha256 mismatch); re-downloading",
+                source_etag, key, cached_version_id,
+            )
+
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -1132,64 +1699,122 @@ async def download_from_url(request: DownloadUrlRequest, _: str = Depends(verify
         async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
             async with session.get(request.url, headers=headers, allow_redirects=False) as response:
                 if response.status != 200:
+                    # Upstream (e.g. S3/Autodesk presigned URL) errors — 403 is common when
+                    # the presign expired or the signature no longer matches.
+                    err_body = (await response.text())[:500]
+                    logger.warning(
+                        "download_from_url: upstream HTTP %s for host %s, body head: %r",
+                        response.status,
+                        hostname,
+                        err_body,
+                    )
                     raise HTTPException(
                         status_code=response.status,
-                        detail=f"Failed to download file: HTTP {response.status}"
+                        detail=f"Failed to download file: HTTP {response.status}",
                     )
-                
-                # Get filename from URL or Content-Disposition header
-                filename = None
-                if 'Content-Disposition' in response.headers:
-                    content_disposition = response.headers['Content-Disposition']
-                    # Try to get filename from filename* parameter first (UTF-8 encoded)
-                    if 'filename*=UTF-8' in content_disposition:
-                        filename = content_disposition.split("filename*=UTF-8''")[-1].split(';')[0]
-                    # Fall back to regular filename parameter
-                    elif 'filename=' in content_disposition:
-                        filename = content_disposition.split('filename=')[1].split(';')[0].strip('"\'')
-                
-                if not filename:
-                    # Extract filename from URL path
-                    url_path = str(request.url).split('?')[0]  # Remove query parameters
-                    filename = url_path.split('/')[-1]
-                
-                # Clean up filename
-                filename = filename.strip()
-                if ';' in filename:
-                    filename = filename.split(';')[0].strip()
-                
-                if not filename:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Could not determine filename from URL or headers"
-                    )
-                
-                # Use the provided output_filename if it exists, otherwise use the original filename
-                if request.output_filename:
-                    filename = request.output_filename
-                
-                # Sanitize filename to prevent path traversal
-                filename = os.path.basename(filename)
-                
-                # Always save to the uploads directory
-                file_path = os.path.join("/uploads", filename)
-                
-                # Ensure uploads directory exists
-                os.makedirs("/uploads", exist_ok=True)
-                
-                # Save the file
-                with open(file_path, 'wb') as f:
-                    while True:
-                        chunk = await response.content.read(8192)  # Read in chunks
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                
-                return {
-                    "message": f"File downloaded successfully as {filename}",
-                    "file_path": file_path
-                }
-                
+
+                # For S3 mode: stream to a temporary file, then upload to S3 with audit
+                if s3.is_enabled():
+                    import tempfile
+                    import hashlib
+
+                    s3.ensure_bucket()
+                    content_type = response.headers.get('Content-Type')
+
+                    # Stream to temp file while computing hash
+                    sha256_hash = hashlib.sha256()
+                    size_bytes = 0
+
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp_f:
+                        tmp_path = tmp_f.name
+                        while True:
+                            chunk = await response.content.read(8192)
+                            if not chunk:
+                                break
+                            tmp_f.write(chunk)
+                            sha256_hash.update(chunk)
+                            size_bytes += len(chunk)
+
+                    sha256 = sha256_hash.hexdigest()
+
+                    try:
+                        # Upload to S3 (may be cached by hash)
+                        with open(tmp_path, 'rb') as upload_f:
+                            uploaded = s3.upload_fileobj_and_hash(
+                                upload_f, key, content_type=content_type
+                            )
+                        s3_version_id = uploaded.get("version_id")
+
+                        # Shadow (SeaweedFS pilot) pass-through, same as the
+                        # /upload route above.
+                        audit_metadata = {
+                            "original_filename": original_filename,
+                            "source_url": str(request.url)[:500],  # Truncate for safety
+                            "source_etag": source_etag or None,
+                        }
+                        shadow_payload = uploaded.get("shadow") if isinstance(uploaded, dict) else None
+                        if shadow_payload:
+                            audit_metadata["shadow_version_id"] = shadow_payload.get("version_id")
+                            audit_metadata["shadow_sha256"] = shadow_payload.get("sha256")
+                            audit_metadata["shadow_size_bytes"] = shadow_payload.get("size_bytes")
+                            audit_metadata["shadow_bucket"] = shadow_payload.get("bucket")
+                            audit_metadata["shadow_object_key"] = shadow_payload.get("object_key")
+                        # Record to audit DB
+                        audit_id = audit_db.record_upload(
+                            bucket=s3.bucket_name(),
+                            object_key=key,
+                            sha256=sha256,
+                            size_bytes=uploaded.get("size_bytes", size_bytes),
+                            version_id=s3_version_id,
+                            content_type=content_type,
+                            metadata=audit_metadata,
+                        )
+
+                        out = {
+                            "message": f"File downloaded successfully as {original_filename}",
+                            "storage": "s3",
+                            "bucket": s3.bucket_name(),
+                            "object_key": key,
+                            "object_url": f"s3://{s3.bucket_name()}/{key}",
+                            "file_path": f"s3://{s3.bucket_name()}/{key}",
+                            "original_filename": original_filename,
+                            "storage_basename": storage_basename,
+                            "sha256": sha256,
+                            "size_bytes": uploaded.get("size_bytes", size_bytes),
+                            "audit_id": audit_id,
+                            "cached": False,
+                        }
+                        if s3_version_id:
+                            out["version_id"] = s3_version_id
+                        return out
+                    finally:
+                        # Clean up temp file
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
+                else:
+                    # Legacy local filesystem mode
+                    file_path = os.path.join("/uploads", storage_basename)
+                    os.makedirs("/uploads", exist_ok=True)
+
+                    with open(file_path, 'wb') as f:
+                        while True:
+                            chunk = await response.content.read(8192)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+
+                    return {
+                        "message": f"File downloaded successfully as {original_filename}",
+                        "file_path": file_path,
+                        "original_filename": original_filename,
+                        "storage_basename": storage_basename,
+                    }
+
+    except HTTPException:
+        # Do not wrap — upstream HTTP status (403, 404, etc.) must reach the client.
+        raise
     except aiohttp.ClientError as e:
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
     except Exception as e:
@@ -1212,7 +1837,7 @@ async def execute_patch(request: IfcPatchRequest, _: str = Depends(verify_access
         validate_input_file_exists(request.input_file)
         job = ifcpatch_queue.enqueue(
             "tasks.run_ifcpatch",
-            request.dict(),
+            request.model_dump(),
             job_timeout="2h",  # Patches can be time-consuming
             result_ttl=JOB_RESULT_TTL
         )
@@ -1597,7 +2222,7 @@ async def classify_single(request: IfcClassifyRequest, _: str = Depends(verify_a
         async with await get_aiohttp_session() as session:
             async with session.post(
                 classifier_url,
-                json=request.dict(),
+                json=request.model_dump(),
                 headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:
@@ -1639,7 +2264,7 @@ async def classify_batch(request: IfcClassifyBatchRequest, _: str = Depends(veri
         async with await get_aiohttp_session() as session:
             async with session.post(
                 classifier_url,
-                json=request.dict(),
+                json=request.model_dump(),
                 headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:

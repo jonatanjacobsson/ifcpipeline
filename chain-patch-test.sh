@@ -183,4 +183,60 @@ descendant_count=$(curl -fsS "${AUTH[@]}" "$API/lineage/uploads/$UPLOAD" | pytho
 echo "  [ok] root has $descendant_count descendants"
 
 echo
+echo ">>> Day-2 overwrite: uploading different bytes to an existing key"
+# Re-upload the same fixture (identical filename) under the same logical key.
+# MinIO bucket versioning gives the new PUT its own VersionId; audit_db
+# should persist *both* rows for uploads/$UPLOAD, and the day-1 chain must
+# still be walkable by its audit_id because every worker call pinned the
+# parent's VersionId into the lineage row.
+
+# Stage a byte-different copy of the fixture by appending an ISO comment
+# — still a valid IFC, but SHA256 differs from the day-1 root.
+DAY2_TMP=$(mktemp --suffix=.ifc)
+trap 'rm -f "$DAY2_TMP"' EXIT
+cp "$FIXTURE" "$DAY2_TMP"
+printf '\n/* day-2 overwrite marker %s */\n' "$(date -u +%s)" >> "$DAY2_TMP"
+
+echo ">>> Re-uploading $UPLOAD (day-2 bytes)"
+curl -fsS "${AUTH[@]}" -F "file=@${DAY2_TMP};filename=${UPLOAD}" "$API/upload/ifc" | python3 -m json.tool
+
+echo ">>> /audit/history/uploads/$UPLOAD (should list 2+ versions)"
+HISTORY=$(curl -fsS "${AUTH[@]}" "$API/audit/history/uploads/$UPLOAD")
+echo "$HISTORY" | python3 -m json.tool
+version_count=$(echo "$HISTORY" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("versions",[])))')
+[ "$version_count" -ge 2 ] || { echo "  [FAIL] /audit/history only returned $version_count versions (expected >=2)"; exit 1; }
+
+# The two versions must have different sha256 and different version_id.
+shas=$(echo "$HISTORY" | python3 -c 'import json,sys; print(" ".join(sorted(set(v.get("sha256") or "" for v in json.load(sys.stdin).get("versions",[])))))')
+vids=$(echo "$HISTORY" | python3 -c 'import json,sys; print(" ".join(sorted(set(v.get("version_id") or "" for v in json.load(sys.stdin).get("versions",[])))))')
+sha_ucount=$(echo "$shas" | tr ' ' '\n' | grep -c '[0-9a-f]')
+vid_ucount=$(echo "$vids" | tr ' ' '\n' | grep -c '[0-9A-Za-z]')
+[ "$sha_ucount" -ge 2 ] && [ "$vid_ucount" -ge 2 ] || {
+  echo "  [FAIL] expected distinct sha256 and version_id across day-1/day-2 (got sha_u=$sha_ucount vid_u=$vid_ucount)"; exit 1; }
+echo "  [ok] /audit/history returned $version_count versions with distinct bytes + VersionIds"
+
+# The day-1 chain must still be walkable by audit_id. Pick step3's audit_id
+# from its lineage endpoint and verify the ancestor chain still anchors to
+# the day-1 sha256 (not the day-2 bytes).
+STEP3_SELF=$(curl -fsS "${AUTH[@]}" "$API/lineage/$A3" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("self",{})))')
+STEP3_ID=$(echo "$STEP3_SELF" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id") or "")')
+[ -n "$STEP3_ID" ] || { echo "  [FAIL] step3 has no audit_id"; exit 1; }
+ANCESTORS_BY_ID=$(curl -fsS "${AUTH[@]}" "$API/lineage/$A3?audit_id=${STEP3_ID}")
+root_sha_from_chain=$(echo "$ANCESTORS_BY_ID" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+root = [a for a in d.get("ancestors", []) if a.get("kind") == "root"]
+print(root[0].get("sha256") if root else "")
+')
+day1_sha=$(echo "$HISTORY" | python3 -c '
+import json, sys
+versions = json.load(sys.stdin).get("versions", [])
+# day-1 is the *older* row; API returns newest-first.
+print(versions[-1].get("sha256") if versions else "")
+')
+[ -n "$root_sha_from_chain" ] && [ "$root_sha_from_chain" = "$day1_sha" ] || {
+  echo "  [FAIL] day-1 chain's root sha256 ($root_sha_from_chain) != day-1 recorded sha256 ($day1_sha)"; exit 1; }
+echo "  [ok] day-1 chain still resolves to the pinned (day-1) root sha256"
+
+echo
 echo "CHAIN TEST OK"

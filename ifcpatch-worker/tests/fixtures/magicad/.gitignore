@@ -1,0 +1,5 @@
+# Full-building MagiCAD repair outputs are large (~100MB). Regenerate with:
+#   python scripts/repair_full_magiad_ifc.py --input /path/to/V--57_V01000R.ifc
+# Do not commit unless using Git LFS.
+V--57_*_repaired.ifc
+V--57_*_repaired_*.ifc

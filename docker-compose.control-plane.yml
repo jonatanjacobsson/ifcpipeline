@@ -1,0 +1,395 @@
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "8000:80"
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      ifc-viewer:
+        condition: service_started
+      minio-setup:
+        condition: service_started
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - IFC_PIPELINE_API_KEY=${IFC_PIPELINE_API_KEY:?IFC_PIPELINE_API_KEY must be set in .env}
+      - IFC_PIPELINE_ALLOWED_IP_RANGES=${IFC_PIPELINE_ALLOWED_IP_RANGES}
+      - DOCKER_GATEWAY_IP=${DOCKER_GATEWAY_IP:-172.18.0.1}
+      - IFC_PIPELINE_EXTERNAL_URL=${IFC_PIPELINE_EXTERNAL_URL}
+      - IFC_PIPELINE_PREVIEW_EXTERNAL_URL=${IFC_PIPELINE_PREVIEW_EXTERNAL_URL}
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_PUBLIC_ENDPOINT_URL=${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+      - S3_CHECKSUM_MODE=${S3_CHECKSUM_MODE:-app}
+      - GUID_INDEX_MODE=${GUID_INDEX_MODE:-off}
+    volumes:
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+      - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1536M
+
+  ifc-viewer:
+    build:
+      context: ./ifc-viewer
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE=${IFC_PIPELINE_EXTERNAL_URL}
+    ports:
+      - "8001:3000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 256M
+
+  redis:
+    image: "redis:7.2.11-alpine"
+    ports:
+      - "127.0.0.1:6379:6379"
+    # Persist Redis to disk so the RQ failed-job registry survives restarts.
+    # Previously /data was tmpfs, which wiped all RQ history on every container
+    # restart and made post-mortem analysis impossible after the May 13/14
+    # SIGSEGV storm. See plans/teams_error_culprit_analysis_*.plan.md.
+    volumes:
+      - redis-data:/data
+    command: >
+      sh -c "
+      sysctl vm.overcommit_memory=1 || true &&
+      redis-server
+      --save 60 1000
+      --appendonly yes
+      --stop-writes-on-bgsave-error no
+      --loglevel notice
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+      "
+    cap_add:
+      - SYS_ADMIN
+    stop_signal: SIGTERM
+    stop_grace_period: 3s
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 768M
+
+  # --- Object storage (S3-compatible) -------------------------------------
+  minio:
+    image: quay.io/minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      # Bind to loopback only: the S3 API is reachable at 127.0.0.1:9000 (and
+      # console at :9001) on the Docker host. Expose publicly only through
+      # something in front of the host — e.g. Cloudflare Tunnel (cloudflared on
+      # the host → http://127.0.0.1:9000), SSH -L, or a reverse proxy with
+      # auth — not by publishing 0.0.0.0:9000 here. Presigned URLs must use the
+      # public hostname (S3_PUBLIC_ENDPOINT_URL), not http://minio:9000.
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Web console
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:?S3_SECRET_KEY must be set in .env}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # One-shot: wait for MinIO, create the bucket if missing.
+  minio-setup:
+    image: quay.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      set -e;
+      until mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin} >/dev/null 2>&1; do
+        echo 'waiting for minio...'; sleep 1;
+      done;
+      mc mb --ignore-existing local/${S3_BUCKET:-ifcpipeline};
+      mc version enable local/${S3_BUCKET:-ifcpipeline} || true;
+      echo 'bucket ready (versioned): ${S3_BUCKET:-ifcpipeline}';
+      "
+    restart: "no"
+
+  rq-dashboard:
+    image: hannes221/rq-dashboard-fast:latest
+    ports:
+      - "9181:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - FASTAPI_PORT=8000
+    command: ["python3", "app.py"]
+    volumes:
+      - ./rq-dashboard-custom/css/main.css:/app/rq_dashboard_fast/static/css/main.css:ro
+      - ./rq-dashboard-custom/templates/job.html:/app/rq_dashboard_fast/templates/job.html:ro
+      - ./rq-dashboard-custom/rq_dashboard_fast.py:/app/rq_dashboard_fast/rq_dashboard_fast.py:ro
+      - ./rq-dashboard-custom/utils/jobs.py:/app/rq_dashboard_fast/utils/jobs.py:ro
+      - ./rq-dashboard-custom/utils/workers.py:/app/rq_dashboard_fast/utils/workers.py:ro
+      - ./shared/uploads:/uploads:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+
+  dozzle:
+    image: amir20/dozzle:latest
+    ports:
+      - "9182:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DOZZLE_LEVEL=info
+      - DOZZLE_TAILSIZE=300
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+
+  # Node IfcImporter service — shared with CDE; ifcfrag-worker POSTs here.
+  fragmenter:
+    build:
+      context: ../cde/fragmenter
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - PORT=4001
+      - HOST=0.0.0.0
+      - MAX_PAYLOAD_BYTES=1073741824
+    ports:
+      - "127.0.0.1:8041:4001"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+
+  ifc-classifier:
+    build:
+      context: .
+      dockerfile: ifc-classifier-service/Dockerfile
+    platform: linux/amd64
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./ifc-classifier-service/models:/app/models
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    user: "1000:1000"
+    ports:
+      - "5678:5678"
+    networks:
+      - default
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+      - ./shared/uploads:/uploads
+      - ./shared/output:/output
+      - ./shared/examples:/examples
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - IFC_PIPELINE_URL=http://api-gateway
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - N8N_PROXY_HOPS=${N8N_PROXY_HOPS:-1}
+      - GENERIC_TIMEZONE=Europe/Stockholm
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED:-true}
+      - NODES_EXCLUDE="[]"
+      - N8N_RESTRICT_FILE_ACCESS_TO=/home/node/.n8n-files;/uploads;/output;/examples
+      # Code nodes in this deployment (Nobel Center File Versions, etc.) can
+      # legitimately take > 60s when the task runner is busy running many
+      # concurrent diffs/uploads; keep the default runner but extend the
+      # request timeout so we don't drop long-waiting Code node tasks.
+      - N8N_RUNNERS_TASK_REQUEST_TIMEOUT=${N8N_RUNNERS_TASK_REQUEST_TIMEOUT:-300000}
+      # n8n database: defaults to postgresdb (Phase 2 restores prod dump into it).
+      # DB_TYPE must be postgresdb, not postgres.
+      - DB_TYPE=${N8N_DB_TYPE:-postgresdb}
+      - DB_POSTGRESDB_HOST=${POSTGRES_HOST:-postgres}
+      - DB_POSTGRESDB_PORT=${POSTGRES_PORT:-5432}
+      - DB_POSTGRESDB_DATABASE=${N8N_POSTGRESDB_DATABASE:-n8n}
+      - DB_POSTGRESDB_USER=${N8N_POSTGRESDB_USER:-ifcpipeline}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      # Required for credential decryption; MUST match the value that encrypted the prod DB.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      # PostgreSQL SSL settings (n8n → Postgres on Docker network; SSL usually off)
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - PGSSLMODE=disable
+    depends_on:
+      api-gateway:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 6G
+
+  postgres:
+    image: postgres:14
+    container_name: ifc_pipeline_postgres_objectstorage
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ifcpipeline}
+      # Used by postgres/init/01-n8n-database.sh (n8n dedicated DB name)
+      N8N_POSTGRESDB_DATABASE: ${N8N_POSTGRESDB_DATABASE:-n8n}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=1536MB"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "max_wal_size=512MB"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ifcpipeline}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+
+  # GUID indexing worker — consumes the `guid_index` RQ queue. Added by the
+  # versioned-keys / GUID-audit plan; kept entirely off the hot path of
+  # existing workers so a misbehaving extractor can only hurt GUID lookups.
+  guid-index-worker:
+    build:
+      context: .
+      dockerfile: guid-index-worker/Dockerfile
+    platform: linux/amd64
+    user: "1000:1000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      # The worker itself doesn't use GUID_INDEX_MODE — it's always on when
+      # running — but we surface the same knob so rq-dashboard operators
+      # know the intended policy.
+      - GUID_INDEX_MODE=${GUID_INDEX_MODE:-off}
+    depends_on:
+      - redis
+      - postgres
+      - minio-setup
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  cleanup-service:
+    image: alpine
+    user: "1000:1000"
+    volumes:
+      - ./shared/output:/output
+    command: >
+      sh -c '
+      while true; do
+        echo "[Cleanup] Starting cleanup process..."
+        find /output/clash -type f -name "*.json" -mtime +7 -exec sh -c "echo \"[Cleanup] Removing file (older than 7 days): {}\"; rm \"{}\"" \;
+        find /output/diff -type f -name "*.json" -mtime +7 -exec sh -c "echo \"[Cleanup] Removing file (older than 7 days): {}\"; rm \"{}\"" \;
+        find /output -type d -empty -exec sh -c "echo \"[Cleanup] Removing empty directory: {}\"; rmdir \"{}\"" \;
+        echo "[Cleanup] Cleanup completed. Sleeping for 24 hours..."
+        sleep 86400
+      done
+      '
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+
+volumes:
+  shared:
+  redis-data:
+  postgres-data:
+  pgadmin-data:
+  minio-data:
+
+networks:
+  default:

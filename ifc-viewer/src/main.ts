@@ -138,6 +138,42 @@ highlighter.setup({
     transparent: false,
   },
 });
+highlighter.zoomToSelection = true;
+
+const VIEWER_MSG_HOST_ID = "ifc-viewer-msg-host";
+const BASE_DOC_TITLE = document.title;
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function setViewerLoadMessage(
+  kind: "none" | "loading" | "success" | "error",
+  text: string,
+) {
+  const host = document.getElementById(VIEWER_MSG_HOST_ID);
+  if (!host) return;
+  if (kind === "none") {
+    host.innerHTML = "";
+    host.style.display = "none";
+    return;
+  }
+  host.style.display = "block";
+  const cls =
+    kind === "loading"
+      ? "viewer-message-label"
+      : kind === "success"
+        ? "viewer-message-ok"
+        : "viewer-message-err";
+  host.innerHTML = `<div class="${cls}" role="status">${escapeHtml(text)}</div>`;
+  if (kind === "success") {
+    window.setTimeout(() => setViewerLoadMessage("none", ""), 2800);
+  }
+}
 
 // Clipper Setup
 const clipper = components.get(OBC.Clipper);
@@ -221,7 +257,12 @@ viewport.append(viewportGrid);
 
 // Content Grid Setup
 const viewportCardTemplate = () => BUI.html`
-  <div class="dashboard-card" style="padding: 0px;">
+  <div class="dashboard-card" style="padding: 0px; position: relative;">
+    <div
+      id=${VIEWER_MSG_HOST_ID}
+      class="viewer-message-host"
+      style="position: absolute; top: 0.75rem; left: 50%; transform: translateX(-50%); z-index: 200; max-width: min(560px, 92%);"
+    ></div>
     ${viewport}
   </div>
 `;
@@ -231,6 +272,7 @@ const [contentGrid] = BUI.Component.create<
   TEMPLATES.ContentGridState
 >(TEMPLATES.contentGridTemplate, {
   components,
+  world,
   id: CONTENT_GRID_ID,
   viewportTemplate: viewportCardTemplate,
 });
@@ -330,10 +372,47 @@ function getTokenFromUrl(): string | null {
   return params.get("token");
 }
 
+function titleBaseName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return name;
+  const noPath = trimmed.replace(/^.*[/\\]/, "");
+  return noPath || trimmed;
+}
+
+/** Parse Content-Disposition (RFC 5987 filename* and legacy filename=). */
+function parseFilenameFromContentDisposition(header: string): string | null {
+  if (!header) return null;
+  const star = header.match(/filename\*=(?:UTF-8|utf-8)''([^;\s]+)/i);
+  if (star?.[1]) {
+    const raw = star[1].replace(/^"+|"+$/g, "");
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  const plain = header.match(/filename=(?:\"([^\"]*)\"|([^;\s]+))/i);
+  if (plain) {
+    const v = (plain[1] ?? plain[2] ?? "").trim();
+    if (!v) return null;
+    const unquoted = v.replace(/^"|"$/g, "");
+    try {
+      return decodeURIComponent(unquoted);
+    } catch {
+      return unquoted;
+    }
+  }
+  return null;
+}
+
 async function loadModelFromToken(token: string) {
   console.log(`Loading model from token: ${token}`);
+  setViewerLoadMessage("loading", "Downloading model…");
+  document.title = "Loading…";
 
   try {
+    let filename = "model.ifc";
+
     const response = await fetch(
       `${API_BASE}/download/${encodeURIComponent(token)}`,
       {
@@ -341,7 +420,6 @@ async function loadModelFromToken(token: string) {
         headers: {
           Accept: "application/octet-stream, */*",
         },
-        // Add credentials if needed for CORS
         credentials: "omit",
       },
     );
@@ -352,20 +430,15 @@ async function loadModelFromToken(token: string) {
       );
     }
 
-    // Extract filename from Content-Disposition header
-    const contentDisposition =
-      response.headers.get("content-disposition") || "";
-    let filename = "model.ifc"; // default fallback
-
-    const filenameMatch = contentDisposition.match(
-      /filename\*?=(?:UTF-8''|)([^;]+)/i,
+    const cdName = parseFilenameFromContentDisposition(
+      response.headers.get("content-disposition") || "",
     );
-    if (filenameMatch) {
-      filename = filenameMatch[1].replace(/(^"|"$)/g, "");
-      filename = decodeURIComponent(filename);
-    }
+    if (cdName) filename = titleBaseName(cdName);
 
+    const titleName = titleBaseName(filename);
     console.log(`Loading file: ${filename}`);
+    document.title = titleName;
+    setViewerLoadMessage("loading", `Loading ${titleName}…`);
 
     // Convert response to bytes
     const blob = await response.blob();
@@ -387,6 +460,9 @@ async function loadModelFromToken(token: string) {
       console.log(`IFC model loaded: ${filename}`);
     }
 
+    document.title = titleName;
+    setViewerLoadMessage("success", `Loaded ${titleName}`);
+
     // Auto-focus on the loaded model after a brief delay
     setTimeout(async () => {
       try {
@@ -401,9 +477,13 @@ async function loadModelFromToken(token: string) {
     }, 500);
   } catch (error) {
     console.error("Failed to load model from token:", error);
-    // Optionally show user-friendly error message
-    console.error(
-      `Failed to load model: ${error instanceof Error ? error.message : "Unknown error"}`,
+    const msg =
+      error instanceof Error ? error.message : "Unknown error loading model";
+    console.error(`Failed to load model: ${msg}`);
+    document.title = BASE_DOC_TITLE;
+    setViewerLoadMessage(
+      "error",
+      `Could not load model: ${msg}. Check the link or try again.`,
     );
   }
 }

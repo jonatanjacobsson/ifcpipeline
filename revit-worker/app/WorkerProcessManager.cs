@@ -149,9 +149,7 @@ public sealed class WorkerProcessManager : IDisposable
         var consumer = new RqJobConsumer(db, _queueName);
 
         try { consumer.RegisterWorker(workerName); } catch { }
-        // #region agent log
         AppLog.Info($"[{workerName}] Worker thread started, queue={_queueName}");
-        // #endregion
 
         SetState(workerName, false, null);
         RaiseStatus(workerName, "idle", null);
@@ -170,9 +168,7 @@ public sealed class WorkerProcessManager : IDisposable
                 var jobData = consumer.ReadJobData(jobId);
                 if (jobData == null)
                 {
-                    // #region agent log H1
                     AppLog.Error($"[{workerName}] Job {jobId}: ReadJobData returned null, marking failed");
-                    // #endregion
                     consumer.MarkFailed(jobId, "Could not unpickle job data");
                     continue;
                 }

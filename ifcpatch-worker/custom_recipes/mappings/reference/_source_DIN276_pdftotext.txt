@@ -1,0 +1,1101 @@
+                          Gratis-
+                        exemplar
+                         exklusiv
+                         für Sie!
+
+
+
+
+Die neue DIN 276
+Übersicht der neuen Kosten-
+gruppen
+Inhalt
+
+Die DIN 276 (12.2018) ......................................................................... 3
+      Kostengruppe 100 „Grundstück“ ................................................................................ 3
+      Kostengruppe 200 „Vorbereitende Maßnahmen“....................................................... 3
+      Kostengruppe 300 „Bauwerk – Baukonstruktionen“................................................... 4
+      Kostengruppe 400 „Bauwerk – Technische Anlagen“ ................................................ 5
+      Kostengruppe 500 „Außenanlagen und Freiflächen“ ................................................. 5
+      Kostengruppe 600 „Ausstattung und Kunstwerke“..................................................... 5
+      Kostengruppe 700 „Baunebenkosten“ ....................................................................... 5
+      Kostengruppe 800 „Finanzierung“.............................................................................. 6
+      Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12 .......... 7
+
+
+Impressum ........................................................................................ 22
+
+
+
+
+                                                                                                            Inhalt   |   2
+Die DIN 276 (12.2018)
+
+Im Dezember 2018 erschien die neue DIN 276. Diese ersetzt die bisherigen Normen:
+
+• DIN 276-1 Kosten im Bauwesen – Teil 1: Hochbau (12.2008) und
+• DIN 276-4 Kosten im Bauwesen – Teil 4: Ingenieurbau (08.2009).
+
+Die neue DIN 276 beinhaltet eine vereinheitlichte Kostengruppengliederung für Hochbau und
+Ingenieurbau. Infrastrukturanlagen und Freiflächen wurden zusätzlich in die Norm aufgenom-
+men. Somit ist es jetzt möglich, die Kosten aller Bereiche des Bauens in einer einheitlichen
+Kostenstruktur zu erfassen.
+
+Ab dem Update März 2019 stellen wir die Kostengruppen in den SIRADOS Baudaten jeweils
+mit den Aktualisierungslieferungen auf die neue Norm um. Die Kostengruppen nach der alten
+DIN 276 werden weiterhin mitgeführt, da die HOAI zur Abrechnung auf den älteren Stand
+von 2008 verweist.
+
+Im Folgenden erhalten Sie einen Überblick zu den Änderungen in der Kostengruppengliede-
+rung.
+
+
+Kostengruppe 100 „Grundstück“
+Untersuchungen und Wertermittlungen werden jetzt in separaten Kostengruppen erfasst
+(KG 125, 126). Maklerprovisionen stellen keine eigene Kostengruppe mehr dar. Sie sind jetzt
+unter KG 129 „Sonstiges zur KG 120“ zu erfassen.
+
+Die Bezeichnung der KG 130 wurde redaktionell von „Freimachen“ auf „Rechte Dritter“ geän-
+dert und enthält weiterhin die Kosten für Abfindungen und Entschädigungen für bestehende
+Nutzungsrechte (z.B. Miet- und Pachtverträge) sowie das Ablösen von Lasten und Beschrän-
+kungen (z.B. Wegerechte, Grundpfandrechte, Baulasten).
+
+
+Kostengruppe 200 „Vorbereitende Maßnahmen“
+Die Bezeichnung der KG 200 wurde redaktionell von „Herrichten und Erschließen“ auf „Vor-
+bereitende Maßnahmen“ geändert.
+
+In der KG 210 können Kosten für die Kampfmittelräumung und für kulturhistorische Funde
+erstmals als eigene Kostengruppen (KG 215, 216) erfasst werden.
+
+In der KG 220 „Öffentliche Erschließung“ sollen Kostenzuschüsse und Anschluss- kosten
+jetzt getrennt ausgewiesen werden.
+
+In der Kostengruppe 240, deren Bezeichnung redaktionell von „Ausgleichsabgaben“ auf
+„Ausgleichsmaßnahmen und -abgaben“ geändert wurde, können nun das Umsetzen und das
+Ablösen von Verpflichtungen, z.B. aus Artenschutz, Naturschutz, Stellplätzen und
+
+
+                                                            Kostengruppe 100 „Grundstück“   |   3
+Baumbestand, separat in Kostengruppen erfasst werden. In der Kostengruppe 241 sind Aus-
+gleichsmaßnahmen auf dem eigenen Grundstück nicht zu berücksichtigen. Diese sind in den
+betreffenden Kostengruppen zu erfassen.
+
+In der Kostengruppe 250 „Übergangsmaßnahmen“ ist präzisiert, dass bei Bauprojekten im
+Bestand hierzu auch die Kosten für die Auslagerung von Nutzungen während der Bauzeit,
+z.B. Kosten für Umzug und Miete, gehören.
+
+
+Kostengruppe 300 „Bauwerk – Baukonstruktionen“
+In der Kostengruppe 310, deren Bezeichnung redaktionell von „Baugrube“ auf „Bau-
+grube/Erdbau“ geändert wurde, kann nun in der neuen KG 314 „Vortrieb“ der Erdausbruch
+unter Tage einschließlich Stützung und Sicherung separat erfasst werden.
+
+In der Kostengruppe 320 „Gründung, Unterbau“, deren Bezeichnung redaktionell um den Un-
+terbau erweitert wurde, wurden lediglich redaktionelle Änderungen vorgenommen.
+
+In der Kostengruppe 330, deren Bezeichnung redaktionell von „Außenwände“ auf „Außen-
+wände/Vertikale Baukonstruktionen, außen“ erweitert wurde, wurden im Wesentlichen die
+Bezeichnungen der Kostengruppen der dritten Ebene redaktionell angepasst. Zum Beispiel
+wurde „Außentüren und -fenster“ geändert in „Außenwandöffnungen“ (KG 334). In die An-
+merkungen zu diesen Kostengruppen wurden Glasfassaden und Wandbegrünungssysteme
+aufgenommen, die in den KG 334 bzw. 336 zu erfassen sind.
+
+Analog wurde die Kostengruppe 340 redaktionell von „Innenwände“ auf „Innenwände/Verti-
+kale Baukonstruktionen, innen“ erweitert und die Bezeichnungen der weiteren Kostengrup-
+pen der dritten Ebene wurden redaktionell angepasst.
+
+In der Kostengruppe 360 „Dächer“ können Kosten für elementierte Konstruktionen und Licht-
+schutz erstmals als eigene Kostengruppen (KG 365, 366) erfasst werden.
+
+Neu eingefügt wurde die Kostengruppe 370 „Infrastrukturanlagen“. Hier sind die Kosten ei-
+genständiger Bauwerke von Infrastrukturanlagen für den Straßen-, Schienen- und Flugver-
+kehr, den Wasserbau sowie die Ver- und Entsorgung zu erfassen, soweit diese nicht in den
+KG 330 bis 360 erfasst werden können. Die bisherige Kostengruppe 370 ist jetzt Kosten-
+gruppe 380.
+
+In der Kostengruppe 380 „Baukonstruktive Einbauten“ können Kosten für landschaftsgestal-
+terische Einbauten, mechanische Einbauten, Einbauten in Konstruktionen des Ingenieurbaus
+sowie Orientierungs- und Informationssysteme erstmals als eigene Kostengruppen (KG 383
+bis 386) erfasst werden.
+
+
+
+
+                                             Kostengruppe 300 „Bauwerk – Baukonstruktionen“   |   4
+Kostengruppe 400 „Bauwerk – Technische Anlagen“
+Hier wurden lediglich geringfügige redaktionelle Anpassungen und Umnummerierungen vor-
+genommen. Neu sind die Kostengruppen 424 „Verkehrsheizflächen“ (Fahrbahnbeheizung,
+Weichenheizung, Flugfeldbeheizung), 447 „Fahrleitungssysteme“, 466 „Hydraulikanlagen“
+(z.B. für Toranlagen und Schleusen), 477 „Verfahrenstechnische Anlagen, Wasser, Abwas-
+ser und Gas“ und 478 „Verfahrenstechnische Anlagen, Feststoffe, Wertstoffe und Abfall“.
+Diese beiden KG sind im Zusammenhang mit der Kostengruppe 380 zu sehen und enthalten
+die Kosten für die Verfahrenstechnik zu den dort erfassten Konstruktionen.
+
+
+Kostengruppe 500 „Außenanlagen und Freiflächen“
+Die Kostengruppe, bisher nur mit „Außenanlagen“ bezeichnet, wurde neu gefasst, sodass sie
+sich nun auf Außenanlagen, selbstständige Freianlagen (unabhängig von Bauwerken), Ver-
+kehrsanlagen und selbstständige Anlagen der technischen Infrastruktur erstreckt.
+
+Dies führt zu einer komplett neuen Struktur sowohl der zweiten Ebene als auch der dritten
+Ebene. Neu ist die Erfassung von Oberbauten und Deckschichten von Flugplatzflächen
+(KG 538). Separat ausgewiesen sind zudem Dränagen (KG 525), Orientierungs- und Infor-
+mationssysteme (KG 563) sowie Befestigungen für Wasserflächen, z.B. Kies-, Schotter- oder
+Wasserbausteinbettungsschichten (KG 581).
+
+
+Kostengruppe 600 „Ausstattung und Kunstwerke“
+Die beiden KG „Allgemeine Ausstattung“ und „Besondere Ausstattung“, bisher KG der dritten
+Ebene, wurden zu KG 610 bzw. 620 der zweiten Ebene.
+
+Neu eingeführt wurde die Kostengruppe 630 „Informationstechnische Ausstattung“, in der
+z.B. Server, PCs und periphere Geräte und Zubehör zu erfassen sind.
+
+Die KG 620 „Kunstwerke“ wurde nach hinten geschoben, ist jetzt KG 640 und ihre Bezeich-
+nung wurde redaktionell in „Künstlerische Ausstattung“ geändert.
+
+Neu eingeführt wurde am Ende der KG 600 die Kostengruppe 690 „Sonstige Ausstattung“, in
+der z.B. Schilder, Wegweiser, Orientierungstafeln und Werbeanlagen zu erfassen sind.
+
+
+Kostengruppe 700 „Baunebenkosten“
+Hier wurden im Wesentlichen redaktionelle Anpassungen und Umnummerierungen vorge-
+nommen. Separat in der KG 710 ausgewiesen sind jetzt in den KG 714 und 715 die Kosten
+für „Sicherheits- und Gesundheitsschutzkoordination“ sowie „Vergabeverfahren“.
+
+Die Kostengruppe 730, vormals „Architekten- und Ingenieurleistungen“, heißt jetzt „Objekt-
+planung“. Neben einer Straffung der Planungsleistungen (nur noch getrennte Erfassung nach
+„Gebäude und Innenräume“ sowie „Freianlagen“, KG 731, 732, Entfall der alten KG 735
+
+                                           Kostengruppe 400 „Bauwerk – Technische Anlagen“   |   5
+„Tragwerksplanung“) sind jetzt separat ausgewiesen die Leistungen zu Ingenieurbauwerken
+und Verkehrsanlagen (KG 733, 734), um dem erweiterten Anwendungsbereich der Norm
+Rechnung zu tragen.
+
+Die Kostengruppe 740, vormals „Gutachten und Beratung“, heißt jetzt „Fachplanung“. Die in-
+nerhalb der KG 740 vorgenommenen Änderungen sind redaktioneller Natur. Die Kosten der
+Tragwerksplanung sind nunmehr als KG 741 zu erfassen und nicht mehr im Bereich der Ob-
+jektplanung der KG 730. Gutachten und Beratung fallen nicht mehr in die KG 740. Ihre Kos-
+ten sind jetzt in KG 760 „Allgemeine Baunebenkosten“ (vormals KG 770) unter KG 761 zu
+erfassen.
+
+Die bisherige Kostengruppe 760 „Finanzierungskosten“ der zweiten Ebene ist jetzt als ei-
+gene Kostengruppe 800 „Finanzierung“ der ersten Ebene ausgewiesen.
+
+Die Kostengruppe 770 „Allgemeine Baunebenkosten“ trägt jetzt die Nummer 760.
+
+In der dritten Ebene der Kostengruppe 790 „Sonstige Baunebenkosten“ ist erstmals als
+KG 791 die Bestandsdokumentation, d.h. die Liegenschafts- und Gebäudebestandsdoku-
+mentation (z.B. Vermessung, Fachdatenerhebung) als Grundlage für die Nutzung ausgewie-
+sen.
+
+
+Kostengruppe 800 „Finanzierung“
+Hier sind (mit kleineren redaktionellen Änderungen) alle Kosten der bisherigen KG 760 ent-
+halten. Gebühren für Zahlungsbürgschaften sind erstmals als separate Kostengruppe 840
+„Bürgschaften“ ausgewiesen.
+
+
+
+
+                                                           Kostengruppe 800 „Finanzierung“   |   6
+Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu
+DIN 276, 2018.12
+
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG      Bezeichnung
+
+100   Grundstück                               100     Grundstück
+
+110   Grundstückswert                          110     Grundstückswert
+
+120   Grundstücksnebenkosten                   120     Grundstücksnebenkosten
+
+121   Vermessungsgebühren                      121     Vermessungsgebühren
+
+122   Gerichtsgebühren                         122     Gerichtsgebühren
+
+123   Notariatsgebühren                        123     Notargebühren
+
+124   Maklerprovisionen                        129     Sonstiges zur KG 120
+
+125   Grunderwerbssteuer                       124     Grunderwerbsteuer
+
+126   Wertermittlungen, Untersuchungen         125     Untersuchungen
+
+126   Wertermittlungen, Untersuchungen         126     Wertermittlungen
+
+127   Genehmigungsgebühren                     127     Genehmigungsgebühren
+
+128   Bodenordnung, Grenzregulierung           128     Bodenordnung
+
+129   Grundstücksnebenkosten, sonstiges        129     Sonstiges zur KG 120
+
+130   Freimachen                               130     Rechte Dritter
+
+131   Abfindungen                              131     Abfindungen
+
+132   Ablösen dinglicher Rechte                132     Ablösen dinglicher Rechte
+
+139   Freimachen, sonstiges                    139     Sonstiges zur KG 130
+
+200   Herrichten und Erschließen               200     Vorbereitende Maßnahmen
+
+210   Herrichten                               210     Herrichten
+
+211   Sicherungsmaßnahmen                      211     Sicherungsmaßnahmen
+
+212   Abbruchmaßnahmen                         212     Abbruchmaßnahmen
+
+213   Altlastenbeseitigung                     213     Altlastenbeseitigung
+
+214   Herrichten der Geländeoberfläche         214     Herrichten der Geländeoberfläche
+
+                                               215     Kampfmittelräumung
+
+
+                      Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   7
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG      Bezeichnung
+
+                                               216     Kulturhistorische Funde
+
+219   Herrichten, sonstiges                    219     Sonstiges zur KG 210
+
+220   Öffentliche Erschließung                 220     Öffentliche Erschließung
+
+221   Abwasserentsorgung                       221     Abwasserentsorgung
+
+222   Wasserversorgung                         222     Wasserversorgung
+
+223   Gasversorgung                            223     Gasversorgung
+
+224   Fernwärmeversorgung                      224     Fernwärmeversorgung
+
+225   Stromversorgung                          225     Stromversorgung
+
+226   Telekommunikation                        226     Telekommunikation
+
+227   Verkehrserschließung                     227     Verkehrserschließung
+
+228   Abfallentsorgung                         228     Abfallentsorgung
+
+229   Öffentliche Erschließung, sonstiges      229     Sonstiges zur KG 220
+
+230   Nichtöffentliche Erschließung            230     Nichtöffentliche Erschließung
+
+                                               240     Ausgleichsmaßnahmen und
+                                                       -abgaben
+
+                                               241     Ausgleichsmaßnahmen
+
+240   Ausgleichsabgaben                        242     Ausgleichsabgaben
+
+                                               249     Sonstiges zur KG 240
+
+250   Übergangsmaßnahmen                       250     Übergangsmaßnahmen
+
+251   Provisorien                              251     Bauliche Maßnahmen
+
+252   Auslagerungen                            252     Organisatorische Maßnahmen
+
+                                               259     Sonstiges zur KG 250
+
+300   Bauwerk – Baukonstruktionen              300     Bauwerk – Baukonstruktionen
+
+310   Baugrube                                 310     Baugrube/Erdbau
+
+311   Baugrubenherstellung                     311     Herstellung
+
+312   Baugrubenumschließung                    312     Umschließung
+
+313   Wasserhaltung                            313     Wasserhaltung
+
+                      Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   8
+DIN 276 2008.12                                 DIN 276 2018.12
+
+KG    Bezeichnung                               KG      Bezeichnung
+
+                                                314     Vortrieb
+
+319   Baugrube, sonstiges                       319     Sonstiges zur KG 310
+
+320   Gründung                                  320     Gründung, Unterbau
+
+321   Baugrundverbesserung                      321     Baugrundverbesserung
+
+322   Flachgründungen                           322     Flachgründungen und Bodenplatten
+
+323   Tiefgründungen                            323     Tiefgründungen
+
+324   Unterböden und Bodenplatten               322     Flachgründungen und Bodenplatten
+
+325   Bodenbeläge                               324     Gründungsbeläge
+
+326   Bauwerksabdichtungen                      325     Abdichtungen und Bekleidungen
+
+327   Dränagen                                  326     Dränagen
+
+329   Gründung, sonstiges                       329     Sonstiges zur KG 320
+
+330   Außenwände                                330     Außenwände/Vertikale
+                                                        Baukonstruktionen, außen
+
+331   Tragende Außenwände                       331     Tragende Außenwände
+
+332   Nichttragende Außenwände                  332     Nichttragende Außenwände
+
+333   Außenstützen                              333     Außenstützen
+
+334   Außentüren und -fenster                   334     Außenwandöffnungen
+
+335   Außenwandbekleidungen, außen              335     Außenwandbekleidungen, außen
+
+336   Außenwandbekleidungen, innen              336     Außenwandbekleidungen, innen
+
+337   Elementierte Außenwände                   337     Elementierte
+                                                        Außenwandkonstruktionen
+
+338   Sonnenschutz                              338     Lichtschutz zur KG 330
+
+339   Außenwände, sonstiges                     339     Sonstiges zur KG 330
+
+340   Innenwände                                340     Innenwände/Vertikale
+                                                        Baukonstruktionen, innen
+
+341   Tragende Innenwände                       341     Tragende Innenwände
+
+342   Nichttragende Innenwände                  342     Nichttragende Innenwände
+
+
+
+                       Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   9
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG       Bezeichnung
+
+343   Innenstützen                             343      Innenstützen
+
+344   Innentüren und -fenster                  344      Innenwandöffnungen
+
+345   Innenwandbekleidungen                    345      Innenwandbekleidungen
+
+346   Elementierte Innenwände                  346      Elementierte
+                                                        Innenwandkonstruktionen
+
+                                               347      Lichtschutz zur KG 340
+
+349   Innenwände, sonstiges                    349      Sonstiges zur KG 340
+
+350   Decken                                   350      Decken/Horizontale
+                                                        Baukonstruktionen
+
+351   Deckenkonstruktionen                     351      Deckenkonstruktionen
+
+                                               352      Deckenöffnungen
+
+352   Deckenbeläge                             353      Deckenbeläge
+
+353   Deckenbekleidungen                       354      Deckenbekleidungen
+
+                                               355      Elementierte Deckenkonstruktionen
+
+359   Decken, sonstiges                        359      Sonstiges zur KG 350
+
+360   Dächer                                   360      Dächer
+
+361   Dachkonstruktionen                       361      Dachkonstruktionen
+
+362   Dachfenster, Dachöffnungen               362      Dachöffnungen
+
+363   Dachbeläge                               363      Dachbeläge
+
+364   Dachbekleidungen                         364      Dachbekleidungen
+
+                                               365      Elementierte Dachkonstruktionen
+
+                                               366      Lichtschutz zur KG 360
+
+369   Dächer, sonstiges                        369      Sonstiges zur KG 360
+
+                                               370      Infrastrukturanlagen
+
+                                               371      Anlagen für den Straßenverkehr
+
+                                               372      Anlagen für den Schienenverkehr
+
+                                               373      Anlagen für den Flugverkehr
+
+
+                     Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   10
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG       Bezeichnung
+
+                                               374      Anlagen des Wasserbaus
+
+                                               375      Anlagen der Abwasserentsorgung
+
+                                               376      Anlagen der Wasserversorgung
+
+                                               377      Anlagen der Energie- und
+                                                        Informationsversorgung
+
+                                               378      Anlagen der Abfallentsorgung
+
+                                               379      Sonstiges zur KG 370
+
+370   Baukonstruktive Einbauten                380      Baukonstruktive Einbauten
+
+371   Allgemeine Einbauten                     381      Allgemeine Einbauten
+
+372   Besondere Einbauten                      382      Besondere Einbauten
+
+                                               383      Landschaftsgestalterische Einbauten
+
+                                               384      Mechanische Einbauten
+
+                                               385      Einbauten in Konstruktionen des
+                                                        Ingenieurbaus
+
+                                               386      Orientierungs- und
+                                                        Informationssysteme
+
+                                               387      Schutzeinbauten
+
+379   Baukonstruktive Einbauten,               389      Sonstiges zur KG 380
+      sonstiges
+
+390   Sonstige Maßnahmen für Baukon-           390      Sonstige Maßnahmen für Baukon-
+      struktionen                                       struktionen
+
+391   Baustelleneinrichtung                    391      Baustelleneinrichtung
+
+392   Gerüste                                  392      Gerüste
+
+393   Sicherungsmaßnahmen                      393      Sicherungsmaßnahmen
+
+394   Abbruchmaßnahmen                         394      Abbruchmaßnahmen
+
+395   Instandsetzungen                         395      Instandsetzungen
+
+396   Materialentsorgung                       396      Materialentsorgung
+
+397   Zusätzliche Maßnahmen                    397      Zusätzliche Maßnahmen
+
+
+                     Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   11
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG       Bezeichnung
+
+398   Provisorische Baukonstruktionen          398      Provisorische Baukonstruktionen
+
+399   Sonstige Maßnahmen für                   399      Sonstiges zur KG 390
+      Baukonstruktionen, sonstiges
+
+400   Bauwerk – Technische Anlagen             400      Bauwerk – Technische Anlagen
+
+410   Abwasser-, Wasser-, Gasanlagen           410      Abwasser-, Wasser-, Gasanlagen
+
+411   Abwasseranlagen                          411      Abwasseranlagen
+
+412   Wasseranlagen                            412      Wasseranlagen
+
+413   Gasanlagen                               413      Gasanlagen
+
+419   Abwasser-, Wasser-, Gasanlagen,          419      Sonstiges zur KG 410
+      sonstiges
+
+420   Wärmeversorgungsanlagen                  420      Wärmeversorgungsanlagen
+
+421   Wärmeerzeugungsanlagen                   421      Wärmeerzeugungsanlagen
+
+422   Wärmeverteilnetze                        422      Wärmeverteilnetze
+
+423   Raumheizflächen                          423      Raumheizflächen
+
+                                               424      Verkehrsheizflächen
+
+429   Wärmeversorgungsanlagen,                 429      Sonstiges zur KG 420
+      sonstiges
+
+430   Lufttechnische Anlagen                   430      Raumlufttechnische Anlagen
+
+431   Lüftungsanlagen                          431      Lüftungsanlagen
+
+432   Teilklimaanlagen                         432      Teilklimaanlagen
+
+433   Klimaanlagen                             433      Klimaanlagen
+
+434   Kälteanlagen                             434      Kälteanlagen
+
+439   Lufttechnische Anlagen, sonstiges        439      Sonstiges zur KG 430
+
+440   Starkstromanlagen                        440      Elektrische Anlagen
+
+441   Hoch- und Mittelspannungsanlagen         441      Hoch- und Mittelspannungsanlagen
+
+442   Eigenstromversorgungsanlagen             442      Eigenstromversorgungsanlagen
+
+443   Niederspannungsschaltanlagen             443      Niederspannungsschaltanlagen
+
+
+
+                     Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   12
+DIN 276 2008.12                                 DIN 276 2018.12
+
+KG    Bezeichnung                               KG       Bezeichnung
+
+444   Niederspannungsinstallations-             444      Niederspannungsinstallations-
+      anlagen                                            anlagen
+
+445   Beleuchtungsanlagen                       445      Beleuchtungsanlagen
+
+446   Blitzschutz- und Erdungsanlagen           446      Blitzschutz- und Erdungsanlagen
+
+                                                447      Fahrleitungssysteme
+
+449   Starkstromanlagen, sonstiges              449      Sonstiges zur KG 440
+
+450   Fernmelde- und informationstechni-        450      Kommunikations-, sicherheits- und
+      sche Anlagen                                       informationstechnische Anlagen
+
+451   Telekommunikationsanlagen                 451      Telekommunikationsanlagen
+
+452   Such- und Signalanlagen                   452      Such- und Signalanlagen
+
+453   Zeitdienstanlagen                         453      Zeitdienstanlagen
+
+454   Elektroakustische Anlagen                 454      Elektroakustische Anlagen
+
+455   Fernseh- und Antennenanlagen              455      Audiovisuelle Medien- und
+                                                         Antennenanlagen
+
+456   Gefahrenmelde- und Alarmanlagen           456      Gefahrenmelde- und Alarmanlagen
+
+457   Übertragungsnetze                         457      Datenübertragungsnetze
+
+                                                458      Verkehrsbeeinflussungsanlagen
+
+459   Fernmelde- und informationstechni-        459      Sonstiges zur KG 450
+      sche Anlagen, sonstiges
+
+460   Förderanlagen                             460      Förderanlagen
+
+461   Aufzugsanlagen                            461      Aufzugsanlagen
+
+462   Fahrtreppen, Fahrsteige                   462      Fahrtreppen, Fahrsteige
+
+463   Befahranlagen                             463      Befahranlagen
+
+464   Transportanlagen                          464      Transportanlagen
+
+465   Krananlagen                               465      Krananlagen
+
+                                                466      Hydraulikanlagen
+
+469   Förderanlagen, sonstiges                  469      Sonstiges zur KG 460
+
+
+
+
+                      Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   13
+DIN 276 2008.12                                  DIN 276 2018.12
+
+KG    Bezeichnung                                KG       Bezeichnung
+
+470   Nutzungsspezifische Anlagen                470      Nutzungsspezifische und verfahrens-
+                                                          technische Anlagen
+
+471   Küchentechnische Anlagen                   471      Küchentechnische Anlagen
+
+472   Wäscherei- und Reinigungsanlagen           472      Wäscherei-, Reinigungs- und bade-
+                                                          technische Anlagen
+
+473   Medienversorgungsanlagen                   473      Medienversorgungsanlagen, Medi-
+                                                          zin- und labortechnische Anlagen
+
+474   Medizin- und labortechnische               473      Medienversorgungsanlagen, Medi-
+      Anlagen                                             zin- und labortechnische Anlagen
+
+475   Feuerlöschanlagen                          474      Feuerlöschanlagen
+
+476   Badetechnische Anlagen                     472      Wäscherei-, Reinigungs- und bade-
+                                                          technische Anlagen
+
+477   Prozesswärme-, kälte- und                  475      Prozesswärme-, kälte- und
+      -luftanlagen                                        -luftanlagen
+
+478   Entsorgungsanlagen                         476      Weitere nutzungsspezifische
+                                                          Anlagen
+
+                                                 477      Verfahrenstechnische Anlagen,
+                                                          Wasser, Abwasser und Gase
+
+                                                 478      Verfahrenstechnische Anlagen, Fest-
+                                                          stoffe, Wertstoffe und Abfälle
+
+479   Nutzungsspezifische Anlagen,               479      Sonstiges zur KG 470
+      sonstiges
+
+480   Gebäudeautomation                          480      Gebäude- und Anlagenautomation
+
+481   Automationssysteme                         481      Automationseinrichtungen
+
+482   Schaltschränke                             482      Schaltschränke, Automationsschwer-
+                                                          punkte
+
+483   Management- und Bedieneinrichtun-          483      Automationsmanagement
+      gen
+
+484   Raumautomationssysteme                     481      Automationseinrichtungen
+
+                                                 484      Kabel, Leitungen und
+                                                          Verlegesysteme
+
+
+                       Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   14
+DIN 276 2008.12                                 DIN 276 2018.12
+
+KG    Bezeichnung                               KG       Bezeichnung
+
+485   Übertragungsnetze                         485      Datenübertragungsnetze
+
+489   Gebäudeautomation, sonstiges              489      Sonstiges zur KG 480
+
+490   Sonstige Maßnahmen für technische 490              Sonstige Maßnahmen für technische
+      Anlagen                                            Anlagen
+
+491   Baustelleneinrichtung                     491      Baustelleneinrichtung
+
+492   Gerüste                                   492      Gerüste
+
+493   Sicherungsmaßnahmen                       493      Sicherungsmaßnahmen
+
+494   Abbruchmaßnahmen                          494      Abbruchmaßnahmen
+
+495   Instandsetzungen                          495      Instandsetzungen
+
+496   Materialentsorgung                        496      Materialentsorgung
+
+497   Zusätzliche Maßnahmen                     497      Zusätzliche Maßnahmen
+
+498   Provisorische technische Anlagen          498      Provisorische technische Anlagen
+
+499   Sonstige Maßnahmen für technische 499              Sonstiges zur KG 490
+      Anlagen, sonstiges
+
+500   Außenanlagen                              500      Außenanlagen und Freiflächen
+
+510   Geländeflächen                            510      Erdbau
+
+511   Oberbodenarbeiten                         511      Herstellung
+
+512   Bodenarbeiten                             511      Herstellung
+
+                                                512      Umschließung
+
+                                                513      Wasserhaltung
+
+                                                514      Vortrieb
+
+519   Geländeflächen, sonstiges                 519      Sonstiges zur KG 510
+
+                                                520      Gründung, Unterbau
+
+                                                521      Baugrundverbesserung
+
+                                                522      Gründungen und Bodenplatten
+
+                                                523      Gründungsbeläge
+
+                                                524      Abdichtungen und Bekleidungen
+
+
+                      Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   15
+DIN 276 2008.12                                  DIN 276 2018.12
+
+KG    Bezeichnung                                KG       Bezeichnung
+
+                                                 525      Dränagen
+
+                                                 529      Sonstiges zur KG 520
+
+520   Befestigte Flächen                         530      Oberbau, Deckschichten
+
+521   Wege                                       531      Wege
+
+522   Straßen                                    532      Straßen
+
+523   Plätze, Höfe                               533      Plätze, Höfe, Terrassen
+
+524   Stellplätze                                534      Stellplätze
+
+525   Sportplatzflächen                          535      Sportplatzflächen
+
+526   Spielplatzflächen                          536      Spielplatzflächen
+
+527   Gleisanlagen                               537      Gleisanlagen
+
+                                                 538      Flugplatzflächen
+
+529   Befestigte Flächen, sonstiges              539      Sonstiges zur KG 530
+
+530   Baukonstruktionen in Außenanlagen          540      Baukonstruktionen
+
+531   Einfriedungen                              541      Einfriedungen
+
+532   Schutzkonstruktionen                       542      Schutzkonstruktionen
+
+533   Mauern, Wände                              543      Wandkonstruktionen
+
+534   Rampen, Treppen, Tribünen                  544      Rampen, Treppen, Tribünen
+
+535   Überdachungen                              545      Überdachungen
+
+536   Brücken, Stege                             546      Stege
+
+537   Kanal- und Schachtbauanlagen               547      Kanal- und Schachtkonstruktionen
+
+538   Wasserbauliche Anlagen                     548      Wasserbecken
+
+539   Baukonstruktionen in Außenanlagen, 549              Sonstiges zur KG 540
+      sonstiges
+
+540   Technische Anlagen in                      550      Technische Anlagen
+      Außenanlagen
+
+541   Abwasseranlagen                            551      Abwasseranlagen
+
+542   Wasseranlagen                              552      Wasseranlagen
+
+
+                       Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   16
+DIN 276 2008.12                                 DIN 276 2018.12
+
+KG    Bezeichnung                               KG       Bezeichnung
+
+543   Gasanlagen                                553      Anlagen für Gase und Flüssigkeiten
+
+544   Wärmeversorgungsanlagen                   554      Wärmeversorgungsanlagen
+
+545   Lufttechnische Anlagen                    555      Raumlufttechnische Anlagen
+
+546   Starkstromanlagen                         556      Elektrische Anlagen
+
+547   Fernmelde- und informationstechni-        557      Kommunikations-, sicherheits- und
+      sche Anlagen                                       informationstechnische Anlagen,
+                                                         Automation
+
+548   Nutzungsspezifische Anlagen               558      Nutzungsspezifische Anlagen
+
+549   Technische Anlagen in                     559      Sonstiges zur KG 550
+      Außenanlagen, sonstiges
+
+550   Einbauten in Außenanlagen                 560      Einbauten in Außenanlagen und
+                                                         Freiflächen
+
+551   Allgemeine Einbauten                      561      Allgemeine Einbauten
+
+552   Besondere Einbauten                       562      Besondere Einbauten
+
+                                                563      Orientierungs- und
+                                                         Informationssysteme
+
+559   Einbauten in Außenanlagen,                569      Sonstiges zur KG 560
+      sonstiges
+
+560   Wasserflächen                             580      Wasserflächen
+
+                                                581      Befestigungen
+
+561   Abdichtungen                              582      Abdichtungen
+
+562   Bepflanzungen                             583      Bepflanzungen
+
+569   Wasserflächen, sonstiges                  589      Sonstiges zur KG 580
+
+570   Pflanz- und Saatflächen                   570      Vegetationsflächen
+
+571   Oberbodenarbeiten                         571      Vegetationstechnische
+                                                         Bodenbearbeitung
+
+572   Vegetationstechnische                     571      Vegetationstechnische
+      Bodenbearbeitung                                   Bodenbearbeitung
+
+573   Sicherungsbauweisen                       572      Sicherungsbauweisen
+
+
+
+                      Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   17
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG       Bezeichnung
+
+574   Pflanzen                                 573      Pflanzflächen
+
+575   Rasen und Ansaaten                       574      Rasen- und Saatflächen
+
+576   Begrünung unterbauter Flächen            363      Dachbeläge
+
+579   Pflanz- und Saatflächen, sonstiges       579      Sonstiges zur KG 570
+
+590   Sonstige Außenanlagen                    590      Sonstige Maßnahmen für
+                                                        Außenanlagen und Freiflächen
+
+591   Baustelleneinrichtung                    591      Baustelleneinrichtung
+
+592   Gerüste                                  592      Gerüste
+
+593   Sicherungsmaßnahmen                      593      Sicherungsmaßnahmen
+
+594   Abbruchmaßnahmen                         594      Abbruchmaßnahmen
+
+595   Instandsetzungen                         595      Instandsetzungen
+
+596   Materialentsorgung                       596      Materialentsorgung
+
+597   Zusätzliche Maßnahmen                    597      Zusätzliche Maßnahmen
+
+598   Provisorische Außenanlagen               598      Provisorische Außenanlagen und
+                                                        Freiflächen
+
+599   Sonstige Maßnahmen für Außenan-          599      Sonstiges zur KG 590
+      lagen, sonstiges
+
+600   Ausstattung und Kunstwerke               600      Ausstattung und Kunstwerke
+
+610   Ausstattung                              600      Ausstattung und Kunstwerke
+
+611   Allgemeine Ausstattung                   610      Allgemeine Ausstattung
+
+612   Besondere Ausstattung                    620      Besondere Ausstattung
+
+                                               630      Informationstechnische Ausstattung
+
+619   Ausstattung, sonstiges                   690      Sonstige Ausstattung
+
+620   Kunstwerke                               640      Künstlerische Ausstattung
+
+621   Kunstobjekte                             641      Kunstobjekte
+
+622   Künstlerisch gestaltete Bauteile des     642      Künstlerische Gestaltung des Bau-
+      Bauwerks                                          werks
+
+
+
+
+                     Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   18
+DIN 276 2008.12                                  DIN 276 2018.12
+
+KG    Bezeichnung                                KG       Bezeichnung
+
+623   Künstlerisch gestaltete Bauteile der       643      Künstlerische Gestaltung der
+      Außenanlagen                                        Außenanlagen und Freiflächen
+
+629   Kunstwerke, sonstiges                      649      Sonstiges zur KG 640
+
+700   Baunebenkosten                             700      Baunebenkosten
+
+710   Bauherrenaufgaben                          710      Bauherrenaufgaben
+
+711   Projektleitung                             711      Projektleitung
+
+712   Bedarfsplanung                             712      Bedarfsplanung
+
+713   Projektsteuerung                           713      Projektsteuerung
+
+                                                 714      Sicherheits- und Gesundheitsschutz-
+                                                          koordination
+
+                                                 715      Vergabeverfahren
+
+719   Bauherrenaufgaben, sonstiges               719      Sonstiges zur KG 710
+
+720   Vorbereitung der Objektplanung             720      Vorbereitung der Objektplanung
+
+721   Untersuchungen                             721      Untersuchungen
+
+722   Wertermittlungen                           722      Wertermittlungen
+
+723   Städtebauliche Leistungen                  723      Städtebauliche Leistungen
+
+724   Landschaftsplanerische Leistungen          724      Landschaftsplanerische Leistungen
+
+725   Wettbewerbe                                725      Wettbewerbe
+
+729   Vorbereitung der Objektplanung,            729      Sonstiges zur KG 720
+      sonstiges
+
+730   Architekten- und Ingenieurleistungen 730            Objektplanung
+
+731   Gebäudeplanung                             731      Gebäude und Innenräume
+
+732   Freianlagenplanung                         732      Freianlagen
+
+733   Planung der raumbildenden                  731      Gebäude und Innenräume
+      Ausbauten
+
+734   Planung der Ingenieurbauwerke und          733      Ingenieurbauwerke
+      Verkehrsanlagen
+
+
+
+
+                       Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   19
+DIN 276 2008.12                                DIN 276 2018.12
+
+KG    Bezeichnung                              KG       Bezeichnung
+
+734   Planung der Ingenieurbauwerke und        734      Verkehrsanlagen
+      Verkehrsanlagen
+
+735   Tragwerksplanung                         741      Tragwerksplanung
+
+736   Planung der technischen Ausrüstung 742            Technische Ausrüstung
+
+739   Architekten- und Ingenieurleistun-       739      Sonstiges zur KG 730
+      gen, sonstiges
+
+740   Gutachten und Beratung                   740      Fachplanung
+
+741   Thermische Bauphysik                     743      Bauphysik
+
+742   Schallschutz und Raumakustik             743      Bauphysik
+
+743   Bodenmechanik, Erd- und Grundbau 744              Geotechnik
+
+744   Vermessung                               745      Ingenieurvermessung
+
+745   Lichttechnik, Tageslichttechnik          746      Lichttechnik, Tageslichttechnik
+
+746   Brandschutz                              747      Brandschutz
+
+747   Sicherheits- und Gesundheitsschutz       714      Sicherheits- und Gesundheitsschutz-
+                                                        koordination
+
+748   Umweltschutz, Altlasten                  748      Altlasten, Kampfmittel,
+                                                        kulturhistorische Funde
+
+749   Gutachten und Beratung, sonstiges        749      Sonstiges zur KG 740
+
+750   Künstlerische Leistungen                 750      Künstlerische Leistungen
+
+751   Kunstwettbewerbe                         751      Kunstwettbewerbe
+
+752   Honorare                                 752      Honorare
+
+759   Künstlerische Leistungen, sonstiges      759      Sonstiges zur KG 750
+
+760   Finanzierungskosten                      800      Finanzierung
+
+761   Finanzierungsbeschaffung                 810      Finanzierungsnebenkosten
+
+762   Fremdkapitalzinsen                       820      Fremdkapitalzinsen
+
+763   Eigenkapitalzinsen                       830      Eigenkapitalzinsen
+
+                                               840      Bürgschaften
+
+769   Finanzierungskosten, sonstiges           890      Sonstige Finanzierungskosten
+
+
+                     Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   20
+DIN 276 2008.12                               DIN 276 2018.12
+
+KG    Bezeichnung                             KG       Bezeichnung
+
+770   Allgemeine Baunebenkosten               760      Allgemeine Baunebenkosten
+
+                                              761      Gutachten und Beratung
+
+771   Prüfung, Genehmigungen,                 762      Prüfungen, Genehmigungen,
+      Abnahmen                                         Abnahmen
+
+772   Bewirtschaftungskosten                  763      Bewirtschaftungskosten
+
+773   Bemusterungskosten                      764      Bemusterungskosten
+
+774   Betriebskosten nach der Abnahme         765      Betriebskosten nach der Abnahme
+
+775   Versicherungen                          766      Versicherungen
+
+779   Allgemeine Baunebenkosten,              769      Sonstiges zur KG 760
+      sonstiges
+
+790   Sonstige Baunebenkosten                 790      Sonstige Baunebenkosten
+
+                                              791      Bestandsdokumentation
+
+                                              799      Sonstiges zur KG 790
+
+
+
+
+                    Übersicht über die Kostengruppen DIN 276-1, 2008.12 zu DIN 276, 2018.12   |   21
+Impressum
+
+
+
+
+© 2024 by WEKA Media GmbH & Co. KG
+Alle Rechte vorbehalten. Nachdruck und Vervielfältigung
+– auch auszugsweise – nicht gestattet.
+
+Wichtiger Hinweis
+Die WEKA Media GmbH & Co. KG ist bemüht, ihre Produkte jeweils nach neuesten
+Erkenntnissen zu erstellen. Deren Richtigkeit sowie inhaltliche und technische Fehlerfreiheit
+werden ausdrücklich nicht zugesichert.
+Die WEKA Media GmbH & Co. KG gibt auch keine Zusicherung für die Anwendbarkeit
+bzw. Verwendbarkeit ihrer Produkte zu einem bestimmten Zweck. Die Auswahl der Ware,
+deren Einsatz und Nutzung fallen ausschließlich in den Verantwortungsbereich des Kunden.
+
+WEKA Media GmbH & Co. KG
+Sitz in Kissing
+Registergericht Augsburg
+HRA 13940
+
+Persönlich haftende Gesellschafterin:
+WEKA Media Beteiligungs-GmbH
+Sitz in Kissing
+Registergericht Augsburg
+HRB 23695
+Vertretungsberechtigte Geschäftsführer:
+Jochen Hortschansky, Kurt Skupin
+
+
+
+WEKA Media GmbH & Co. KG
+Römerstraße 4, 86438 Kissing
+Fon 0 82 33.23-40 80
+Fax 0 82 33.23-74 00
+info@sirados.de
+www.sirados.de
+
+Umschlag geschützt als Geschmacksmuster der
+WEKA Media GmbH & Co. KG
+Satz: WEKA Media GmbH & Co. KG, Römerstraße 4, 86438 Kissing
+
+
+
+                                                                             Impressum   |   22
+Sie haben Fragen, Wünsche, Anregungen oder wünschen eine Produktberatung?
+Wir helfen Ihnen gerne weiter.
+
+Ihre persönliche Produktberatung:
+Fon       0 82 33.23-40 50
+Fax       0 82 33.23-74 30
+E-Mail produktberatung@sirados.de
+
+Ausführliche Informationen zu allen Produkten und aktuelle Angebote finden Sie auf
+unserer Homepage www.sirados.de.
+
+
+
+
+www.sirados.de
+
