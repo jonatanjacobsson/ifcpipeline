@@ -54,3 +54,19 @@ prod-fixtures/
 .cursor/*.py
 .cursor/debug-*.log
 
+# One-off patch/helper scripts at repo root
+/patch_*.py
+
+# Generated workflows, reports, and evidence/logs - not meant for git
+/n8n-workflows/
+/reports/
+/parity-reports/
+/hunt-evidence/
+
+# Large MagiCAD IFC test fixtures - not meant for git
+ifcpatch-worker/tests/fixtures/magicad/*.ifc
+
+# Build/egg metadata
+shared/shared.egg-info/
+shared/output/debug-*.log
+
