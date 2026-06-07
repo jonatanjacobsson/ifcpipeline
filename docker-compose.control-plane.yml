@@ -151,6 +151,9 @@ services:
       mc mb --ignore-existing local/${S3_BUCKET:-ifcpipeline};
       mc version enable local/${S3_BUCKET:-ifcpipeline} || true;
       echo 'bucket ready (versioned): ${S3_BUCKET:-ifcpipeline}';
+      mc mb --ignore-existing local/${CDE_S3_BUCKET:-cde};
+      mc version enable local/${CDE_S3_BUCKET:-cde} || true;
+      echo 'bucket ready (versioned): ${CDE_S3_BUCKET:-cde}';
       "
     restart: "no"
 

@@ -1,0 +1,59 @@
+---
+description: Control-plane container rebuilds/recreates must include the host-lan overlay or remote workers lose LAN access
+alwaysApply: true
+---
+
+# IfcPipeline control-plane: always use the host-lan overlay
+
+This is a **multi-host** stack. The control plane (redis, postgres, minio,
+api-gateway) runs on the primary VM (`PIPELINE_LAN_IP=192.168.101.195`). Remote
+workers on `bimbotw1` (`192.168.109.54`) reach redis/postgres/minio over the LAN.
+
+`docker-compose.host-lan.yml` adds the `PIPELINE_LAN_IP:*` port bindings. The
+base `docker-compose.yml` does **not**. So any `docker compose up -d` run
+**without** the overlay makes Compose "converge" redis/minio/postgres back to
+loopback-only — it **recreates them and strips the LAN bindings**, and every
+remote worker breaks with `Error 111 ... Connection refused`.
+
+## Rule
+
+On the primary host, **every** `docker compose up -d` / `build`+`up` that can
+touch the control plane MUST include both files:
+
+```bash
+cd /home/bimbot-ubuntu/apps/ifcpipeline
+docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d <service>
+```
+
+This applies even when targeting one unrelated service (e.g. `api-gateway`),
+because Compose still reconciles its dependencies.
+
+## Verify after any recreate
+
+```bash
+docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|minio)|postgres_objectstorage'
+# redis + minio must show 192.168.101.195; postgres must show 192.168.101.195:5432
+```
+
+## Recovery if LAN bindings were stripped
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d redis postgres minio
+# then on bimbotw1, restart any worker stuck in reconnect backoff:
+# docker compose -f docker-compose.remote-workers.yml --env-file .env.remote restart <worker>
+```
+
+`DOCKER-USER` iptables allow-rules persist across recreates; only the published
+ports vanish, so re-applying the overlay is enough.
+
+## Firewall rules must be scoped to the external NIC
+
+`DOCKER-USER` is in the FORWARD chain and (with `bridge-nf-call-iptables=1`)
+also sees container-to-container traffic. Lock the LAN ports to the worker VM
+**scoped to the external interface** (`eth0`) — an interface-agnostic
+`--dport DROP` silently drops internal `api-gateway/n8n -> postgres/redis`
+(connections time out; n8n crash-loops). Apply/repair with:
+
+```bash
+sudo ./scripts/apply-host-lan-firewall.sh
+```
