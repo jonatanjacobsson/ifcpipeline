@@ -38,6 +38,7 @@ from shared.classes import (
     IfcPatchListRecipesResponse,
     RevitExecuteRequest,
     IfcCoordRequest,
+    IfcTopologyRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -77,6 +78,7 @@ ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 revit_queue = Queue('revit', connection=redis_conn)
 ifccoord_queue = Queue('ifccoord', connection=redis_conn)
+ifctopology_queue = Queue('ifctopology', connection=redis_conn)
 
 # Define job status response model
 class JobStatusResponse(BaseModel):
@@ -223,8 +225,27 @@ def validate_input_file_exists(filename: str, base_dir: str = "/uploads") -> Non
     `output/patch/…`, never under `uploads/`. Previously those were rejected
     as 404 even though the worker would have downloaded them fine.
     """
-    path = os.path.join(base_dir, os.path.basename(filename))
-    if os.path.exists(path):
+    normalized = filename.lstrip("/")
+    filesystem_candidates = []
+    if normalized.startswith("uploads/"):
+        filesystem_candidates.append(("/uploads", normalized[len("uploads/"):]))
+    elif normalized.startswith("output/"):
+        filesystem_candidates.append(("/output", normalized[len("output/"):]))
+    elif normalized.startswith("examples/"):
+        filesystem_candidates.append(("/examples", normalized[len("examples/"):]))
+    else:
+        filesystem_candidates.append((base_dir, normalized))
+
+    for root, relative in filesystem_candidates:
+        candidate_path = os.path.normpath(os.path.join(root, relative))
+        root_abs = os.path.abspath(root)
+        if os.path.commonpath([root_abs, os.path.abspath(candidate_path)]) == root_abs and os.path.exists(candidate_path):
+            return
+
+    # Legacy callers sometimes submit just a basename even if upstream nodes
+    # provide a longer path. Keep that fallback for older n8n workflows.
+    legacy_path = os.path.join(base_dir, os.path.basename(filename))
+    if os.path.exists(legacy_path):
         return
     if s3.is_enabled():
         # 1) Legacy basename lookup under uploads/
@@ -278,6 +299,7 @@ async def health_check():
         "ifcpatch_queue": "waiting",
         "revit_queue": "waiting",
         "ifccoord_queue": "waiting",
+        "ifctopology_queue": "waiting",
         "default_queue": "waiting",
     }
 
@@ -307,6 +329,7 @@ async def health_check():
         "ifcpatch_queue": ifcpatch_queue,
         "revit_queue": revit_queue,
         "ifccoord_queue": ifccoord_queue,
+        "ifctopology_queue": ifctopology_queue,
         "default_queue": default_queue
     }
     
@@ -588,6 +611,31 @@ async def ifccoord(request: IfcCoordRequest, _: str = Depends(verify_access)):
         return {"job_id": job.id}
     except Exception as e:
         logger.error(f"Error enqueueing ifccoord job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ifctopology/roomstamp", tags=["Topology"])
+async def ifctopology_roomstamp(request: IfcTopologyRequest, _: str = Depends(verify_access)):
+    """
+    Federate room/zone containment across one or more spatial IFC files and
+    one or more target element IFC files. When `stamp=true`, matched room and
+    zone data is written into a property set on stamped copies of the target
+    element models.
+    """
+    try:
+        for filename in request.spatial_files + request.element_files:
+            validate_input_file_exists(filename)
+
+        job = ifctopology_queue.enqueue(
+            "tasks.run_roomstamp_benchmark",
+            request.dict(),
+            job_timeout="4h",
+            result_ttl=JOB_RESULT_TTL,
+        )
+
+        logger.info(f"Enqueued ifctopology roomstamp job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifctopology roomstamp job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifctester", tags=["Validation"])
