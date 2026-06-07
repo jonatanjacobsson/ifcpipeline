@@ -46,6 +46,7 @@ QUEUE_NAMES = [
     "ifcdiff",
     "ifc5d",
     "ifc2json",
+    "ifctopology",
     "default" # Keep default for potential fallback or general tasks
 ]
 
