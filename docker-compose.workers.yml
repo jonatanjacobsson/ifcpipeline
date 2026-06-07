@@ -489,6 +489,10 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      # The warm BVH cache silently corrupts repeated coordination runs
+      # (cold=real clashes, warm=0 clashes); keep it off for correctness. It
+      # only saves the ~6s tree build, not the expensive occupancy solve.
+      - IFCCLASH_BVH_CACHE=${IFCCLASH_BVH_CACHE:-off}
     depends_on:
       - redis
     restart: unless-stopped
