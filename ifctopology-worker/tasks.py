@@ -23,6 +23,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 WORKER_NAME = "ifctopology-worker"
+UPLOADS_DIR = os.environ.get("IFCPIPELINE_UPLOADS_DIR", "/uploads")
+OUTPUT_DIR = os.environ.get("IFCPIPELINE_OUTPUT_DIR", "/output")
+EXAMPLES_DIR = os.environ.get("IFCPIPELINE_EXAMPLES_DIR", "/examples")
 
 
 Point = Tuple[float, float, float]
@@ -352,6 +355,8 @@ def _element_payload(element: ElementCandidate, matches: List[SpaceCandidate]) -
         "sample_point": list(element.sample_point),
         "bbox": element.bbox.to_dict() if element.bbox else None,
         "matched_space": _space_payload(chosen),
+        "matched_spaces": [_space_payload(space) for space in matches],
+        "match_status": "ambiguous" if len(matches) > 1 else "matched" if matches else "unmatched",
         "match_count": len(matches),
     }
 
@@ -369,12 +374,26 @@ def _get_or_create_pset(model: Any, element: Any, pset_name: str) -> Any:
     return ifcopenshell.api.run("pset.add_pset", model, product=element, name=pset_name)
 
 
-def _stamp_element(model: Any, element: Any, space: SpaceCandidate, pset_name: str) -> None:
+def _stamp_element(
+    model: Any,
+    element: Any,
+    space: SpaceCandidate,
+    matches: List[SpaceCandidate],
+    pset_name: str,
+    selected_engine: str,
+) -> None:
     import ifcopenshell.api
 
     zone_names = [zone.get("name") for zone in space.zones if zone.get("name")]
     zone_ids = [zone.get("global_id") for zone in space.zones if zone.get("global_id")]
     properties = {
+        "SpatialMatchStatus": "Ambiguous" if len(matches) > 1 else "Matched",
+        "SpatialMatchCount": str(len(matches)),
+        "SpatialSourceFile": space.source_file,
+        "SpatialRelationshipEngine": selected_engine,
+        "SpaceGlobalId": space.global_id,
+        "SpaceName": space.name or "",
+        "SpaceLongName": space.long_name or "",
         "RoomGlobalId": space.global_id,
         "RoomName": space.name or "",
         "RoomLongName": space.long_name or "",
@@ -401,11 +420,28 @@ def _stage_inputs(files: List[str], tmpdir: str) -> Tuple[Dict[str, str], List[s
             normalized = filename.lstrip("/")
             if normalized.startswith("uploads/"):
                 normalized = normalized[len("uploads/"):]
-            local_path = os.path.join("/uploads", normalized)
+                local_path = os.path.join(UPLOADS_DIR, normalized)
+            elif normalized.startswith("output/"):
+                local_path = os.path.join(OUTPUT_DIR, normalized[len("output/"):])
+            elif normalized.startswith("examples/"):
+                local_path = os.path.join(EXAMPLES_DIR, normalized[len("examples/"):])
+            else:
+                local_path = os.path.join(UPLOADS_DIR, normalized)
             if not os.path.exists(local_path):
                 raise FileNotFoundError(f"Input IFC file not found: {filename}")
         paths[filename] = local_path
     return paths, keys
+
+
+def _path_under_output_root(output_dir: str, requested_path: str) -> str:
+    normalized = requested_path.strip("/")
+    if normalized.startswith("output/topology/"):
+        normalized = normalized[len("output/topology/"):]
+    elif normalized.startswith("output/"):
+        normalized = os.path.basename(normalized)
+    if not normalized:
+        normalized = "topology_roomstamp_report.json"
+    return os.path.join(output_dir, normalized)
 
 
 def _default_stamped_name(source_name: str, index: int) -> str:
@@ -418,6 +454,10 @@ def _output_ifc_path(request: IfcTopologyRequest, output_dir: str, source_name: 
         return os.path.join(output_dir, _default_stamped_name(source_name, index))
 
     prefix = request.output_ifc_prefix.strip("/")
+    if prefix.startswith("output/topology/"):
+        prefix = prefix[len("output/topology/"):]
+    elif prefix.startswith("output/"):
+        prefix = os.path.basename(prefix)
     if not prefix:
         return os.path.join(output_dir, _default_stamped_name(source_name, index))
     if prefix.lower().endswith(".ifc") and len(request.element_files) == 1:
@@ -442,9 +482,9 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
     try:
         all_inputs = list(dict.fromkeys(request.spatial_files + request.element_files))
         local_paths, input_keys = _stage_inputs(all_inputs, tmpdir)
-        output_dir = os.path.join(tmpdir, "output") if s3.is_enabled() else "/output/topology"
+        output_dir = os.path.join(tmpdir, "output") if s3.is_enabled() else os.path.join(OUTPUT_DIR, "topology")
         os.makedirs(output_dir, exist_ok=True)
-        report_path = os.path.join(output_dir, os.path.basename(request.output_file))
+        report_path = _path_under_output_root(output_dir, request.output_file)
         settings = _geometry_settings()
 
         load_start = time.perf_counter()
@@ -525,15 +565,35 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
         match_seconds = time.perf_counter() - match_start
 
         stamped_outputs: List[Dict[str, Any]] = []
+        stamped_count = 0
+        skipped_ambiguous_count = 0
+        skipped_unmatched_count = 0
         if request.stamp:
             stamp_start = time.perf_counter()
             for index, filename in enumerate(request.element_files, start=1):
                 model = element_models[filename]
                 stamped = 0
+                skipped_ambiguous = 0
+                skipped_unmatched = 0
                 for element, matches in matches_by_file[filename]:
-                    if matches:
-                        _stamp_element(model, element.element, matches[0], request.pset_name)
-                        stamped += 1
+                    if not matches:
+                        skipped_unmatched += 1
+                        continue
+                    if len(matches) > 1 and not request.stamp_ambiguous:
+                        skipped_ambiguous += 1
+                        continue
+                    _stamp_element(
+                        model,
+                        element.element,
+                        matches[0],
+                        matches,
+                        request.pset_name,
+                        selected_engine,
+                    )
+                    stamped += 1
+                    stamped_count += 1
+                skipped_ambiguous_count += skipped_ambiguous
+                skipped_unmatched_count += skipped_unmatched
 
                 out_path = _output_ifc_path(request, output_dir, filename, index)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -541,6 +601,8 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
                 stamped_outputs.append({
                     "source_file": filename,
                     "stamped_element_count": stamped,
+                    "skipped_ambiguous_count": skipped_ambiguous,
+                    "skipped_unmatched_count": skipped_unmatched,
                     "output_path": out_path,
                 })
             stamp_seconds = time.perf_counter() - stamp_start
@@ -569,6 +631,10 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
             "candidate_tests": candidate_tests,
             "matches_per_second": round(total_elements / match_seconds, 2) if match_seconds else total_elements,
             "stamp": request.stamp,
+            "stamp_ambiguous": request.stamp_ambiguous,
+            "stamped_count": stamped_count,
+            "skipped_ambiguous_count": skipped_ambiguous_count,
+            "skipped_unmatched_count": skipped_unmatched_count,
             "space_geometry_failures": space_geometry_failures,
             "element_geometry_failures": element_geometry_failures,
         }
@@ -628,8 +694,9 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
 
             uploaded_ifcs = []
             for item in stamped_outputs:
+                relative_output = os.path.relpath(item["output_path"], output_dir)
                 key = s3.normalize_output_key(
-                    os.path.basename(item["output_path"]),
+                    relative_output,
                     "topology",
                 )
                 audit_ifc = s3.upload_and_audit(
@@ -641,6 +708,8 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
                     parents=[("input", s3.normalize_input_key(item["source_file"]))],
                     metadata={
                         "stamped_element_count": item["stamped_element_count"],
+                        "skipped_ambiguous_count": item["skipped_ambiguous_count"],
+                        "skipped_unmatched_count": item["skipped_unmatched_count"],
                         "pset_name": request.pset_name,
                     },
                     content_type="application/x-step",
