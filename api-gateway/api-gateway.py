@@ -38,6 +38,7 @@ from shared.classes import (
     IfcPatchListRecipesResponse,
     RevitExecuteRequest,
     IfcCoordRequest,
+    IfcTopologyRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -77,6 +78,7 @@ ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 revit_queue = Queue('revit', connection=redis_conn)
 ifccoord_queue = Queue('ifccoord', connection=redis_conn)
+ifctopology_queue = Queue('ifctopology', connection=redis_conn)
 
 # Define job status response model
 class JobStatusResponse(BaseModel):
@@ -278,6 +280,7 @@ async def health_check():
         "ifcpatch_queue": "waiting",
         "revit_queue": "waiting",
         "ifccoord_queue": "waiting",
+        "ifctopology_queue": "waiting",
         "default_queue": "waiting",
     }
 
@@ -307,6 +310,7 @@ async def health_check():
         "ifcpatch_queue": ifcpatch_queue,
         "revit_queue": revit_queue,
         "ifccoord_queue": ifccoord_queue,
+        "ifctopology_queue": ifctopology_queue,
         "default_queue": default_queue
     }
     
@@ -588,6 +592,30 @@ async def ifccoord(request: IfcCoordRequest, _: str = Depends(verify_access)):
         return {"job_id": job.id}
     except Exception as e:
         logger.error(f"Error enqueueing ifccoord job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ifctopology/roomstamp", tags=["Topology"])
+async def ifctopology_roomstamp(request: IfcTopologyRequest, _: str = Depends(verify_access)):
+    """
+    Benchmark room/zone containment across one or more spatial IFC files and
+    one or more target element IFC files. When `stamp=true`, matched room and
+    zone data is written into a property set on the target element models.
+    """
+    try:
+        for filename in request.spatial_files + request.element_files:
+            validate_input_file_exists(filename)
+
+        job = ifctopology_queue.enqueue(
+            "tasks.run_roomstamp_benchmark",
+            request.dict(),
+            job_timeout="4h",
+            result_ttl=JOB_RESULT_TTL,
+        )
+
+        logger.info(f"Enqueued ifctopology roomstamp job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing ifctopology roomstamp job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifctester", tags=["Validation"])

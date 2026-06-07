@@ -317,6 +317,103 @@ class IfcQtoRequest(BaseModel):
         return _validate_safe_path(v)
 
 
+class TopologyEngine(str, Enum):
+    AUTO = "auto"
+    BBOX = "bbox"
+    TOPOLOGICPY = "topologicpy"
+
+
+class TopologySampleStrategy(str, Enum):
+    BBOX_CENTROID = "bbox_centroid"
+    PLACEMENT = "placement"
+
+
+class IfcTopologyRequest(BaseModel):
+    """Request model for topology feasibility and room/zone stamping jobs."""
+
+    spatial_files: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Architecture/spatial IFC files containing IfcSpace and optional IfcZone data",
+    )
+    element_files: List[str] = Field(
+        ...,
+        min_length=1,
+        description="MEP/target IFC files containing elements to classify or stamp",
+    )
+    output_file: str = Field(
+        default="topology_roomstamp_report.json",
+        description="JSON benchmark/report output filename",
+    )
+    element_query: str = Field(
+        default="IfcDistributionElement",
+        description="IfcOpenShell selector query for target elements",
+    )
+    space_query: str = Field(
+        default="IfcSpace",
+        description="IfcOpenShell selector query for room/space candidates",
+    )
+    include_zones: bool = Field(
+        default=True,
+        description="Include IfcZone assignments for matched spaces in report/stamps",
+    )
+    engine: TopologyEngine = Field(
+        default=TopologyEngine.AUTO,
+        description="Topology engine to benchmark. auto currently falls back to bbox when TopologicPy is absent.",
+    )
+    sample_strategy: TopologySampleStrategy = Field(
+        default=TopologySampleStrategy.BBOX_CENTROID,
+        description="Point used to classify target elements against spaces",
+    )
+    stamp: bool = Field(
+        default=False,
+        description="When true, write matched room/zone values into target IFC property sets",
+    )
+    pset_name: str = Field(
+        default="Pset_IfcPipelineRoomStamp",
+        description="Property set name used when stamp=true",
+    )
+    output_ifc_prefix: Optional[str] = Field(
+        default=None,
+        description="Optional output IFC path/prefix for stamped models",
+    )
+    max_elements: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional cap for benchmark sampling large federated models",
+    )
+    tolerance: float = Field(
+        default=0.01,
+        ge=0,
+        description="Containment tolerance in model units",
+    )
+
+    @field_validator("spatial_files", "element_files")
+    @classmethod
+    def validate_file_lists(cls, v: List[str]) -> List[str]:
+        return [_validate_safe_path(path) for path in v]
+
+    @field_validator("output_file", "output_ifc_prefix")
+    @classmethod
+    def validate_output_paths(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
+    @field_validator("pset_name")
+    @classmethod
+    def validate_pset_name(cls, v: str) -> str:
+        return _validate_safe_filename(v)
+
+    @field_validator("element_query", "space_query")
+    @classmethod
+    def validate_selector_queries(cls, v: str) -> str:
+        dangerous = set(";`$|")
+        if any(c in v for c in dangerous):
+            raise ValueError("Selector query contains invalid or dangerous characters")
+        return v
+
+
 class DownloadUrlRequest(BaseModel):
     url: str
     output_filename: Optional[str] = None  # Optional path to save the file to, if not provided it will use the filename from the URL
