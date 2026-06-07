@@ -329,7 +329,7 @@ class TopologySampleStrategy(str, Enum):
 
 
 class IfcTopologyRequest(BaseModel):
-    """Request model for topology feasibility and room/zone stamping jobs."""
+    """Request model for federated spatial relationship stamping jobs."""
 
     spatial_files: List[str] = Field(
         ...,
@@ -369,13 +369,17 @@ class IfcTopologyRequest(BaseModel):
         default=False,
         description="When true, write matched room/zone values into target IFC property sets",
     )
+    stamp_ambiguous: bool = Field(
+        default=False,
+        description="When false, elements matching multiple spaces are reported but not stamped",
+    )
     pset_name: str = Field(
         default="Pset_IfcPipelineRoomStamp",
         description="Property set name used when stamp=true",
     )
     output_ifc_prefix: Optional[str] = Field(
         default=None,
-        description="Optional output IFC path/prefix for stamped models",
+        description="Optional output IFC filename or subdirectory under output/topology for stamped models",
     )
     max_elements: Optional[int] = Field(
         default=None,

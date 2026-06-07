@@ -225,8 +225,27 @@ def validate_input_file_exists(filename: str, base_dir: str = "/uploads") -> Non
     `output/patch/…`, never under `uploads/`. Previously those were rejected
     as 404 even though the worker would have downloaded them fine.
     """
-    path = os.path.join(base_dir, os.path.basename(filename))
-    if os.path.exists(path):
+    normalized = filename.lstrip("/")
+    filesystem_candidates = []
+    if normalized.startswith("uploads/"):
+        filesystem_candidates.append(("/uploads", normalized[len("uploads/"):]))
+    elif normalized.startswith("output/"):
+        filesystem_candidates.append(("/output", normalized[len("output/"):]))
+    elif normalized.startswith("examples/"):
+        filesystem_candidates.append(("/examples", normalized[len("examples/"):]))
+    else:
+        filesystem_candidates.append((base_dir, normalized))
+
+    for root, relative in filesystem_candidates:
+        candidate_path = os.path.normpath(os.path.join(root, relative))
+        root_abs = os.path.abspath(root)
+        if os.path.commonpath([root_abs, os.path.abspath(candidate_path)]) == root_abs and os.path.exists(candidate_path):
+            return
+
+    # Legacy callers sometimes submit just a basename even if upstream nodes
+    # provide a longer path. Keep that fallback for older n8n workflows.
+    legacy_path = os.path.join(base_dir, os.path.basename(filename))
+    if os.path.exists(legacy_path):
         return
     if s3.is_enabled():
         # 1) Legacy basename lookup under uploads/
@@ -597,9 +616,10 @@ async def ifccoord(request: IfcCoordRequest, _: str = Depends(verify_access)):
 @app.post("/ifctopology/roomstamp", tags=["Topology"])
 async def ifctopology_roomstamp(request: IfcTopologyRequest, _: str = Depends(verify_access)):
     """
-    Benchmark room/zone containment across one or more spatial IFC files and
+    Federate room/zone containment across one or more spatial IFC files and
     one or more target element IFC files. When `stamp=true`, matched room and
-    zone data is written into a property set on the target element models.
+    zone data is written into a property set on stamped copies of the target
+    element models.
     """
     try:
         for filename in request.spatial_files + request.element_files:
