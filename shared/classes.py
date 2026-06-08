@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 from datetime import datetime
 from enum import Enum
@@ -623,3 +623,140 @@ class IfcCoordRequest(BaseModel):
     max_rounds: int = Field(default=10, description="Maximum coordination/fixing rounds")
     max_auto_apply: Optional[int] = Field(default=None, description="Hard cap of auto-applied fixes")
     output_subdir: Optional[str] = Field(default=None, description="Optional custom output subdirectory name under /output/coord")
+
+
+# TopologicPy Worker Classes
+
+class TopologyEngine(str, Enum):
+    AUTO = "auto"
+    BBOX = "bbox"
+    TOPOLOGICPY = "topologicpy"
+
+
+class TopologySampleStrategy(str, Enum):
+    BBOX_CENTROID = "bbox_centroid"
+    PLACEMENT = "placement"
+
+
+class TopologicpyRequest(VersionPinOptional):
+    """Request model for federated spatial relationship stamping jobs."""
+
+    spatial_files: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Architecture/spatial IFC files containing IfcSpace and optional IfcZone data",
+    )
+    element_files: List[str] = Field(
+        ...,
+        min_length=1,
+        description="MEP/target IFC files containing elements to classify or stamp",
+    )
+    output_file: str = Field(
+        default="topology_roomstamp_report.json",
+        description="JSON benchmark/report output filename",
+    )
+    element_query: str = Field(
+        default="IfcElement",
+        description="IfcOpenShell selector query for target elements",
+    )
+    space_query: str = Field(
+        default="IfcSpace",
+        description="IfcOpenShell selector query for room/space candidates",
+    )
+    include_zones: bool = Field(
+        default=True,
+        description="Include IfcZone assignments for matched spaces in report/stamps",
+    )
+    engine: TopologyEngine = Field(
+        default=TopologyEngine.AUTO,
+        description="Topology engine: auto falls back to bbox when TopologicPy is absent",
+    )
+    sample_strategy: TopologySampleStrategy = Field(
+        default=TopologySampleStrategy.PLACEMENT,
+        description="Point used to classify target elements against spaces",
+    )
+    use_spatial_index: bool = Field(
+        default=True,
+        description="Build a spatial grid index for candidate reduction",
+    )
+    resolve_ambiguous_with_topologicpy: bool = Field(
+        default=True,
+        description="Use TopologicPy to disambiguate elements matching multiple spaces",
+    )
+    resolve_unmatched_with_topologicpy: bool = Field(
+        default=True,
+        description="Use TopologicPy to resolve initially unmatched elements",
+    )
+    report_detail: Literal["summary", "full"] = Field(
+        default="summary",
+        description="Report detail level: summary or full",
+    )
+    stamp: bool = Field(
+        default=False,
+        description="When true, write matched room/zone values into target IFC property sets",
+    )
+    stamp_ambiguous: bool = Field(
+        default=False,
+        description="When false, elements matching multiple spaces are reported but not stamped",
+    )
+    pset_name: str = Field(
+        default="Pset_IfcPipelineRoomStamp",
+        description="Property set name used when stamp=true",
+    )
+    output_ifc_prefix: Optional[str] = Field(
+        default=None,
+        description="Output IFC path or subdirectory under output/topology for stamped models",
+    )
+    max_elements: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional cap for benchmark sampling large federated models",
+    )
+    tolerance: float = Field(
+        default=0.01,
+        ge=0,
+        description="Containment tolerance in model units",
+    )
+    cell_mode: Optional[Literal["prism", "mesh"]] = Field(
+        default=None,
+        description="TopologicPy cell construction: prism (fast bbox) or mesh (IfcOpenShell triangles). Overrides worker env IFCTOPOLOGY_CELL_MODE.",
+    )
+    distance_mode: Optional[Literal["bbox", "topologic"]] = Field(
+        default=None,
+        description="Ambiguous/unmatched resolution: bbox (fast) or topologic Vertex.Distance. Overrides worker env IFCTOPOLOGY_DISTANCE_MODE.",
+    )
+    max_proximate_spaces: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=256,
+        description="Cap proximate room candidates per unmatched element. Overrides worker env IFCTOPOLOGY_MAX_PROXIMATE_SPACES.",
+    )
+
+    @field_validator("spatial_files", "element_files")
+    @classmethod
+    def validate_file_lists(cls, v: List[str]) -> List[str]:
+        return [_validate_safe_path(path) for path in v]
+
+    @field_validator("output_file", "output_ifc_prefix")
+    @classmethod
+    def validate_output_paths(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return _validate_safe_path(v)
+
+    @field_validator("pset_name")
+    @classmethod
+    def validate_pset_name(cls, v: str) -> str:
+        return _validate_safe_filename(v)
+
+    @field_validator("element_query", "space_query")
+    @classmethod
+    def validate_selector_queries(cls, v: str) -> str:
+        dangerous = set(";`$|")
+        if any(c in v for c in dangerous):
+            raise ValueError("Selector query contains invalid or dangerous characters")
+        return v
+
+
+# Backward compatibility alias
+IfcTopologyRequest = TopologicpyRequest

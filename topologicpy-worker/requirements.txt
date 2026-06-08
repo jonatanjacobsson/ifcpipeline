@@ -1,0 +1,14 @@
+# IFC dependencies - keep aligned with newer worker images
+ifcopenshell==0.8.4
+
+# Topology feasibility dependency. Lower bounds match the latest versions
+# verified during this worker spike.
+topologicpy>=0.9.43
+tqdm>=4.68.1
+
+# Queue and data validation
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
+
+# Object storage
+boto3>=1.34,<2
