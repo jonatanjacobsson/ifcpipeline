@@ -1,2 +1,2 @@
 # Development / CI tests (optional; pip install -r requirements.txt -r requirements-dev.txt)
-pytest>=7.0,<9
+pytest>=9.0.3,<10
