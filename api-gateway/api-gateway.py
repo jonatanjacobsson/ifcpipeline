@@ -40,6 +40,7 @@ from shared.classes import (
     IfcPatchListRecipesResponse,
     RevitExecuteRequest,
     IfcCoordRequest,
+    TopologicpyRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -83,6 +84,7 @@ ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 revit_queue = Queue('revit', connection=redis_conn)
 ifccoord_queue = Queue('ifccoord', connection=redis_conn)
+topologicpy_queue = Queue('topologicpy-worker', connection=redis_conn)
 
 # Define job status response model
 class JobStatusResponse(BaseModel):
@@ -91,6 +93,7 @@ class JobStatusResponse(BaseModel):
     status: str
     result: Optional[Any] = None
     error: Optional[str] = None
+    progress: Optional[Dict[str, Any]] = None
     execution_time_seconds: Optional[float] = None
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
@@ -461,6 +464,10 @@ async def get_job_status(job_id: str, _: str = Depends(verify_access)):
         response["started_at"] = job.started_at
         response["ended_at"] = job.ended_at
         
+        progress = getattr(job, "meta", None) or {}
+        if isinstance(progress, dict) and progress.get("progress"):
+            response["progress"] = progress["progress"]
+
         if status == JobStatus.FINISHED:
             result = _read_job_result(job_id)
             if result is not None:
@@ -705,6 +712,31 @@ async def ifccoord(request: IfcCoordRequest, _: str = Depends(verify_access)):
         return {"job_id": job.id}
     except Exception as e:
         logger.error(f"Error enqueueing ifccoord job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/topologicpy/roomstamp", tags=["Topology"])
+@app.post("/ifctopology/roomstamp", tags=["Topology"])
+async def ifctopology_roomstamp(request: TopologicpyRequest, _: str = Depends(verify_access)):
+    """
+    Federate room/zone containment across spatial IFC files and target element
+    IFC files. When stamp=true, matched room and zone data is written into a
+    property set on stamped copies of the target element models.
+    """
+    try:
+        for filename in request.spatial_files + request.element_files:
+            validate_input_file_exists(filename)
+
+        job = topologicpy_queue.enqueue(
+            "tasks.run_roomstamp_benchmark",
+            request.model_dump(),
+            job_timeout="4h",
+            result_ttl=JOB_RESULT_TTL,
+        )
+
+        logger.info(f"Enqueued topologicpy roomstamp job with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing topologicpy roomstamp job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ifctester", tags=["Validation"])
