@@ -28,5 +28,8 @@
     "@thatopen/ui-obc": "~3.1.0",
     "three": "0.175.0",
     "web-ifc": "0.0.71"
+  },
+  "overrides": {
+    "fast-xml-parser": "4.5.5"
   }
 }
