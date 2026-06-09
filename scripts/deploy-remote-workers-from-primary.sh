@@ -50,7 +50,7 @@ write_env_remote() {
     echo "PIPELINE_LAN_IP=${reach}"
     echo "REDIS_URL=redis://${reach}:6379/0"
     echo "POSTGRES_HOST=${reach}"
-    echo "S3_ENDPOINT_URL=http://${reach}:9000"
+    echo "S3_ENDPOINT_URL=http://${reach}:8333"
   } >"$tmp"
 
   for key in "${REMOTE_ENV_KEYS[@]}"; do

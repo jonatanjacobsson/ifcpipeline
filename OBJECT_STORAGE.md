@@ -4,10 +4,6 @@
 > decommissioned 2026-06. The 2026 backend evaluation and pilot runbooks live
 > in `../ifcpipeline-minio-pilot-archive/docs/`.
 
-**Branch:** `feature/object-storage` on a *new* clone
-(`/home/bimbot-ubuntu/apps/ifcpipeline`).
-The original `/home/bimbot-ubuntu/apps/ifcpipeline` is untouched.
-
 ## Goal
 
 Replace the `/uploads` + `/output` bind-mounted filesystem with a self-hosted,
@@ -21,8 +17,9 @@ S3-compatible object store so that:
 
 ### Moving parts
 
-- **MinIO** (`quay.io/minio/minio:latest`) as the self-hosted S3 endpoint.
-- **`minio-setup`** one-shot container (`mc`) that creates the bucket on boot.
+- **SeaweedFS** (`chrislusf/seaweedfs:4.29`) as the self-hosted S3 endpoint (`seaweedfs:8333`).
+- **`seaweedfs-setup`** one-shot container (`mc`) that creates the bucket on boot.
+- **`seaweedfs/s3.json`** (gitignored) — S3 identity config; copy from `seaweedfs/s3.json.example` and match `.env` keys.
 - **`shared/object_storage.py`** — boto3 wrapper with `download_to_tempfile`,
   `upload_from_path`, `object_exists`, key-normalizers, and
   `presigned_get_url_public` for externally reachable URLs.
@@ -46,14 +43,14 @@ S3-compatible object store so that:
   local and only pushes resulting IFCs via the gateway's upload endpoint.
 
 - **`api-gateway`**:
-  - `/upload/{file_type}` streams the request body straight into MinIO —
+  - `/upload/{file_type}` streams the request body straight into S3 —
     no local disk write when `USE_OBJECT_STORAGE=true`.
   - `validate_input_file_exists` accepts files that live only in the bucket.
   - `/ifc2json/{filename}` fetches the JSON body from S3 first, then falls
     back to disk for legacy callers.
   - `/create_download_link` + `/download/{token}` auto-detect S3-backed
     paths and redirect the download to a **presigned URL** (see
-    `S3_PUBLIC_ENDPOINT_URL`) so the client streams directly from MinIO.
+    `S3_PUBLIC_ENDPOINT_URL`) so the client streams directly from object storage.
 
 ### Design choices
 
@@ -66,20 +63,20 @@ S3-compatible object store so that:
   library against local paths, and push the result back up. The S3 path is a
   drop-in replacement for the bind-mounts — no API or queue shape changes.
 - `S3_PUBLIC_ENDPOINT_URL` lets the gateway mint presigned URLs that point at
-  whatever hostname clients can actually reach (default `http://localhost:9000`
-  for local testing, swap for your public MinIO host in prod).
+  whatever hostname clients can actually reach (e.g. a public HTTPS hostname
+  in prod; loopback `:8333` for local smoke tests).
 
-## Ports (alternate, so it can coexist with the OG stack)
+## Ports (default compose)
 
-| Service       | OG port | PoC port |
-|---------------|---------|----------|
-| api-gateway   | 8000    | **8100** |
-| ifc-viewer    | 8001    | **8101** |
-| n8n           | 5678    | **5778** |
-| rq-dashboard  | 9181    | **9281** |
-| dozzle        | 9182    | **9282** |
-| MinIO API     | –       | **9000** |
-| MinIO console | –       | **9001** |
+| Service       | Port |
+|---------------|------|
+| api-gateway   | 8000 |
+| ifc-viewer    | 8001 |
+| n8n           | 5678 |
+| rq-dashboard  | 9181 |
+| dozzle        | 9182 |
+| SeaweedFS S3  | **8333** (loopback + LAN via host-lan overlay) |
+| SeaweedFS filer UI | **8443** (loopback only) |
 
 ## Running the smoke test
 
@@ -90,7 +87,7 @@ cd /home/bimbot-ubuntu/apps/ifcpipeline
 
 The script:
 
-1. Builds and starts `minio + minio-setup + redis + postgres + api-gateway`
+1. Builds and starts `seaweedfs + seaweedfs-setup + redis + postgres + api-gateway`
    plus every converted worker.
 2. Uploads `Building-Architecture.ifc`, `Building-Hvac.ifc`,
    `Building-Structural.ifc` and `IDS-example.ids`.
@@ -116,7 +113,7 @@ uploads/IDS-example.ids
 SMOKE TEST OK (with 2 known library-issue failure(s) — see OBJECT_STORAGE.md)
 ```
 
-The worker outputs are **only** in MinIO — `shared/output/*` stays empty on
+The worker outputs are **only** in S3 — `shared/output/*` stays empty on
 the host.
 
 ### Known library-level failures (not object-storage issues)
@@ -135,16 +132,17 @@ therefore reported as *soft* failures (the script still exits 0):
 Both workers still run through S3 correctly — inputs download, outputs would
 upload — the library itself is the blocker.
 
-## Accessing MinIO
+## Accessing SeaweedFS
 
-Console: <http://localhost:9001> (credentials: `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env`).
-S3 API: <http://localhost:9000> (path-style addressing, region `us-east-1`).
+S3 API: <http://localhost:8333> (path-style addressing, region `us-east-1`).
+Filer UI: <http://localhost:8443> (loopback only).
+Credentials: `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env`, mirrored in `seaweedfs/s3.json`.
 
 ### Exposing the S3 API (e.g. Cloudflare Tunnel)
 
-Compose publishes MinIO on **127.0.0.1** only so the daemon is not reachable
+Compose publishes SeaweedFS on **127.0.0.1** only so the daemon is not reachable
 from arbitrary networks. To give browsers a public URL (for presigned
-redirects, e.g. `https://minio-api.example.com`):
+redirects, e.g. `https://s3-api.example.com`):
 
 1. Run **cloudflared** on the **same host** as Docker (outside the compose
    network is fine).
@@ -152,64 +150,41 @@ redirects, e.g. `https://minio-api.example.com`):
 
    ```yaml
    # Example ingress fragment — use your real tunnel name / hostname
-   - hostname: minio-api.byggstyrning.se
-     service: http://127.0.0.1:9000
+   - hostname: s3-api.example.com
+     service: http://127.0.0.1:8333
    ```
 
-3. Set **`S3_PUBLIC_ENDPOINT_URL`** to that public URL (`https://minio-api…`).
-4. Configure **CORS** on the MinIO bucket for your viewer origin
+3. Set **`S3_PUBLIC_ENDPOINT_URL`** to that public URL (`https://s3-api…`).
+4. Configure **CORS** on the bucket for your viewer origin
    (`https://ifcpreview…`) so `fetch()` after the 307 can read the object.
 
-Expose the **console** (`:9001`) only if you need it remotely; prefer a
-separate tunnel, IP allowlist, or SSO in front of it — not the open internet
-with default creds.
+### Rotating S3 credentials
 
-### Rotating MinIO root credentials
+`S3_ACCESS_KEY` and `S3_SECRET_KEY` in `.env` must match the identities in
+`seaweedfs/s3.json`. All workers and the api-gateway use the same values.
 
-`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` in compose come from **`S3_ACCESS_KEY`**
-and **`S3_SECRET_KEY`** in `.env`. All workers and the api-gateway must use the
-same values.
-
-- **New / empty `minio-data` volume:** set strong values in `.env`, then
-  `docker compose up -d --force-recreate minio` (and recreate services that
-  talk to S3).
-- **Existing volume already initialized** with old root credentials: MinIO may
-  keep the previous root until you change it in the **MinIO Console**
-  (Identity → Users → root) or via `mc` using the **old** password; then set
-  `.env` to match. If you only change `.env` without aligning MinIO, boto3
-  calls from the gateway/workers will fail with access denied. As a last
-  resort on non-production data, remove the `minio-data` volume and start
-  fresh (destructive).
+- **Update both together:** edit `.env`, update `seaweedfs/s3.json`, then
+  `docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d --force-recreate seaweedfs`
+  (and recreate services that talk to S3).
+- Remote workers: regenerate `.env.remote` via `./scripts/deploy-remote-workers-from-primary.sh`.
 
 ## Environment variables
 
 | Variable | Default | Where | Purpose |
 | --- | --- | --- | --- |
 | `USE_OBJECT_STORAGE` | `true` | gateway + workers | Flip to `false` for legacy mode |
-| `S3_ENDPOINT_URL` | `http://minio:9000` | gateway + workers | Internal MinIO URL |
-| `S3_PUBLIC_ENDPOINT_URL` | `http://localhost:9000` | gateway | Rewritten host for presigned URLs |
-| `S3_ACCESS_KEY` | (set in `.env`) | all | MinIO root user (`MINIO_ROOT_USER`) |
-| `S3_SECRET_KEY` | (set in `.env`) | all | MinIO root password (`MINIO_ROOT_PASSWORD`) |
+| `S3_ENDPOINT_URL` | `http://seaweedfs:8333` | gateway + workers | Internal SeaweedFS S3 URL |
+| `S3_PUBLIC_ENDPOINT_URL` | (set in `.env`) | gateway | Rewritten host for presigned URLs |
+| `S3_ACCESS_KEY` | (set in `.env`) | all | SeaweedFS S3 identity (also in `seaweedfs/s3.json`) |
+| `S3_SECRET_KEY` | (set in `.env`) | all | SeaweedFS S3 secret |
 | `S3_BUCKET` | `ifcpipeline` | all | Single bucket name |
-| `S3_REGION` | `us-east-1` | all | MinIO ignores this; boto3 needs it |
+| `S3_REGION` | `us-east-1` | all | SeaweedFS ignores this; boto3 needs it |
 
-## Files changed (vs. upstream `main`)
+## Compose services
 
-- `docker-compose.yml` — `minio`, `minio-setup`, `minio-data` volume, S3 env
-  on every converted worker + api-gateway, remapped public ports, stripped
-  the external-only `interaxo` CIFS volume.
-- `shared/object_storage.py` — boto3 helper (new).
-- `shared/classes.py` — expanded `IfcConvertRequest` to match what the worker
-  actually reads (unrelated to S3 but required to make `ifcconvert` run).
-- `shared/setup.py`, `api-gateway/requirements.txt`, and every converted
-  worker's `requirements.txt` — add `boto3`.
-- `api-gateway/api-gateway.py` — S3-only uploads, S3-aware validators, S3
-  redirect on `/download/{token}`, S3 fetch on `/ifc2json/{filename}`.
-- Worker `tasks.py` (each of ifccsv, ifctester, ifcconvert, ifcclash,
-  ifcdiff, ifc5d, ifc2json, ifcpatch) — split into `_run_s3` / `_run_filesystem`
-  branches driven by `USE_OBJECT_STORAGE`.
-- `smoke-test.sh` — full-coverage test (eight jobs, one per worker).
-- `OBJECT_STORAGE.md` — this document.
+- `docker-compose.control-plane.yml` — `seaweedfs`, `seaweedfs-setup`, `seaweedfs-data` volume, S3 env on api-gateway + guid-index-worker.
+- `docker-compose.workers.yml` — S3 env on every worker; `depends_on: seaweedfs-setup`.
+- `docker-compose.host-lan.yml` — publish Redis/Postgres/SeaweedFS S3 on `PIPELINE_LAN_IP`.
 
 ## Audit trail (object lineage)
 
@@ -251,7 +226,7 @@ with a single `DELETE FROM object_versions WHERE …`.
 ### Writing the audit trail
 
 - **Root uploads** — `api-gateway`'s `/upload/{file_type}` wraps the incoming
-  `UploadFile` stream in a `HashingReader` and pushes it to MinIO with
+  `UploadFile` stream in a `HashingReader` and pushes it to S3 with
   `boto3.upload_fileobj`. After the upload completes, `audit_db.record_upload`
   inserts the `object_versions` row and the response includes `sha256`,
   `size_bytes`, and `audit_id`.
@@ -334,13 +309,13 @@ asserts:
 
 ## Versioned keys (day-2 overwrites)
 
-MinIO bucket versioning is enabled at bootstrap (`minio-setup` runs
+S3 bucket versioning is enabled at bootstrap (`seaweedfs-setup` runs
 `mc version enable local/<bucket>`), so overwriting a key creates a new
 object with its own `VersionId` while the previous bytes remain retrievable.
 The audit trail matches that model:
 
 - Every successful PUT (root upload or worker derivative) records a fresh
-  `object_versions` row carrying the MinIO `VersionId`. The uniqueness
+  `object_versions` row carrying the S3 `VersionId`. The uniqueness
   target is the expression index
   `UNIQUE (bucket, object_key, COALESCE(version_id, sha256))`, so two
   uploads to the same key with the same bytes but different `VersionId`s
@@ -363,7 +338,7 @@ replay, or a deterministic CI run) can send:
 ```jsonc
 {
   "input_file": "uploads/Arch.ifc",
-  "input_version_id": "a1b2c3..."   // MinIO VersionId
+  "input_version_id": "a1b2c3..."   // S3 VersionId
   // OR:
   // "input_audit_id": 42            // object_versions.id row
   // Multi-input endpoints (clash, diff) also accept:
@@ -375,12 +350,12 @@ All custom n8n nodes (`CUSTOM.*`) expose the same three fields under an
 optional **Version Pinning** collection; leaving it empty preserves the
 auto-pin behaviour.
 
-## MinIO-native checksums
+## S3-native checksums
 
 `shared/object_storage.py` controls its hashing strategy with the
 `S3_CHECKSUM_MODE` env var:
 
-- **`native`** — asks MinIO to compute SHA-256 server-side via the S3 spec's
+- **`native`** — asks SeaweedFS to compute SHA-256 server-side via the S3 spec's
   `ChecksumAlgorithm=SHA256`. `TransferConfig(multipart_threshold=5 GiB)`
   keeps the upload single-part so the returned checksum is a whole-object
   hash, not a tree/composite digest. If native is unavailable or returns a
@@ -388,9 +363,8 @@ auto-pin behaviour.
 - **`app`** *(default for compatibility)* — streams the upload through a
   `HashingReader` that accumulates the sha256 client-side.
 
-Toggle with `S3_CHECKSUM_MODE=native` in `.env` once the MinIO deployment
-has rolled out the checksum extension. The fallback path remains available
-for self-hosted backends that don't speak the native API.
+Toggle with `S3_CHECKSUM_MODE=native` in `.env` when the backend supports
+native checksums. The `app` fallback remains for backends that don't.
 
 ## GUID-level audit trail
 
@@ -463,14 +437,15 @@ no-ops.
 
 ## Lifecycle & retention
 
-MinIO bucket versioning keeps non-current versions indefinitely by default,
+S3 bucket versioning keeps non-current versions indefinitely by default,
 which is great for audit but does grow storage. Set an ILM rule to expire
 non-current versions after N days so the audit trail keeps the *row* but
 the old bytes get collected:
 
 ```bash
-docker compose exec minio \
-  mc ilm add --expire-noncurrent-days 90 local/${S3_BUCKET:-ifcpipeline}
+docker compose run --rm --entrypoint /bin/sh seaweedfs-setup -c \
+  "mc alias set sw http://seaweedfs:8333 \${S3_ACCESS_KEY} \${S3_SECRET_KEY} && \
+   mc ilm add --expire-noncurrent-days 90 sw/\${S3_BUCKET:-ifcpipeline}"
 ```
 
 Tune the window to your compliance needs. The audit rows for expired
@@ -479,10 +454,8 @@ but downloads of those specific `version_id`s start returning 404.
 
 ## Still open / next steps
 
-- **Retention policy**: replace the `cleanup-service` alpine cron with a
-  MinIO lifecycle rule (`mc ilm add`) that expires `output/**` after N days.
-- **Bucket authorization**: replace `minioadmin` with per-service policies
-  (`ifcpipeline-gateway`, `ifcpipeline-worker`).
+- **Retention policy**: configure SeaweedFS/S3 lifecycle via `mc ilm add` to expire `output/**` after N days.
+- **Bucket authorization**: replace shared admin keys with per-service identities in `seaweedfs/s3.json`.
 - **Revit-to-S3 handoff**: teach the Windows `revit-worker` to upload its
   finished IFC/RVT via the gateway's `/upload/ifc` endpoint so RVT files
   never need a shared CIFS mount.

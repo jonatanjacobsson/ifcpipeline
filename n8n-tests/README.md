@@ -10,7 +10,7 @@ the `n8n-nodes-ifcpipeline` **IFC Fast CSV** node via an importable workflow.
    ```bash
    cd /home/bimbot-ubuntu/apps/ifcpipeline
    docker compose -f docker-compose.control-plane.yml \
-     -f docker-compose.workers.yml up -d --build api-gateway ifcfast-worker redis minio minio-setup postgres
+     -f docker-compose.workers.yml up -d --build api-gateway ifcfast-worker redis seaweedfs seaweedfs-setup postgres
    ```
 
 2. API key in `.env` as `IFC_PIPELINE_API_KEY` (default smoke: `pocsecret`).

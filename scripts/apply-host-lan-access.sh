@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish Redis, Postgres, and MinIO on PIPELINE_LAN_IP for remote workers.
+# Publish Redis, Postgres, and SeaweedFS S3 on PIPELINE_LAN_IP for remote workers.
 # Run on the primary host from the ifcpipeline repo root.
 set -euo pipefail
 
@@ -53,22 +53,22 @@ if ! ip -4 addr show | grep -q "inet ${PIPELINE_LAN_IP}/"; then
   exit 1
 fi
 
-echo "==> Recreating redis, postgres, minio with host-lan bindings on ${PIPELINE_LAN_IP}"
+echo "==> Recreating redis, postgres, seaweedfs with host-lan bindings on ${PIPELINE_LAN_IP}"
 docker compose \
   -f docker-compose.control-plane.yml \
   -f docker-compose.host-lan.yml \
-  up -d redis postgres minio
+  up -d redis postgres seaweedfs
 
 echo ""
-echo "==> Listening ports (expect ${PIPELINE_LAN_IP} for 6379, 5432, 9000):"
-ss -tlnp 2>/dev/null | grep -E ':6379|:5432|:9000' || true
+echo "==> Listening ports (expect ${PIPELINE_LAN_IP} for 6379, 5432, 8333):"
+ss -tlnp 2>/dev/null | grep -E ':6379|:5432|:8333' || true
 
 echo ""
 if [[ -n "$WORKER_VM_IP" ]]; then
   echo "==> Suggested ufw rules (worker only):"
   echo "sudo ufw allow from ${WORKER_VM_IP} to any port 6379 proto tcp"
   echo "sudo ufw allow from ${WORKER_VM_IP} to any port 5432 proto tcp"
-  echo "sudo ufw allow from ${WORKER_VM_IP} to any port 9000 proto tcp"
+  echo "sudo ufw allow from ${WORKER_VM_IP} to any port 8333 proto tcp"
   echo ""
   echo "==> Regenerate worker .env.remote (from primary):"
   echo "  ./scripts/deploy-remote-workers-from-primary.sh"
@@ -80,4 +80,4 @@ fi
 echo ""
 echo "==> From worker host:"
 echo "redis-cli -h ${PIPELINE_LAN_IP} ping"
-echo "curl -sf http://${PIPELINE_LAN_IP}:9000/minio/health/live"
+echo "nc -z ${PIPELINE_LAN_IP} 8333 && echo SeaweedFS OK"
