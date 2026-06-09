@@ -7,10 +7,10 @@ How to run the stack on a **primary host** (control plane + optional local worke
 | File | Purpose |
 |------|---------|
 | `docker-compose.yml` | Combined entry (`include` control plane + workers) — **development default** |
-| `docker-compose.control-plane.yml` | API, Redis, Postgres, MinIO, n8n, dashboards, viewer, cleanup |
+| `docker-compose.control-plane.yml` | API, Redis, Postgres, SeaweedFS, n8n, dashboards, viewer, cleanup |
 | `docker-compose.workers.yml` | All twelve `*-worker` services (canonical definitions) |
 | `docker-compose.remote-workers.yml` | Worker host: `include` workers + `remote` profile + external env |
-| `docker-compose.host-lan.yml` | Primary overlay: publish Redis/Postgres/MinIO on `PIPELINE_LAN_IP` |
+| `docker-compose.host-lan.yml` | Primary overlay: publish Redis/Postgres/SeaweedFS S3 on `PIPELINE_LAN_IP` |
 | `docker-compose.test.yml` | Smoke-test overlay (slim gateway `depends_on`) |
 
 ### Worker placement
@@ -54,7 +54,7 @@ Apply LAN publish and firewall before remote workers connect (see [Remote worker
 
 ### 3. Workers on worker host(s)
 
-Worker-only project (`name: ifcpipeline-remote`). Requires `.env.remote` with `REDIS_URL`, `POSTGRES_HOST`, and `S3_ENDPOINT_URL` pointing at the primary LAN IP — not `redis` / `minio` Docker service names.
+Worker-only project (`name: ifcpipeline-remote`). Requires `.env.remote` with `REDIS_URL`, `POSTGRES_HOST`, and `S3_ENDPOINT_URL` pointing at the primary LAN IP — not `redis` / `seaweedfs` Docker service names.
 
 ```bash
 # On worker host (after images are pushed from primary):
@@ -71,25 +71,25 @@ Multiple worker VMs use the same recipe; set `REMOTE_SSH` / `REMOTE_REPO` per ho
 
 ## Data preservation
 
-**Goal:** Split compose and run workers on a second VM without wiping Postgres, MinIO, Redis, or n8n state on the primary dev machine.
+**Goal:** Split compose and run workers on a second VM without wiping Postgres, SeaweedFS, Redis, or n8n state on the primary dev machine.
 
 ### Where state lives
 
 | Asset | Storage | Notes |
 |-------|---------|--------|
 | Postgres (pipeline + n8n) | Named volume `postgres-data` | `container_name: ifc_pipeline_postgres_objectstorage` |
-| MinIO / S3 | Named volume `minio-data` | Workers and API use buckets via env |
+| SeaweedFS / S3 | Named volume `seaweedfs-data` | Workers and API use buckets via env; identities in `seaweedfs/s3.json` |
 | Redis (RQ) | Named volume `redis-data` | Queue and failed-job registry |
 | n8n | Bind mount `./n8n-data` | Workflows, credentials, custom nodes |
 | Worker containers | Ephemeral | Safe to recreate |
 
-Worker hosts **must not** run `postgres`, `redis`, or `minio` services. Use `.env.remote` only. Worker compose project name is `ifcpipeline-remote` so it never creates competing `postgres-data` volumes.
+Worker hosts **must not** run `postgres`, `redis`, or `seaweedfs` services. Use `.env.remote` only. Worker compose project name is `ifcpipeline-remote` so it never creates competing `postgres-data` volumes.
 
 ### Compose invariants (do not break)
 
 1. **Same project on primary** — Run from repo root; default project name is the directory name (`ifcpipeline`). Do not add a conflicting top-level `name:` on the combined entry.
 2. **Same service names** — Unchanged across split files.
-3. **Same volume keys** — `postgres-data`, `minio-data`, `redis-data` declared in control-plane file only.
+3. **Same volume keys** — `postgres-data`, `seaweedfs-data`, `redis-data` declared in control-plane file only.
 4. **Same bind mounts** — Paths relative to repo root unchanged (`./n8n-data`, `./ifcpatch-worker/custom_recipes`, etc.).
 5. **Postgres container name** — Keep `ifc_pipeline_postgres_objectstorage`.
 
@@ -98,9 +98,9 @@ Worker hosts **must not** run `postgres`, `redis`, or `minio` services. Use `.en
 | Pitfall | Symptom | Prevention |
 |---------|---------|------------|
 | `docker compose down -v` on primary | All named volumes deleted | **Never** use `-v` on primary; scripts and docs forbid it |
-| New `name:` / different project on primary | Empty Postgres/MinIO | Keep `COMPOSE_PROJECT_NAME` stable |
-| Renamed `postgres` / `redis` / `minio` | Orphaned volumes, empty DB | Mechanical move only — no renames |
-| Full stack on worker with local `.env` | Second Postgres/MinIO on worker | Worker scripts: workers compose + `.env.remote` only |
+| New `name:` / different project on primary | Empty Postgres/SeaweedFS | Keep `COMPOSE_PROJECT_NAME` stable |
+| Renamed `postgres` / `redis` / `seaweedfs` | Orphaned volumes, empty DB | Mechanical move only — no renames |
+| Full stack on worker with local `.env` | Second Postgres/SeaweedFS on worker | Worker scripts: workers compose + `.env.remote` only |
 | `up` from wrong directory | New project, new volumes | Scripts `cd` to repo root |
 | Postgres `container_name` change | Second postgres container | Keep fixed name on control-plane |
 | Init scripts on empty volume | Fresh DB | Do not recreate `postgres-data` |
@@ -110,7 +110,7 @@ Worker hosts **must not** run `postgres`, `redis`, or `minio` services. Use `.en
 ```bash
 cd /path/to/ifcpipeline
 docker compose ps
-docker volume ls | grep -E 'postgres|minio|redis|ifcpipeline'
+docker volume ls | grep -E 'postgres|seaweedfs|redis|ifcpipeline'
 # Optional backup:
 docker compose exec -T postgres pg_dumpall -U "${POSTGRES_USER:-ifcpipeline}" > backup-pre-split.sql
 tar -czf n8n-data-backup-pre-split.tar.gz n8n-data/
@@ -123,7 +123,7 @@ docker compose ls   # note COMPOSE_PROJECT_NAME and volume names
 docker compose ps
 docker volume ls | grep postgres    # same volume name as before
 docker compose exec -T postgres psql -U ifcpipeline -c '\l'
-# Spot-check n8n UI and MinIO bucket contents
+# Spot-check n8n UI and SeaweedFS bucket contents
 ```
 
 Expect **container recreate**, not **volume replacement**. If Postgres logs show fresh init on an empty data dir, stop and fix project/volume names.
@@ -143,13 +143,13 @@ docker compose up -d --scale ifctester-worker=0 --scale ifcpatch-worker=0 \
 
 ## Remote workers
 
-Run **ifctester**, **ifcpatch**, **ifcclash**, and **ifcdiff** on a worker host while the control plane stays on the primary host. Workers connect over TCP to Redis, Postgres, and MinIO on `PIPELINE_LAN_IP`.
+Run **ifctester**, **ifcpatch**, **ifcclash**, and **ifcdiff** on a worker host while the control plane stays on the primary host. Workers connect over TCP to Redis, Postgres, and SeaweedFS S3 on `PIPELINE_LAN_IP`.
 
 ### Files
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.host-lan.yml` | Primary: publish 6379 / 5432 / 9000 on LAN IP |
+| `docker-compose.host-lan.yml` | Primary: publish 6379 / 5432 / 8333 on LAN IP |
 | `docker-compose.remote-workers.yml` | Worker: `include` workers + `remote` profile |
 | `.env.remote.example` | Template for worker `.env.remote` |
 | `scripts/apply-host-lan-access.sh` | Apply host-lan on primary |
@@ -171,7 +171,7 @@ PIPELINE_HOST=<primary-hostname>
 # Restrict firewall to worker IP (example):
 sudo ufw allow from <worker-lan-ip> to any port 6379 proto tcp
 sudo ufw allow from <worker-lan-ip> to any port 5432 proto tcp
-sudo ufw allow from <worker-lan-ip> to any port 9000 proto tcp
+sudo ufw allow from <worker-lan-ip> to any port 8333 proto tcp
 ssh-copy-id deploy@worker-host
 ```
 
@@ -206,19 +206,19 @@ cp .env.remote.example .env.remote   # edit secrets
 COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml --env-file .env.remote ps
 ```
 
-From worker: `redis-cli -h <primary-lan-ip> ping`, MinIO health on `:9000`.
+From worker: `redis-cli -h <primary-lan-ip> ping`, `nc -z <primary-lan-ip> 8333` (SeaweedFS S3).
 
 ### Troubleshooting
 
 | Symptom | Check |
 |---------|--------|
-| Connection refused to Redis/MinIO | Re-run `./scripts/apply-host-lan-access.sh`; update `.env.remote` with current `PIPELINE_LAN_IP` |
+| Connection refused to Redis/SeaweedFS | Re-run `./scripts/apply-host-lan-access.sh`; update `.env.remote` with current `PIPELINE_LAN_IP` |
 | Postgres auth fails | `POSTGRES_PASSWORD` matches primary `.env` |
-| S3 errors | `S3_ENDPOINT_URL` uses primary LAN IP, not `http://minio:9000` |
+| S3 errors | `S3_ENDPOINT_URL` uses primary LAN IP `:8333`, not `http://seaweedfs:8333` |
 | Deploy SSH fails | Run from your terminal; `ssh -o RemoteCommand=none deploy@worker-host` |
 | Worker disk full on build | Use `push-worker-images-to-remote.sh` + `SKIP_BUILD=1` |
 
-SeaweedFS shadow: remote workers do not need `S3_SHADOW_*` unless Seaweed S3 is also published on `PIPELINE_LAN_IP`.
+SeaweedFS shadow dual-write vars (`S3_SHADOW_*`) are obsolete; leave them empty.
 
 ---
 
@@ -241,4 +241,4 @@ docker compose -f docker-compose.control-plane.yml config
 COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml --env-file .env.remote.example config
 ```
 
-`docker-compose.workers.yml` alone references `redis` / `postgres` / `minio` — validate it merged with control-plane or via the combined root file.
+`docker-compose.workers.yml` alone references `redis` / `postgres` / `seaweedfs` — validate it merged with control-plane or via the combined root file.

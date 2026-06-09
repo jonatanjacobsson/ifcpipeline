@@ -284,29 +284,29 @@ REDIS_URL=redis://redis:6379/0
 
 > 💡 **Tip**: IP ranges in CIDR format can bypass API key authentication for trusted networks
 
-## Object Storage (MinIO)
+## Object Storage (SeaweedFS)
 
-Starting with this release, IFC files and worker outputs live in a MinIO-backed S3 bucket instead of shared host volumes. Every worker streams its input from `s3://<bucket>/uploads/…` and writes results to `s3://<bucket>/output/<format>/…`; the audit DB in Postgres records lineage so you can trace a derived artefact all the way back to the original upload, byte-identical on sha256.
+IFC files and worker outputs live in a SeaweedFS-backed S3 bucket (`seaweedfs:8333`) instead of shared host volumes. Every worker streams its input from `s3://<bucket>/uploads/…` and writes results to `s3://<bucket>/output/<format>/…`; the audit DB in Postgres records lineage so you can trace a derived artefact all the way back to the original upload, byte-identical on sha256.
 
 ### Flag
 
-`USE_OBJECT_STORAGE=true` is the new default. Set it to `false` to fall back to the legacy bind-mount (`shared/uploads` + `shared/output`) stack for A/B comparison while you migrate workflows.
+`USE_OBJECT_STORAGE=true` is the default. Set it to `false` to fall back to the legacy bind-mount (`shared/uploads` + `shared/output`) stack for A/B comparison while you migrate workflows.
 
 ### Required environment variables
 
 ```bash
 USE_OBJECT_STORAGE=true
-S3_ENDPOINT_URL=http://minio:9000      # in-cluster endpoint
-S3_PUBLIC_ENDPOINT_URL=http://localhost:9000   # what the browser / n8n sees
+S3_ENDPOINT_URL=http://seaweedfs:8333      # in-cluster endpoint
+S3_PUBLIC_ENDPOINT_URL=https://your-public-s3-host   # presigned URLs for browsers / n8n
 S3_ACCESS_KEY=<required, no default>
 S3_SECRET_KEY=<required, no default>
 S3_BUCKET=ifcpipeline
 S3_REGION=us-east-1
-S3_CHECKSUM_MODE=app                   # or "native" to use MinIO's native sha256
+S3_CHECKSUM_MODE=app                   # or "native" for server-side SHA256
 GUID_INDEX_MODE=off                    # or "sync" / "async" if the guid-index-worker is running
 ```
 
-Do **not** rely on the `minioadmin` fallback; the compose stack refuses to start without `S3_ACCESS_KEY` / `S3_SECRET_KEY` set.
+Set strong `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env` and keep them in sync with `seaweedfs/s3.json` (gitignored; copy from `seaweedfs/s3.json.example`).
 
 ### Bucket layout
 
@@ -324,14 +324,16 @@ s3://ifcpipeline/
     └── patch/                       # legacy patch outputs (pre-chain)
 ```
 
-Bucket versioning is enabled by `minio-setup` on first run so every overwrite is retained as a new version. All lineage edges in `audit_db` are version-pinned.
+Bucket versioning is enabled by `seaweedfs-setup` on first run so every overwrite is retained as a new version. All lineage edges in `audit_db` are version-pinned.
 
-### MinIO service
+### SeaweedFS service
 
-The `minio` container binds S3 API / console to `127.0.0.1:9000` / `127.0.0.1:9001` so the endpoints are never exposed to the internet. Use an SSH tunnel or a reverse proxy (with TLS + auth) if you need remote access.
+The `seaweedfs` container binds S3 API to `127.0.0.1:8333` and the filer UI to `127.0.0.1:8443`. Remote workers reach S3 on `PIPELINE_LAN_IP:8333` via [`docker-compose.host-lan.yml`](docker-compose.host-lan.yml).
 
-- Bucket bootstrap: `minio-setup` (mc client) creates `ifcpipeline` and enables versioning on first start.
-- Health: `http://localhost:9000/minio/health/live`.
+- Bucket bootstrap: `seaweedfs-setup` (MinIO `mc` client against SeaweedFS S3) creates `ifcpipeline` and enables versioning on first start.
+- Health: TCP connect to `:8333` (unauthenticated S3 requests return 403 — that still proves the gateway is up).
+
+See [`OBJECT_STORAGE.md`](OBJECT_STORAGE.md) and [`DEPLOYMENT.md`](DEPLOYMENT.md) for multi-host and presigned-URL setup.
 
 ### Smoke tests
 

@@ -43,7 +43,7 @@ redis_host() {
 preflight() {
   local rh
   rh="$(redis_host)"
-  echo "==> Preflight Redis/Postgres/MinIO at ${rh} (PIPELINE_HOST=${PIPELINE_HOST})"
+  echo "==> Preflight Redis/Postgres/SeaweedFS at ${rh} (PIPELINE_HOST=${PIPELINE_HOST})"
   local ok=1
   if command -v redis-cli >/dev/null 2>&1; then
     if redis-cli -h "$rh" ping 2>/dev/null | grep -q PONG; then
@@ -67,10 +67,17 @@ preflight() {
   else
     echo "warn: pg_isready not installed; skipping Postgres check"
   fi
-  if curl -sf "http://${rh}:9000/minio/health/live" >/dev/null; then
-    echo "MinIO: OK"
+  if command -v nc >/dev/null 2>&1; then
+    if nc -z "$rh" 8333 2>/dev/null; then
+      echo "SeaweedFS S3: OK (${rh}:8333)"
+    else
+      echo "error: SeaweedFS S3 not reachable at ${rh}:8333" >&2
+      ok=0
+    fi
+  elif curl -sf -o /dev/null "http://${rh}:8333" 2>/dev/null; then
+    echo "SeaweedFS S3: OK (${rh}:8333)"
   else
-    echo "error: MinIO health failed at http://${rh}:9000" >&2
+    echo "error: SeaweedFS S3 health failed at http://${rh}:8333" >&2
     ok=0
   fi
   if [[ "$ok" != "1" ]]; then

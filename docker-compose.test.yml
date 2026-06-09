@@ -1,9 +1,9 @@
-# Minimal slice for the object-storage PoC smoke test.
-# Only builds MinIO + Redis + Postgres + api-gateway + the workers we converted.
+# Minimal slice for the object-storage smoke test.
+# Only builds SeaweedFS + Redis + Postgres + api-gateway + the workers we converted.
 # Use with: docker compose -f docker-compose.control-plane.yml -f docker-compose.workers.yml -f docker-compose.test.yml
 services:
   api-gateway:
     depends_on:
       - redis
-      - minio-setup
+      - seaweedfs-setup
     # Slim the image for the test: no viewer, no heavy workers required at gateway start.

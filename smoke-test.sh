@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Full-coverage smoke test for the object-storage build.
 #
-# Brings up MinIO + Redis + Postgres + api-gateway and every worker that has
+# Brings up SeaweedFS + Redis + Postgres + api-gateway and every worker that has
 # been converted to stream through the bucket, uploads sample files, enqueues
 # one job per worker, polls for completion, and then lists the resulting
-# objects in MinIO.
+# objects in the S3 bucket.
 #
 # Requires: docker, docker compose v2, curl, python3.
 set -euo pipefail
@@ -44,7 +44,7 @@ print("" if d is None else d)
 # Which services we care about for this smoke test. Everything else in the
 # combined compose (viewer, n8n, dozzle, …) is left out on purpose.
 SERVICES=(
-  minio minio-setup redis postgres
+  seaweedfs seaweedfs-setup redis postgres
   api-gateway
   ifccsv-worker ifcfast-worker ifctester-worker ifcconvert-worker
   ifcdiff-worker ifc5d-worker ifc2json-worker ifcpatch-worker
@@ -204,8 +204,8 @@ if [ -n "${BEAST_JOB:-}" ]; then
 fi
 
 echo ">>> Listing objects in bucket ${S3_BUCKET}"
-docker compose run --rm --entrypoint /bin/sh minio-setup -c \
-  "mc alias set local http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} >/dev/null \
+docker compose run --rm --entrypoint /bin/sh seaweedfs-setup -c \
+  "mc alias set local http://seaweedfs:8333 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} >/dev/null \
    && mc ls --recursive local/${S3_BUCKET}" || true
 
 echo ">>> Verifying audit-trail lineage"

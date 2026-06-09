@@ -55,17 +55,17 @@ ensure_env_vars() {
 
 apply_ufw() {
   if ! command -v ufw >/dev/null 2>&1; then
-    echo "==> ufw not installed; skip firewall (ensure worker can reach 6379, 5432, 9000)"
+    echo "==> ufw not installed; skip firewall (ensure worker can reach 6379, 5432, 8333)"
     return 0
   fi
   if ! sudo -n true 2>/dev/null; then
     echo "==> sudo required for ufw; run manually:"
     echo "sudo ufw allow from ${WORKER_VM_IP} to any port 6379 proto tcp"
     echo "sudo ufw allow from ${WORKER_VM_IP} to any port 5432 proto tcp"
-    echo "sudo ufw allow from ${WORKER_VM_IP} to any port 9000 proto tcp"
+    echo "sudo ufw allow from ${WORKER_VM_IP} to any port 8333 proto tcp"
     return 0
   fi
-  for port in 6379 5432 9000; do
+  for port in 6379 5432 8333; do
     if ! sudo ufw status 2>/dev/null | grep -q "${WORKER_VM_IP}.*${port}/tcp"; then
       sudo ufw allow from "${WORKER_VM_IP}" to any port "${port}" proto tcp
     fi
@@ -104,11 +104,11 @@ main() {
   source .env
   set +a
 
-  echo "==> Step 1/4: LAN publish redis, postgres, minio on ${PIPELINE_LAN_IP}"
+  echo "==> Step 1/4: LAN publish redis, postgres, seaweedfs on ${PIPELINE_LAN_IP}"
   docker compose \
     -f docker-compose.control-plane.yml \
     -f docker-compose.host-lan.yml \
-    up -d redis postgres minio
+    up -d redis postgres seaweedfs
 
   echo ""
   echo "==> Step 2/4: Firewall (worker ${WORKER_VM_IP} only)"
@@ -119,7 +119,11 @@ main() {
   if command -v redis-cli >/dev/null 2>&1; then
     redis-cli -h "${PIPELINE_LAN_IP}" ping
   fi
-  curl -sf "http://${PIPELINE_LAN_IP}:9000/minio/health/live" >/dev/null && echo "MinIO health OK"
+  if command -v nc >/dev/null 2>&1; then
+    nc -z "${PIPELINE_LAN_IP}" 8333 && echo "SeaweedFS S3 health OK"
+  else
+    curl -sf -o /dev/null "http://${PIPELINE_LAN_IP}:8333" && echo "SeaweedFS S3 health OK"
+  fi
 
   echo ""
   echo "==> Step 4/4: Deploy to worker over SSH"
