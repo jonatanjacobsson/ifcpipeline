@@ -17,6 +17,7 @@ rq>=2.0.0,<3.0.0
 
 # IFC dependencies - pinned for stability
 ifcopenshell==0.8.0
+lark<1.3
 ifcpatch==0.8.0
 
 # Database dependencies

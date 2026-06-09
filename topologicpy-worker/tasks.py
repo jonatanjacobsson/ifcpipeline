@@ -11,7 +11,7 @@ import numpy as np
 import ifcopenshell
 import ifcopenshell.geom
 import ifcopenshell.util.selector
-from shared import object_storage as s3
+from shared import audit_db, object_storage as s3
 from shared.classes import TopologicpyRequest, TopologyEngine, TopologySampleStrategy
 
 import space_cache
@@ -1205,6 +1205,26 @@ def _path_under_output_root(output_dir: str, requested_path: str) -> str:
     return os.path.join(output_dir, normalized)
 
 
+def _resolve_original_filename(
+    source_key: str, version_id: Optional[str] = None
+) -> str:
+    """Resolve the human-readable upload name for an S3 key via audit DB lineage.
+
+    Falls back to the bare basename of *source_key* so downstream results
+    always carry something printable even when the DB is unavailable.
+    """
+    fallback = os.path.basename(source_key)
+    try:
+        name = audit_db.resolve_original_filename(
+            object_key=source_key, version_id=version_id
+        )
+        if name:
+            return name
+    except Exception as e:
+        logger.debug("original_filename lookup failed for %s: %s", source_key, e)
+    return fallback
+
+
 def _default_stamped_name(source_name: str, index: int) -> str:
     base, ext = os.path.splitext(os.path.basename(source_name))
     return f"{base or 'model'}_roomstamped_{index}{ext or '.ifc'}"
@@ -1819,7 +1839,9 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
                     "size_bytes": audit_ifc["size_bytes"],
                     "audit_id": audit_ifc["audit_id"],
                     "version_id": audit_ifc.get("version_id"),
-                    "original_filename": os.path.basename(source_key),
+                    "original_filename": _resolve_original_filename(
+                        source_key, version_id=input_pins.get(source_key)
+                    ),
                     "output_filename": os.path.basename(key),
                 })
             result["stamped_outputs"] = uploaded_ifcs
@@ -1838,6 +1860,120 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
         return result
     except Exception:
         logger.exception("Error during topology roomstamp benchmark")
+        raise
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Ingest scripts dispatcher
+# ---------------------------------------------------------------------------
+
+
+def run_ingest(job_data: dict) -> dict:
+    """Run a topologic ingest script to extract graph relationships from IFC.
+
+    Dispatches to a named script in ingest_scripts/ (spaces, spatial, mep, structural).
+    Returns standardized relationships JSON.
+    """
+    from shared.classes import TopologicIngestRequest
+    from ingest_scripts import load_script, list_available_scripts
+    from pathlib import Path
+
+    request = TopologicIngestRequest(**job_data)
+    script_name = request.script
+    logger.info("ingest: starting script=%s, files=%s", script_name, request.input_files)
+
+    tmpdir = tempfile.mkdtemp(prefix="topo_ingest_")
+    try:
+        staged_files: List[Path] = []
+        input_pins = {}
+        if request.input_version_ids:
+            input_pins = request.input_version_ids
+
+        for filename in request.input_files:
+            if s3.is_enabled():
+                key = s3.normalize_input_key(filename)
+                version_id = input_pins.get(key) or request.input_version_id
+                local_path = os.path.join(tmpdir, os.path.basename(filename))
+                s3.download_to_path(key, local_path, version_id=version_id)
+                staged_files.append(Path(local_path))
+            else:
+                for base_dir in (UPLOADS_DIR, OUTPUT_DIR, EXAMPLES_DIR):
+                    candidate = os.path.join(base_dir, filename)
+                    if os.path.isfile(candidate):
+                        staged_files.append(Path(candidate))
+                        break
+                else:
+                    full = os.path.join(UPLOADS_DIR, filename)
+                    staged_files.append(Path(full))
+
+        IngesterClass = load_script(script_name)
+
+        # Support both positional args (list, ifcpatch-style) and kwargs (dict, legacy)
+        if isinstance(request.arguments, list):
+            from ingest_scripts import resolve_positional_arguments
+            kwargs = resolve_positional_arguments(script_name, request.arguments)
+        else:
+            kwargs = request.arguments
+
+        ingester = IngesterClass(
+            ifc_files=staged_files,
+            log=logger,
+            **kwargs,
+        )
+
+        ingester.extract()
+        output_data = ingester.build_output(source_files=request.input_files)
+
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        output_filename = request.output_file or f"{script_name}_{ts}.relationships.json"
+        output_json = json.dumps(output_data, indent=2, default=str)
+
+        result = {
+            "success": True,
+            "script": script_name,
+            "summary": output_data["summary"],
+            "relationship_count": len(output_data["relationships"]),
+            "element_count": len(output_data["elements"]),
+        }
+
+        if s3.is_enabled():
+            output_key = f"output/topology/ingest/{output_filename}"
+            local_out = os.path.join(tmpdir, output_filename)
+            with open(local_out, "w") as f:
+                f.write(output_json)
+
+            audit_info = s3.upload_and_audit(
+                local_path=local_out,
+                output_key=output_key,
+                operation=f"topologicpy_ingest_{script_name}",
+                source_keys=[s3.normalize_input_key(fn) for fn in request.input_files],
+            )
+            result["storage"] = "s3"
+            result["output_key"] = output_key
+            result["output_path"] = f"s3://{s3.bucket_name()}/{output_key}"
+            result["audit_id"] = audit_info.get("audit_id")
+            result["sha256"] = audit_info.get("sha256")
+            result["version_id"] = audit_info.get("version_id")
+        else:
+            out_dir = os.path.join(OUTPUT_DIR, "topology", "ingest")
+            os.makedirs(out_dir, exist_ok=True)
+            out_path = os.path.join(out_dir, output_filename)
+            with open(out_path, "w") as f:
+                f.write(output_json)
+            result["storage"] = "filesystem"
+            result["output_path"] = out_path
+
+        result["relationships"] = output_data["relationships"]
+        result["elements"] = output_data["elements"]
+
+        logger.info("ingest: completed script=%s, relationships=%d, elements=%d",
+                    script_name, result["relationship_count"], result["element_count"])
+        return result
+
+    except Exception:
+        logger.exception("Error during ingest script=%s", script_name)
         raise
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

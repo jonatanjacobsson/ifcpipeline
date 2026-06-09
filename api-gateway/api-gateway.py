@@ -41,6 +41,7 @@ from shared.classes import (
     RevitExecuteRequest,
     IfcCoordRequest,
     TopologicpyRequest,
+    TopologicIngestRequest,
 )  
 from pydantic import BaseModel, HttpUrl
 from redis import Redis
@@ -738,6 +739,133 @@ async def ifctopology_roomstamp(request: TopologicpyRequest, _: str = Depends(ve
     except Exception as e:
         logger.error(f"Error enqueueing topologicpy roomstamp job: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/topologicpy/ingest", tags=["Topology"])
+async def topologicpy_ingest(request: TopologicIngestRequest, _: str = Depends(verify_access)):
+    """Run a topologic ingest script to extract graph relationships from IFC files.
+
+    Available scripts: spaces, spatial, mep, structural.
+    Use GET /topologicpy/ingest/scripts for discovery.
+    """
+    try:
+        for filename in request.input_files:
+            validate_input_file_exists(filename)
+
+        job = topologicpy_queue.enqueue(
+            "tasks.run_ingest",
+            request.model_dump(),
+            job_timeout="2h",
+            result_ttl=JOB_RESULT_TTL,
+        )
+
+        logger.info(f"Enqueued topologicpy ingest job (script={request.script}) with ID: {job.id}")
+        return {"job_id": job.id}
+    except Exception as e:
+        logger.error(f"Error enqueueing topologicpy ingest job: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/topologicpy/ingest/scripts", tags=["Topology"])
+async def topologicpy_ingest_scripts(_: str = Depends(verify_access)):
+    """List available topologic ingest scripts with full parameter introspection.
+
+    Dynamically introspects ingest script modules to return rich metadata
+    including description, typed parameters, defaults, and per-param docs
+    (same pattern as /patch/recipes/list).
+    """
+    import sys
+    import importlib
+    import inspect
+    from pathlib import Path as _Path
+
+    scripts_dir = _Path("/app/ingest_scripts")
+    if not scripts_dir.exists():
+        scripts_dir = _Path(__file__).parent.parent / "topologicpy-worker" / "ingest_scripts"
+
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    if str(scripts_dir.parent) not in sys.path:
+        sys.path.insert(0, str(scripts_dir.parent))
+
+    def _format_type(annotation) -> str:
+        if annotation is inspect.Parameter.empty:
+            return "Any"
+        if hasattr(annotation, "__name__"):
+            return annotation.__name__
+        type_str = str(annotation)
+        for prefix in ("typing.", "<class '", "'>"):
+            type_str = type_str.replace(prefix, "")
+        return type_str
+
+    def _parse_docstring_params(docstring: str) -> dict:
+        params = {}
+        if not docstring:
+            return params
+        for line in docstring.split("\n"):
+            line = line.strip()
+            if line.startswith(":param "):
+                rest = line[7:]
+                if ":" in rest:
+                    pname, desc = rest.split(":", 1)
+                    params[pname.strip()] = desc.strip()
+        return params
+
+    scripts = []
+    try:
+        import pkgutil
+        for info in pkgutil.iter_modules([str(scripts_dir)]):
+            if info.name.startswith("_"):
+                continue
+            try:
+                mod = importlib.import_module(f"ingest_scripts.{info.name}")
+                cls = getattr(mod, "Ingester", None)
+                if cls is None:
+                    continue
+
+                sig = inspect.signature(cls.__init__)
+                docstring = inspect.getdoc(cls.__init__) or ""
+                param_docs = _parse_docstring_params(docstring)
+
+                # Extract short description (first paragraph)
+                description = docstring
+                for sep in (":param", "Args:", "\n\n"):
+                    if sep in description:
+                        description = description.split(sep)[0]
+                        break
+                description = " ".join(description.split()).strip()
+                if not description:
+                    description = getattr(cls, "DESCRIPTION", "") or (cls.__doc__ or "").strip()
+
+                parameters = []
+                for param_name, param in sig.parameters.items():
+                    if param_name in ("self", "ifc_files", "log", "kwargs"):
+                        continue
+                    parameters.append({
+                        "name": param_name,
+                        "type": _format_type(param.annotation),
+                        "description": param_docs.get(param_name, ""),
+                        "required": param.default is inspect.Parameter.empty,
+                        "default": None if param.default is inspect.Parameter.empty else param.default,
+                    })
+
+                scripts.append({
+                    "name": info.name,
+                    "description": description,
+                    "parameters": parameters,
+                })
+            except Exception as e:
+                logger.warning("Failed to inspect ingest script %s: %s", info.name, e)
+                scripts.append({
+                    "name": info.name,
+                    "description": f"Ingest script (introspection failed: {e})",
+                    "parameters": [],
+                })
+    except Exception as e:
+        logger.error("Failed to discover ingest scripts: %s", e)
+
+    return {"scripts": scripts, "total_count": len(scripts)}
+
 
 @app.post("/ifctester", tags=["Validation"])
 async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):

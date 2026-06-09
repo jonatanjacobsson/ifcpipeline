@@ -6,6 +6,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY ./shared /app/shared
+COPY ./topologicpy-worker/ingest_scripts /app/ingest_scripts
 COPY ./api-gateway/requirements.txt .
 COPY ./api-gateway/api-gateway.py .
 
