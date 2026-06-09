@@ -989,7 +989,7 @@ def run_ifcpatch(job_data: dict) -> dict:
 
         # Every ifcpatch recipe runs in a spawn-isolated subprocess so an
         # ifcopenshell SIGSEGV kills only the child, not the rq work-horse. See
-        # ifcpipeline/HUNT_REPORT_2026-05-14.md for the load-induced SIGSEGV
+        # ../ifcpipeline-ifcopenshell-hunt-archive/HUNT_REPORT_2026-05-14.md
         # this protects against.
         logger.info(
             "Running %r in spawn-isolated subprocess (use_custom=%s)",

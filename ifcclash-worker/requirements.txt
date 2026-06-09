@@ -1,7 +1,7 @@
 # 2026-05-14: unpinned back to 0.8.5 alongside ifcpatch-worker. The morning's
 # defensive downgrade was disproved by the parallel load test against
 # ifcpatch (5/156 crashes on 0.8.4.post1 vs 1/156 on 0.8.5 — see
-# ifcpipeline/IFCOPENSHELL_0.8.5_REGRESSION.md §4). No equivalent ifcclash
+# ../ifcpipeline-ifcopenshell-hunt-archive/IFCOPENSHELL_0.8.5_REGRESSION.md §4).
 # load test was run; this unpin is by association on the assumption that the
 # wrapper bug is shared across products and 0.8.4.post1 offers no real
 # protection. If ifcclash-specific SIGSEGVs appear, repin and isolate.

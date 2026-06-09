@@ -16,7 +16,7 @@
 #   * verifies step1 has the expected 3 descendants (step2, and via step2 → step3, + diff)
 #   * prints the recursive tree straight from Postgres
 #
-# Requires: stack already running (smoke-test.sh or prod-test.sh).
+# Requires: stack already running (e.g. ./smoke-test.sh or compose up).
 
 set -euo pipefail
 
