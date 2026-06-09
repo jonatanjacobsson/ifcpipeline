@@ -758,5 +758,46 @@ class TopologicpyRequest(VersionPinOptional):
         return v
 
 
+class TopologicIngestRequest(VersionPinOptional):
+    """Request model for topologic graph ingest operations."""
+
+    input_files: List[str] = Field(
+        ...,
+        min_length=1,
+        description="IFC filenames to process (architecture, MEP, structural, etc.)",
+    )
+    script: str = Field(
+        ...,
+        description="Ingest script name (spaces, spatial, mep, structural)",
+    )
+    arguments: Any = Field(
+        default_factory=list,
+        description="Positional arguments (list of values, mapped to __init__ params in order) or keyword arguments (dict, legacy)",
+    )
+    output_file: str = Field(
+        default="",
+        description="Optional output filename override (defaults to <script>_<timestamp>.relationships.json)",
+    )
+
+    @field_validator("input_files")
+    @classmethod
+    def validate_ingest_files(cls, v: List[str]) -> List[str]:
+        return [_validate_safe_path(path) for path in v]
+
+    @field_validator("script")
+    @classmethod
+    def validate_script_name(cls, v: str) -> str:
+        if not v.isidentifier():
+            raise ValueError("Script name must be a valid Python identifier")
+        return v
+
+    @field_validator("output_file")
+    @classmethod
+    def validate_ingest_output(cls, v: str) -> str:
+        if not v:
+            return v
+        return _validate_safe_path(v)
+
+
 # Backward compatibility alias
 IfcTopologyRequest = TopologicpyRequest
