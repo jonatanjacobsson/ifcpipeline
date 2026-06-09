@@ -8,12 +8,24 @@ How to run the stack on a **primary host** (control plane + optional local worke
 |------|---------|
 | `docker-compose.yml` | Combined entry (`include` control plane + workers) — **development default** |
 | `docker-compose.control-plane.yml` | API, Redis, Postgres, MinIO, n8n, dashboards, viewer, cleanup |
-| `docker-compose.workers.yml` | All nine `*-worker` services (canonical definitions) |
+| `docker-compose.workers.yml` | All twelve `*-worker` services (canonical definitions) |
 | `docker-compose.remote-workers.yml` | Worker host: `include` workers + `remote` profile + external env |
 | `docker-compose.host-lan.yml` | Primary overlay: publish Redis/Postgres/MinIO on `PIPELINE_LAN_IP` |
 | `docker-compose.test.yml` | Smoke-test overlay (slim gateway `depends_on`) |
 
-Worker services: `ifc5d`, `ifcpatch`, `ifcconvert`, `ifcclash`, `ifccsv`, `ifctester`, `ifcdiff`, `ifc2json`, `guid-index`.
+### Worker placement
+
+| Host | Compose | Workers |
+|------|---------|---------|
+| **Primary** | `docker-compose.yml` or control plane + workers | `ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`, `ifcfrag`, `ifccoord`, `topologicpy` (+ optional duplicate remote workers during migration) |
+| **Primary control plane** | `docker-compose.control-plane.yml` | `guid-index-worker` (not in `workers.yml`) |
+| **Worker VM** | `docker-compose.remote-workers.yml` | `ifctester`, `ifcpatch`, `ifcclash`, `ifcdiff` only |
+
+All twelve RQ workers in `docker-compose.workers.yml`: `ifc5d`, `ifcpatch`,
+`ifcconvert`, `ifcclash`, `ifccsv`, `ifcfast`, `ifctester`, `ifcdiff`,
+`ifc2json`, `ifcfrag`, `ifccoord`, `topologicpy`.
+
+Build on primary: `./scripts/build-worker-images.sh` (`WORKER_BUILD_TARGET=all|primary|remote`).
 
 ## Three deployment recipes
 

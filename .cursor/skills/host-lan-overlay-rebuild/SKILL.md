@@ -1,18 +1,19 @@
 ---
 name: host-lan-overlay-rebuild
-description: Safely rebuild or recreate IfcPipeline control-plane containers (redis, postgres, minio, api-gateway, workers) on the primary VM without breaking remote workers. Use when rebuilding, recreating, or running docker compose up/build for the ifcpipeline stack, or after a recreate left remote workers with Connection refused.
+description: Safely rebuild or recreate IfcPipeline control-plane containers (redis, postgres, seaweedfs, api-gateway, workers) on the primary VM without breaking remote workers. Use when rebuilding, recreating, or running docker compose up/build for the ifcpipeline stack, or after a recreate left remote workers with Connection refused.
 ---
 
 # IfcPipeline control-plane rebuilds with the host-lan overlay
 
-IfcPipeline is a multi-host stack. The control plane (redis, postgres, minio,
+IfcPipeline is a multi-host stack. The control plane (redis, postgres, seaweedfs,
 api-gateway) runs on the **primary VM** at `PIPELINE_LAN_IP=192.168.101.195`.
 Remote workers run on **bimbotw1** (`192.168.109.54`) and connect to
-redis/postgres/minio over the LAN.
+redis/postgres/seaweedfs over the LAN. (Object storage is **SeaweedFS** on
+port 8333; MinIO was decommissioned 2026-06.)
 
 `docker-compose.host-lan.yml` adds the `PIPELINE_LAN_IP` port bindings;
 `docker-compose.yml` does not. Running `docker compose up -d` **without** the
-overlay makes Compose recreate redis/minio/postgres back to loopback-only,
+overlay makes Compose recreate redis/seaweedfs/postgres back to loopback-only,
 **stripping the LAN bindings** and breaking every remote worker with
 `Error 111 ... Connection refused`. This happens even when you only target an
 unrelated service like `api-gateway`, because Compose reconciles dependencies.
@@ -46,13 +47,13 @@ docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d api-ga
 **Step 4 — verify LAN bindings (must show 192.168.101.195):**
 
 ```bash
-docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|minio)|postgres_objectstorage'
+docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|seaweedfs)|postgres_objectstorage'
 ```
 
 **Step 5 — verify remote worker queues are registered:**
 
 ```bash
-for q in ifcclash ifccoord ifcdiff ifcpatch ifctester; do
+for q in ifcclash ifcdiff ifcpatch ifctester; do
   echo -n "$q: "; docker exec ifcpipeline-redis-1 redis-cli --raw SCARD "rq:workers:$q"; done
 ```
 
@@ -60,7 +61,7 @@ for q in ifcclash ifccoord ifcdiff ifcpatch ifctester; do
 
 ```bash
 cd /home/bimbot-ubuntu/apps/ifcpipeline
-docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d redis postgres minio
+docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d redis postgres seaweedfs
 ```
 
 Then on **bimbotw1**, restart any worker stuck in reconnect backoff (it will not
@@ -71,7 +72,7 @@ cd /home/bimbot-w1/apps/ifcpipeline
 docker compose -f docker-compose.remote-workers.yml --env-file .env.remote restart <worker>
 ```
 
-`DOCKER-USER` iptables allow-rules (worker VM allowlist on 6379/5432/9000)
+`DOCKER-USER` iptables allow-rules (worker VM allowlist on 6379/5432/8333)
 persist across recreates — only the published ports vanish, so re-applying the
 overlay restores access.
 

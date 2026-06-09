@@ -1,6 +1,9 @@
 # Remote worker stack (worker host). Includes canonical worker definitions from
 # docker-compose.workers.yml and applies external broker/storage env from .env.remote.
 #
+# Remote profile (bimbotw1): ifctester, ifcpatch, ifcclash, ifcdiff.
+# Primary-local workers (ifc5d, ifcconvert, ifccsv, ifcfast, ifc2json, ifcfrag,
+# ifccoord, topologicpy) and guid-index-worker use profile [never] here.
 # Usage (worker host, repo root):
 #   COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml \
 #     --env-file .env.remote up -d ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker
@@ -118,7 +121,13 @@ services:
     profiles: [never]
   ifccsv-worker:
     profiles: [never]
+  ifcfast-worker:
+    profiles: [never]
   ifc2json-worker:
     profiles: [never]
-  guid-index-worker:
+  ifcfrag-worker:
+    profiles: [never]
+  ifccoord-worker:
+    profiles: [never]
+  topologicpy-worker:
     profiles: [never]
