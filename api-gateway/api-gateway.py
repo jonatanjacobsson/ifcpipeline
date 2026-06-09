@@ -749,8 +749,9 @@ async def topologicpy_ingest(request: TopologicIngestRequest, _: str = Depends(v
     Use GET /topologicpy/ingest/scripts for discovery.
     """
     try:
-        for filename in request.input_files:
-            validate_input_file_exists(filename)
+        if not request.input_s3:
+            for filename in request.input_files:
+                validate_input_file_exists(filename)
 
         job = topologicpy_queue.enqueue(
             "tasks.run_ingest",

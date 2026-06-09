@@ -1882,7 +1882,7 @@ def run_ingest(job_data: dict) -> dict:
 
     request = TopologicIngestRequest(**job_data)
     script_name = request.script
-    logger.info("ingest: starting script=%s, files=%s", script_name, request.input_files)
+    logger.info("ingest: starting script=%s, files=%s s3=%s", script_name, request.input_files, len(request.input_s3))
 
     tmpdir = tempfile.mkdtemp(prefix="topo_ingest_")
     try:
@@ -1891,7 +1891,24 @@ def run_ingest(job_data: dict) -> dict:
         if request.input_version_ids:
             input_pins = request.input_version_ids
 
+        if request.input_s3:
+            for idx, ref in enumerate(request.input_s3):
+                ref_dict = ref.model_dump() if hasattr(ref, "model_dump") else dict(ref)
+                label = request.input_files[idx] if idx < len(request.input_files) else f"input_{idx}.ifc"
+                local_path = os.path.join(tmpdir, os.path.basename(label) or f"input_{idx}.ifc")
+                if not s3.is_enabled():
+                    raise RuntimeError("input_s3 requires object storage on the worker.")
+                s3.download_to_path(
+                    ref_dict["key"],
+                    local_path,
+                    version_id=ref_dict.get("version_id"),
+                    bucket=ref_dict.get("bucket"),
+                )
+                staged_files.append(Path(local_path))
+
         for filename in request.input_files:
+            if staged_files:
+                break
             if s3.is_enabled():
                 key = s3.normalize_input_key(filename)
                 version_id = input_pins.get(key) or request.input_version_id
@@ -1944,11 +1961,16 @@ def run_ingest(job_data: dict) -> dict:
             with open(local_out, "w") as f:
                 f.write(output_json)
 
+            parent_keys = [s3.normalize_input_key(fn) for fn in request.input_files]
+            if not parent_keys:
+                parent_keys = [ref.key for ref in request.input_s3]
             audit_info = s3.upload_and_audit(
-                local_path=local_out,
-                output_key=output_key,
+                local_out,
+                key=output_key,
                 operation=f"topologicpy_ingest_{script_name}",
-                source_keys=[s3.normalize_input_key(fn) for fn in request.input_files],
+                worker=WORKER_NAME,
+                job_id=_current_job_id(),
+                parents=[("input", key) for key in parent_keys],
             )
             result["storage"] = "s3"
             result["output_key"] = output_key
