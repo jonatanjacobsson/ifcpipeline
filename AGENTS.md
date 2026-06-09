@@ -3,10 +3,12 @@
 IfcPipeline is a **multi-host** IFC processing stack.
 
 - **Primary / control-plane VM** (`PIPELINE_LAN_IP=192.168.101.195`): runs
-  `redis`, `postgres`, `seaweedfs`, `api-gateway`, and the local workers.
+  `redis`, `postgres`, `seaweedfs`, `api-gateway`, `guid-index-worker`, and
+  **local** RQ workers (`ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`,
+  `ifcfrag`, `ifccoord`, `topologicpy`).
 - **Worker VM `bimbotw1`** (`WORKER_VM_IP=192.168.109.54`,
-  repo `/home/bimbot-w1/apps/ifcpipeline`): runs the remote RQ workers
-  (`ifcclash`, `ifccoord`, `ifcdiff`, `ifcpatch`, `ifctester`) via
+  repo `/home/bimbot-w1/apps/ifcpipeline`): runs **remote** RQ workers
+  (`ifcclash`, `ifcdiff`, `ifcpatch`, `ifctester`) via
   `docker-compose.remote-workers.yml --env-file .env.remote`. They reach
   redis/postgres/seaweedfs over the LAN.
 
