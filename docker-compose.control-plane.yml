@@ -16,7 +16,7 @@ services:
         condition: service_healthy
       ifc-viewer:
         condition: service_started
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     environment:
       - PYTHONUNBUFFERED=1
@@ -33,12 +33,12 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
       - S3_REGION=${S3_REGION:-us-east-1}
-      - S3_PUBLIC_ENDPOINT_URL=${S3_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+      - S3_PUBLIC_ENDPOINT_URL=${S3_PUBLIC_ENDPOINT_URL:-http://localhost:8333}
       - S3_CHECKSUM_MODE=${S3_CHECKSUM_MODE:-app}
       - GUID_INDEX_MODE=${GUID_INDEX_MODE:-off}
     volumes:
@@ -105,55 +105,60 @@ services:
           cpus: '0.3'
           memory: 768M
 
-  # --- Object storage (S3-compatible) -------------------------------------
-  minio:
-    image: quay.io/minio/minio:latest
-    command: ["server", "/data", "--console-address", ":9001"]
+  # --- Object storage (SeaweedFS, S3-compatible) --------------------------
+  # Single-process SeaweedFS server (master + volume + filer + S3 gateway).
+  # Replaced MinIO as the sole object store (2026-06). Pilot docs archived at
+  # ../ifcpipeline-minio-pilot-archive/.
+  # S3 identities live in seaweedfs/s3.json (gitignored; keep accessKey/secretKey
+  # in sync with .env's S3_ACCESS_KEY/S3_SECRET_KEY). Loopback-only host ports;
+  # the LAN binding for remote workers is added by docker-compose.host-lan.yml.
+  # Presigned URLs must use the public hostname (S3_PUBLIC_ENDPOINT_URL).
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.29
+    command: >
+      server
+      -dir=/data
+      -ip=seaweedfs
+      -filer
+      -s3
+      -s3.config=/etc/seaweedfs/s3.json
+      -master.volumeSizeLimitMB=1024
     ports:
-      # Bind to loopback only: the S3 API is reachable at 127.0.0.1:9000 (and
-      # console at :9001) on the Docker host. Expose publicly only through
-      # something in front of the host — e.g. Cloudflare Tunnel (cloudflared on
-      # the host → http://127.0.0.1:9000), SSH -L, or a reverse proxy with
-      # auth — not by publishing 0.0.0.0:9000 here. Presigned URLs must use the
-      # public hostname (S3_PUBLIC_ENDPOINT_URL), not http://minio:9000.
-      - "127.0.0.1:9000:9000"   # S3 API
-      - "127.0.0.1:9001:9001"   # Web console
-    environment:
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:?S3_SECRET_KEY must be set in .env}
+      - "127.0.0.1:8333:8333"   # S3 API
+      - "127.0.0.1:8443:8888"   # Filer browser (loopback only)
     volumes:
-      - minio-data:/data
+      - seaweedfs-data:/data
+      - ./seaweedfs:/etc/seaweedfs:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      # TCP probe via BusyBox nc — the S3 API on 8333 returns 403 for
+      # unauthenticated requests, so a successful handshake is the liveness proof.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8333"]
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '2.0'
+          memory: 3G
 
-  # One-shot: wait for MinIO, create the bucket if missing.
-  minio-setup:
+  # One-shot: wait for SeaweedFS, create the bucket + enable versioning.
+  seaweedfs-setup:
     image: quay.io/minio/mc:latest
     depends_on:
-      minio:
+      seaweedfs:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
       set -e;
-      until mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin} >/dev/null 2>&1; do
-        echo 'waiting for minio...'; sleep 1;
+      until mc alias set sw http://seaweedfs:8333 ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set in .env} ${S3_SECRET_KEY:?S3_SECRET_KEY must be set in .env} >/dev/null 2>&1; do
+        echo 'waiting for seaweedfs...'; sleep 1;
       done;
-      mc mb --ignore-existing local/${S3_BUCKET:-ifcpipeline};
-      mc version enable local/${S3_BUCKET:-ifcpipeline} || true;
+      mc mb --ignore-existing sw/${S3_BUCKET:-ifcpipeline};
+      mc version enable sw/${S3_BUCKET:-ifcpipeline} || true;
       echo 'bucket ready (versioned): ${S3_BUCKET:-ifcpipeline}';
-      mc mb --ignore-existing local/${CDE_S3_BUCKET:-cde};
-      mc version enable local/${CDE_S3_BUCKET:-cde} || true;
-      echo 'bucket ready (versioned): ${CDE_S3_BUCKET:-cde}';
       "
     restart: "no"
 
@@ -344,7 +349,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -356,7 +361,7 @@ services:
     depends_on:
       - redis
       - postgres
-      - minio-setup
+      - seaweedfs-setup
     restart: unless-stopped
     deploy:
       resources:
@@ -392,7 +397,7 @@ volumes:
   redis-data:
   postgres-data:
   pgadmin-data:
-  minio-data:
+  seaweedfs-data:
 
 networks:
   default:

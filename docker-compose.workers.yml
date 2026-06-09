@@ -19,7 +19,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -29,7 +29,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -81,7 +81,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -96,7 +96,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -134,7 +134,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -144,7 +144,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -182,7 +182,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -215,7 +215,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -246,7 +246,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -256,7 +256,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -287,7 +287,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -297,7 +297,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -326,7 +326,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -336,7 +336,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -371,7 +371,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -381,7 +381,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -411,7 +411,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -421,7 +421,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -450,7 +450,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -462,7 +462,7 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -506,12 +506,17 @@ services:
       context: .
       dockerfile: topologicpy-worker/Dockerfile
     platform: linux/amd64
+    networks:
+      - default
+      - cde_default
     # Run jobs WITHOUT forking a work-horse. The default RQ worker fork()s per
     # job, and the native topologic/OCCT geometry stack is not fork-safe here:
     # the forked child intermittently corrupts memory (segfault, or Python type
     # confusion like "'SpaceCandidate' object is not iterable"). The identical
     # job runs cleanly in-process, so SimpleWorker (no fork) is the fix.
-    command: ["rq", "worker", "--worker-class", "rq.worker.SimpleWorker", "topologicpy-worker", "--url", "redis://redis:6379/0", "--path", "/app"]
+    # On cde_default the hostname ``redis`` resolves to CDE's Redis, not
+    # ifcpipeline's — use the compose project-prefixed name explicitly.
+    command: ["rq", "worker", "--worker-class", "rq.worker.SimpleWorker", "topologicpy-worker", "--url", "redis://ifcpipeline-redis-1:6379/0", "--path", "/app"]
     user: "1000:1000"
     volumes:
       - ./shared/uploads:/uploads
@@ -520,14 +525,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://ifcpipeline-redis-1:6379/0
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
       - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
-      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://minio:9000}
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -547,12 +552,18 @@ services:
       # BREP cell cache: OFF by default. ByBREPString-rebuilt mesh cells can
       # segfault topologic containment (OCCT) on some datasets. Opt-in only.
       - IFCTOPOLOGY_CELL_CACHE=${IFCTOPOLOGY_CELL_CACHE:-off}
+      # Read IFC directly from the CDE MinIO bucket (cross-bucket, no re-upload).
+      - CDE_S3_ENDPOINT_URL=${CDE_S3_ENDPOINT_URL:-http://minio:9000}
+      - CDE_S3_BUCKET=${CDE_S3_BUCKET:-cde}
+      - CDE_S3_ACCESS_KEY=${CDE_S3_ACCESS_KEY:-cdeadmin}
+      - CDE_S3_SECRET_KEY=${CDE_S3_SECRET_KEY:-cdeadmin_dev_pw}
+      - CDE_S3_REGION=${CDE_S3_REGION:-us-east-1}
     depends_on:
       redis:
         condition: service_started
       postgres:
         condition: service_healthy
-      minio-setup:
+      seaweedfs-setup:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -561,3 +572,7 @@ services:
         limits:
           cpus: '2.0'
           memory: 6G
+
+networks:
+  cde_default:
+    external: true

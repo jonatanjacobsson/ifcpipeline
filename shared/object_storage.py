@@ -107,9 +107,9 @@ def ensure_bucket(bucket: Optional[str] = None) -> None:
 # the caller under a "shadow" key so the audit-DB code can stash
 # `shadow_version_id` in `object_versions.metadata`.
 #
-# This is wired up for the parallel-soak pilot — see SEAWEEDFS_PILOT.md. The
-# kill switch is `S3_SHADOW_ENDPOINT_URL=` empty + recreate the production
-# services; the dual-write path then short-circuits at `_shadow_enabled()`.
+# Legacy dual-write shadow path (MinIO→Seaweed pilot, 2026-05). Leave
+# S3_SHADOW_ENDPOINT_URL empty; the path short-circuits at `_shadow_enabled()`.
+# Pilot docs archived at ../ifcpipeline-minio-pilot-archive/.
 
 
 def _shadow_enabled() -> bool:

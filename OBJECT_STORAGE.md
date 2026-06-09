@@ -1,9 +1,8 @@
 # Object-storage port of ifcpipeline — full coverage
 
-> Evaluating whether to keep MinIO long-term? See
-> [OBJECT_STORAGE_ALTERNATIVES.md](OBJECT_STORAGE_ALTERNATIVES.md) for the
-> 2026 FOSS S3 backend comparison (SeaweedFS, RustFS, Ceph RGW, Zenko,
-> VersityGW, MinIO source-build) and the non-destructive pilot playbook.
+> Object storage is **SeaweedFS** (S3-compatible, `seaweedfs:8333`). MinIO was
+> decommissioned 2026-06. The 2026 backend evaluation and pilot runbooks live
+> in `../ifcpipeline-minio-pilot-archive/docs/`.
 
 **Branch:** `feature/object-storage` on a *new* clone
 (`/home/bimbot-ubuntu/apps/ifcpipeline`).
