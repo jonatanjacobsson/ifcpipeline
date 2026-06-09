@@ -1,0 +1,21 @@
+{
+  "_comment": "Template for seaweedfs/s3.json (the real file is gitignored). Copy this to seaweedfs/s3.json and set accessKey/secretKey to match .env's S3_ACCESS_KEY/S3_SECRET_KEY. Rotate both together when changing credentials.",
+  "identities": [
+    {
+      "name": "admin",
+      "credentials": [
+        {
+          "accessKey": "change-me-to-match-S3_SHADOW_ACCESS_KEY",
+          "secretKey": "change-me-to-match-S3_SHADOW_SECRET_KEY"
+        }
+      ],
+      "actions": [
+        "Admin",
+        "Read",
+        "Write",
+        "List",
+        "Tagging"
+      ]
+    }
+  ]
+}
