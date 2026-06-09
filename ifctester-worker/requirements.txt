@@ -1,5 +1,6 @@
 # IFC dependencies - pinned for stability
 ifcopenshell==0.8.0
+lark<1.3
 ifctester>=0.0.1
 
 # Queue and data validation
