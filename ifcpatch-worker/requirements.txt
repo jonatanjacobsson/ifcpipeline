@@ -5,7 +5,7 @@ requests>=2.32.0,<3.0.0
 
 # IFC dependencies
 # 2026-05-14: unpinned back to 0.8.5 after the parallel load test (see
-# ifcpipeline/IFCOPENSHELL_0.8.5_REGRESSION.md §4) showed 0.8.4.post1 crashes
+# ../ifcpipeline-ifcopenshell-hunt-archive/IFCOPENSHELL_0.8.5_REGRESSION.md §4)
 # 5/156 vs 0.8.5 1/156 under N≥3 parallel pressure — i.e. the morning's
 # defensive downgrade was not protective. The actual fix is the load-reduction
 # package: replicas 3→2, mem 6G→4G, +16G swap, retries on every IFC node.

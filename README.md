@@ -337,7 +337,6 @@ The `minio` container binds S3 API / console to `127.0.0.1:9000` / `127.0.0.1:90
 
 - `./smoke-test.sh` — brings up the stack, uploads sample IFC+IDS, runs ifccsv + ifctester + ifc2json, confirms objects land in the bucket.
 - `./chain-patch-test.sh` — exercises a 3-deep ifcpatch derivation + audit-trail lineage query.
-- `./prod-test.sh` — prod-scale test with ~190 MB of fixtures in `prod-fixtures/` (gitignored).
 
 ### Audit trail
 

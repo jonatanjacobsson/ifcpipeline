@@ -23,7 +23,6 @@ prod-fixtures/
 /tfmgen/*
 
 # --- Regenerable eval & hunt artifacts ------------------------------
-# Durable write-ups live at repo root: HUNT_REPORT_*.md, IFCOPENSHELL_*.md
 hunt-evidence/
 parity-reports/
 
