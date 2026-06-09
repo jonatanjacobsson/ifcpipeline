@@ -11,6 +11,8 @@
 !.env.*.example
 api-gateway/config.json
 ifc-pipeline.code-workspace
+seaweedfs/s3.json
+!seaweedfs/s3.json.example
 
 # --- Runtime / job I/O (large; not reproducible from git) ------------
 shared/uploads/*
