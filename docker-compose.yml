@@ -2,7 +2,7 @@
 # For production control-host-only or worker-host-only recipes, see DEPLOYMENT.md.
 #
 # Never run `docker compose down -v` on the primary host — that deletes postgres-data,
-# minio-data, redis-data, and n8n bind data.
+# seaweedfs-data, redis-data, and n8n bind data.
 
 include:
   - path: docker-compose.control-plane.yml

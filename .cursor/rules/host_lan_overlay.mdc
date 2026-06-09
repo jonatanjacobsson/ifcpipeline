@@ -5,13 +5,15 @@ alwaysApply: true
 
 # IfcPipeline control-plane: always use the host-lan overlay
 
-This is a **multi-host** stack. The control plane (redis, postgres, minio,
+This is a **multi-host** stack. The control plane (redis, postgres, seaweedfs,
 api-gateway) runs on the primary VM (`PIPELINE_LAN_IP=192.168.101.195`). Remote
-workers on `bimbotw1` (`192.168.109.54`) reach redis/postgres/minio over the LAN.
+workers on `bimbotw1` (`192.168.109.54`) reach redis/postgres/seaweedfs over the
+LAN. (Object storage is **SeaweedFS** on port 8333; MinIO was decommissioned
+2026-06.)
 
 `docker-compose.host-lan.yml` adds the `PIPELINE_LAN_IP:*` port bindings. The
 base `docker-compose.yml` does **not**. So any `docker compose up -d` run
-**without** the overlay makes Compose "converge" redis/minio/postgres back to
+**without** the overlay makes Compose "converge" redis/seaweedfs/postgres back to
 loopback-only — it **recreates them and strips the LAN bindings**, and every
 remote worker breaks with `Error 111 ... Connection refused`.
 
@@ -31,14 +33,14 @@ because Compose still reconciles its dependencies.
 ## Verify after any recreate
 
 ```bash
-docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|minio)|postgres_objectstorage'
-# redis + minio must show 192.168.101.195; postgres must show 192.168.101.195:5432
+docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|seaweedfs)|postgres_objectstorage'
+# redis + seaweedfs must show 192.168.101.195 (seaweedfs on :8333); postgres must show 192.168.101.195:5432
 ```
 
 ## Recovery if LAN bindings were stripped
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d redis postgres minio
+docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d redis postgres seaweedfs
 # then on bimbotw1, restart any worker stuck in reconnect backoff:
 # docker compose -f docker-compose.remote-workers.yml --env-file .env.remote restart <worker>
 ```

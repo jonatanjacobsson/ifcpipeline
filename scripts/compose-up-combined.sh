@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start full stack (control plane + all workers) on the primary host.
-# Never use: docker compose down -v  (deletes postgres-data, minio-data, redis-data).
+# Never use: docker compose down -v  (deletes postgres-data, seaweedfs-data, redis-data).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

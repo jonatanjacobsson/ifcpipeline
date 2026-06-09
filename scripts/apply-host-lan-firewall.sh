@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Restrict the LAN-published control-plane ports (Redis 6379, Postgres 5432,
-# MinIO 9000) to the worker VM only — WITHOUT breaking internal
+# SeaweedFS S3 8333) to the worker VM only — WITHOUT breaking internal
 # container-to-container traffic.
 #
 # Why this script exists:
@@ -39,7 +39,7 @@ set +a
 : "${PIPELINE_LAN_IP:?Set PIPELINE_LAN_IP in .env}"
 : "${WORKER_VM_IP:?Set WORKER_VM_IP in .env}"
 
-PORTS=(6379 5432 9000)
+PORTS=(6379 5432 8333)
 
 # External interface = the NIC that holds PIPELINE_LAN_IP.
 EXT_IF="$(ip -o -4 addr show | awk -v ip="${PIPELINE_LAN_IP}/" '$4 ~ ip {print $2; exit}')"
