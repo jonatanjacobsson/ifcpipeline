@@ -1,7 +1,7 @@
 import os
 import re
 from typing import Annotated, Any, Dict, List, Literal, Optional
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 from enum import Enum
 
@@ -758,13 +758,28 @@ class TopologicpyRequest(VersionPinOptional):
         return v
 
 
+class S3ObjectRef(BaseModel):
+    """Read an IFC object from a non-default bucket (e.g. CDE ``cde`` on shared MinIO)."""
+
+    bucket: str = Field(..., min_length=1)
+    key: str = Field(..., min_length=1)
+    version_id: Optional[str] = None
+    source: str = Field(
+        default="default",
+        description="Which S3 client profile to use: 'default' (worker bucket) or 'cde'.",
+    )
+
+
 class TopologicIngestRequest(VersionPinOptional):
     """Request model for topologic graph ingest operations."""
 
     input_files: List[str] = Field(
-        ...,
-        min_length=1,
-        description="IFC filenames to process (architecture, MEP, structural, etc.)",
+        default_factory=list,
+        description="IFC filenames in the ifcpipeline bucket (legacy path).",
+    )
+    input_s3: List[S3ObjectRef] = Field(
+        default_factory=list,
+        description="Optional direct S3 refs — worker downloads without re-upload.",
     )
     script: str = Field(
         ...,
@@ -783,6 +798,12 @@ class TopologicIngestRequest(VersionPinOptional):
     @classmethod
     def validate_ingest_files(cls, v: List[str]) -> List[str]:
         return [_validate_safe_path(path) for path in v]
+
+    @model_validator(mode="after")
+    def validate_inputs_present(self) -> "TopologicIngestRequest":
+        if not self.input_files and not self.input_s3:
+            raise ValueError("Provide input_files and/or input_s3.")
+        return self
 
     @field_validator("script")
     @classmethod
