@@ -32,6 +32,7 @@ import json
 import ifcopenshell
 import ifcopenshell.api
 import ifcopenshell.util.element
+import ifcopenshell.util.placement
 import ifcopenshell.util.selector
 from typing import Union, List, Set, Optional
 from logging import Logger
@@ -48,6 +49,7 @@ class Patcher:
         query: str = "IfcSpace",
         clean_geometry: bool = True,
         clean_orphaned_types: bool = True,
+        fix_orphaned_fillings: bool = True,
     ):
         """Remove elements matching a selector query from the IFC model in-place
 
@@ -80,6 +82,17 @@ class Patcher:
         :param clean_orphaned_types: When True, remove IfcTypeProduct
             instances that no longer have any associated elements after the
             removal.  Defaults to True.
+        :param fix_orphaned_fillings: When True (default), keep the model
+            host-aware: if a removed element (typically a wall) hosts
+            ``IfcOpeningElement`` voids, also remove those openings and their
+            ``IfcRelVoidsElement``/``IfcRelFillsElement`` relationships. Any
+            element that *filled* such an opening but is itself being kept
+            (e.g. an ``IfcDoor``/``IfcWindow``) has its placement re-based to a
+            self-contained world-coordinate placement so it keeps its exact
+            position without referencing the deleted host. Without this,
+            removing host walls leaves dangling voids (null mandatory
+            ``RelatingBuildingElement``) and orphaned openings that stricter
+            IFC importers (e.g. StreamBIM) reject — dropping the doors/windows.
         """
         self.file = file
         self.logger = logger if logger else logging.getLogger(__name__)
@@ -95,10 +108,16 @@ class Patcher:
         else:
             self.clean_orphaned_types = bool(clean_orphaned_types)
 
+        if isinstance(fix_orphaned_fillings, str):
+            self.fix_orphaned_fillings = fix_orphaned_fillings.lower() in ("true", "1", "yes")
+        else:
+            self.fix_orphaned_fillings = bool(fix_orphaned_fillings)
+
         self.logger.info(
             f"RemoveElements: query={self.query!r}, "
             f"clean_geometry={self.clean_geometry}, "
-            f"clean_orphaned_types={self.clean_orphaned_types}"
+            f"clean_orphaned_types={self.clean_orphaned_types}, "
+            f"fix_orphaned_fillings={self.fix_orphaned_fillings}"
         )
         # Set by patch(); worker skips ifcpatch.write when True (no redundant copy to output)
         self.skip_output_write = False
@@ -114,6 +133,16 @@ class Patcher:
         self.logger.info(f"RemoveElements: removing {len(elements)} element(s)")
 
         remove_ids = {e.id() for e in elements}
+
+        # Host-aware: when removing host elements (e.g. walls), detach and
+        # remove the openings they host, re-base any kept fillings (doors/
+        # windows), and drop the now-orphaned void/fill relationships so the
+        # output stays schema-valid for strict importers.
+        if self.fix_orphaned_fillings:
+            extra_openings = self._fix_orphaned_hosts(remove_ids)
+            if extra_openings:
+                elements = list(elements) + extra_openings
+                remove_ids.update(e.id() for e in extra_openings)
 
         orphaned_geometry: Set[int] = set()
         orphaned_placements: Set[int] = set()
@@ -138,6 +167,9 @@ class Patcher:
             self._remove_orphaned_types(type_ids_before)
 
         self._remove_empty_relationships()
+        self._remove_broken_relationships()
+        if self.clean_geometry:
+            self._remove_unreferenced_placements()
 
         self.logger.info("RemoveElements: done")
 
@@ -472,6 +504,180 @@ class Patcher:
 
         if removed:
             self.logger.info(f"RemoveElements: removed {removed} orphaned type(s)")
+
+    def _fix_orphaned_hosts(self, remove_ids: Set[int]) -> list:
+        """Detach openings/fillings from host elements that are being removed.
+
+        For every ``IfcRelVoidsElement`` whose host (``RelatingBuildingElement``)
+        is in the removal set:
+
+        * Re-base any element that *fills* the opening (``IfcRelFillsElement``)
+          and is **not** itself being removed (e.g. a kept ``IfcDoor``) onto a
+          self-contained world placement, so it keeps its exact position
+          without depending on the deleted host's coordinate system.
+        * Remove the ``IfcRelFillsElement`` and ``IfcRelVoidsElement`` (their
+          mandatory references would otherwise dangle).
+        * Return the orphaned ``IfcOpeningElement`` instances so the caller can
+          remove them through the normal geometry-aware path.
+        """
+        voids = self.file.by_type("IfcRelVoidsElement")
+        if not voids:
+            return []
+
+        fills_by_opening: dict = {}
+        for fr in self.file.by_type("IfcRelFillsElement"):
+            opening = getattr(fr, "RelatingOpeningElement", None)
+            if opening is not None:
+                fills_by_opening.setdefault(opening.id(), []).append(fr)
+
+        openings_to_remove: list = []
+        rebased = removed_fills = removed_voids = 0
+
+        for vr in list(voids):
+            host = getattr(vr, "RelatingBuildingElement", None)
+            if host is None or host.id() not in remove_ids:
+                continue
+
+            opening = getattr(vr, "RelatedOpeningElement", None)
+            if opening is not None:
+                for fr in fills_by_opening.get(opening.id(), []):
+                    fill_el = getattr(fr, "RelatedBuildingElement", None)
+                    if fill_el is not None and fill_el.id() not in remove_ids:
+                        if self._rebase_to_world(fill_el):
+                            rebased += 1
+                    try:
+                        self.file.remove(fr)
+                        removed_fills += 1
+                    except Exception:
+                        pass
+                openings_to_remove.append(opening)
+
+            try:
+                self.file.remove(vr)
+                removed_voids += 1
+            except Exception:
+                pass
+
+        if openings_to_remove or rebased:
+            self.logger.info(
+                f"RemoveElements: host-aware — re-based {rebased} kept filling(s), "
+                f"removed {removed_fills} fill rel(s), {removed_voids} void rel(s), "
+                f"queued {len(openings_to_remove)} orphaned opening(s) for removal"
+            )
+        return openings_to_remove
+
+    def _rebase_to_world(self, element) -> bool:
+        """Replace an element's placement with an equivalent absolute placement.
+
+        Resolves the full placement chain to a world-coordinate 4x4 matrix and
+        assigns a fresh ``IfcLocalPlacement`` with no ``PlacementRelTo`` so the
+        element no longer depends on a host that is being deleted. The previous
+        placement entity is dropped if it becomes unreferenced.
+        """
+        placement = getattr(element, "ObjectPlacement", None)
+        if placement is None:
+            return False
+        try:
+            matrix = ifcopenshell.util.placement.get_local_placement(placement)
+        except Exception as exc:
+            self.logger.debug(f"Could not resolve placement for #{element.id()}: {exc}")
+            return False
+
+        try:
+            element.ObjectPlacement = self._make_world_placement(matrix)
+        except Exception as exc:
+            self.logger.debug(f"Could not re-base placement for #{element.id()}: {exc}")
+            return False
+
+        self._gc_placement(placement)
+        return True
+
+    def _make_world_placement(self, matrix):
+        """Build an absolute IfcLocalPlacement from a 4x4 world matrix."""
+        f = self.file
+        loc = f.createIfcCartesianPoint(
+            (float(matrix[0][3]), float(matrix[1][3]), float(matrix[2][3]))
+        )
+        axis = f.createIfcDirection(
+            (float(matrix[0][2]), float(matrix[1][2]), float(matrix[2][2]))
+        )
+        ref_dir = f.createIfcDirection(
+            (float(matrix[0][0]), float(matrix[1][0]), float(matrix[2][0]))
+        )
+        axis2 = f.createIfcAxis2Placement3D(loc, axis, ref_dir)
+        return f.createIfcLocalPlacement(None, axis2)
+
+    def _gc_placement(self, placement) -> None:
+        """Recursively drop an IfcLocalPlacement chain once unreferenced."""
+        try:
+            if self.file.get_inverse(placement):
+                return
+            parent = getattr(placement, "PlacementRelTo", None)
+            self.file.remove(placement)
+            if parent is not None:
+                self._gc_placement(parent)
+        except Exception:
+            pass
+
+    def _remove_unreferenced_placements(self) -> None:
+        """Remove IfcLocalPlacement entities that nothing references anymore.
+
+        Runs iteratively so that once a child placement is dropped, its now
+        unreferenced parent (e.g. a deleted wall's placement) is cleaned too.
+        """
+        removed = 0
+        while True:
+            batch = [
+                p
+                for p in self.file.by_type("IfcLocalPlacement")
+                if not self.file.get_inverse(p)
+            ]
+            if not batch:
+                break
+            for p in batch:
+                try:
+                    self.file.remove(p)
+                    removed += 1
+                except Exception:
+                    pass
+        if removed:
+            self.logger.info(
+                f"RemoveElements: removed {removed} unreferenced placement(s)"
+            )
+
+    def _remove_broken_relationships(self) -> None:
+        """Remove relationships left with a NULL mandatory Relating*/Related* ref.
+
+        After bulk detachment, a relationship may keep one side populated while
+        the other was nulled (e.g. an ``IfcRelVoidsElement`` whose host wall was
+        removed). Those single-valued ``Relating*``/``Related*`` attributes are
+        mandatory in IFC, so a NULL there makes the file invalid for strict
+        importers. Drop any such relationship.
+        """
+        removed = 0
+        for rel in list(self.file.by_type("IfcRelationship")):
+            try:
+                info = rel.get_info(recursive=False)
+            except Exception:
+                continue
+            broken = False
+            for attr_name, val in info.items():
+                if not (attr_name.startswith("Relating") or attr_name.startswith("Related")):
+                    continue
+                if val is None:
+                    broken = True
+                    break
+            if broken:
+                try:
+                    self.file.remove(rel)
+                    removed += 1
+                except Exception:
+                    pass
+        if removed:
+            self.logger.info(
+                f"RemoveElements: removed {removed} relationship(s) with a NULL "
+                f"mandatory reference"
+            )
 
     def _remove_empty_relationships(self) -> None:
         """Clean up relationships that have no related objects left."""
