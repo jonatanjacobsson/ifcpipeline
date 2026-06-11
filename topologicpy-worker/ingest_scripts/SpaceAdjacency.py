@@ -37,6 +37,7 @@ class Ingester(_Base):
         log: logging.Logger,
         include_external: bool = False,
         min_shared_area: float = 0.0,
+        tolerance: float = 0.01,
     ):
         """Build a space adjacency graph from IFC topology.
 
@@ -46,10 +47,12 @@ class Ingester(_Base):
 
         :param include_external: Whether to include adjacency to external/unbounded space.
         :param min_shared_area: Minimum shared boundary area (m2) to register an adjacency edge.
+        :param tolerance: Graph construction tolerance in model units (same as SpatialContainment).
         """
         super().__init__(ifc_files, log)
         self.include_external = include_external
         self.min_shared_area = min_shared_area
+        self.tolerance = tolerance
 
     def extract(self) -> None:
         if not HAS_TOPOLOGICPY:
@@ -64,7 +67,7 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("SpaceAdjacency: building topological graph from %s", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), transferDictionaries=True)
+                graph = Graph.ByIFCFile(str(ifc_path), tolerance=self.tolerance)
                 if graph is None:
                     self.log.warning("SpaceAdjacency: Graph.ByIFCFile returned None")
                     self._extract_from_ifc_rels_file(ifc_path)
@@ -124,7 +127,13 @@ class Ingester(_Base):
 
             except Exception as exc:
                 self.log.error("SpaceAdjacency: TopologicPy failed for %s: %s", ifc_path.name, exc)
+                before = len(self._relationships)
                 self._extract_from_ifc_rels_file(ifc_path)
+                if len(self._relationships) == before:
+                    self.log.warning(
+                        "SpaceAdjacency: IFC rel fallback found no shared IfcRelSpaceBoundary pairs for %s",
+                        ifc_path.name,
+                    )
 
         elapsed = time.time() - t0
         self._summary = {
