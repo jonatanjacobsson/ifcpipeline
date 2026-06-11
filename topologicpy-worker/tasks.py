@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass
+from multiprocessing import get_context
+from queue import Empty
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -36,6 +38,9 @@ _DISTANCE_MODE = os.environ.get("IFCTOPOLOGY_DISTANCE_MODE", "bbox").strip().low
 _MAX_PROXIMATE_SPACES = max(1, int(os.environ.get("IFCTOPOLOGY_MAX_PROXIMATE_SPACES", "32")))
 _PROXIMITY_THRESHOLD_M = float(os.environ.get("IFCTOPOLOGY_PROXIMITY_THRESHOLD_M", "10.0"))
 _PROGRESS_LOG_EVERY = max(1, int(os.environ.get("IFCTOPOLOGY_PROGRESS_LOG_EVERY", "250")))
+# When bbox sampling places the point more than this far above min_z, snap Z to min_z + offset
+# so columns / vertical MEP map to the lowest storey zone, not mid-height.
+_VERTICAL_BIAS_OFFSET_M = float(os.environ.get("IFCTOPOLOGY_VERTICAL_BIAS_OFFSET_M", "1.2"))
 
 
 Point = Tuple[float, float, float]
@@ -154,12 +159,50 @@ class SpaceIndex:
         return candidates
 
 
+# When the heavy work runs in a spawn-isolated child (see _run_in_spawn_isolation),
+# the RQ job context is NOT inherited (spawn = fresh interpreter). These globals
+# let the child resolve its job id / Redis connection so progress meta updates and
+# job_id-tagged phase logs keep working from inside the subprocess.
+_ISOLATED_JOB_ID: Optional[str] = None
+_ISOLATED_REDIS_URL: Optional[str] = None
+_ISOLATED_JOB: Any = None
+
+
 def _current_job_id() -> Optional[str]:
+    if _ISOLATED_JOB_ID is not None:
+        return _ISOLATED_JOB_ID
     try:
         from rq import get_current_job
 
         job = get_current_job()
         return job.id if job else None
+    except Exception:
+        return None
+
+
+def _resolve_job() -> Any:
+    """Return the active RQ job for progress-meta updates.
+
+    In-process (SimpleWorker parent) this is ``rq.get_current_job()``. Inside a
+    spawn-isolated child there is no job context, so the job is fetched from
+    Redis by the id injected into the child payload.
+    """
+    global _ISOLATED_JOB
+    if _ISOLATED_JOB_ID is not None:
+        if _ISOLATED_JOB is None and _ISOLATED_REDIS_URL:
+            try:
+                from redis import Redis
+                from rq.job import Job
+
+                conn = Redis.from_url(_ISOLATED_REDIS_URL)
+                _ISOLATED_JOB = Job.fetch(_ISOLATED_JOB_ID, connection=conn)
+            except Exception:
+                _ISOLATED_JOB = None
+        return _ISOLATED_JOB
+    try:
+        from rq import get_current_job
+
+        return get_current_job()
     except Exception:
         return None
 
@@ -315,6 +358,35 @@ def _placement_point(product: Any, scale_factor: float = 1.0) -> Optional[Point]
         return None
 
 
+def _bbox_sample_point(bbox: BBox, vertical_offset_m: Optional[float] = None) -> Point:
+    """Sample point from element bbox for room matching.
+
+    Uses horizontal bbox center. For vertically tall elements (centroid more than
+    ``vertical_offset_m`` above the bbox floor), Z is taken at ``min_z + offset``
+    so columns, vertical risers, and tall proxies stamp against the lowest
+    storey zone instead of a level several metres higher.
+    """
+    offset_m = _VERTICAL_BIAS_OFFSET_M if vertical_offset_m is None else vertical_offset_m
+    cx, cy, cz = bbox.centroid
+    rise_above_floor = cz - bbox.min_z
+    if rise_above_floor > offset_m:
+        z = min(bbox.max_z, bbox.min_z + offset_m)
+    else:
+        z = cz
+    return (cx, cy, z)
+
+
+def _placement_is_reliable(point: Point, bbox: BBox, tolerance: float = 0.01) -> bool:
+    """True when ObjectPlacement is near the element geometry.
+
+    Revit MEP exports often leave IfcFlowSegment ObjectPlacement at the model
+    origin while the swept solid is offset in representation geometry. Using
+    those placements for room matching assigns elements to the wrong room.
+    """
+    max_gap = max(tolerance, 2.0)
+    return _distance_point_to_bbox(point, bbox) <= max_gap
+
+
 def _sample_point(
     product: Any,
     bbox: Optional[BBox],
@@ -322,8 +394,13 @@ def _sample_point(
     scale_factor: float = 1.0,
 ) -> Optional[Point]:
     if sample_strategy == TopologySampleStrategy.PLACEMENT:
-        return _placement_point(product, scale_factor) or (bbox.centroid if bbox else None)
-    return bbox.centroid if bbox else _placement_point(product, scale_factor)
+        placement = _placement_point(product, scale_factor)
+        if placement is not None and bbox is not None:
+            if _placement_is_reliable(placement, bbox):
+                return placement
+            return _bbox_sample_point(bbox)
+        return placement or (_bbox_sample_point(bbox) if bbox else None)
+    return _bbox_sample_point(bbox) if bbox else _placement_point(product, scale_factor)
 
 
 def _filter_elements(model: Any, query: str) -> List[Any]:
@@ -501,42 +578,23 @@ def _collect_elements(
     if max_elements is not None:
         all_products = all_products[:max_elements]
 
-    # Gather elements that have placement points if sample_strategy is PLACEMENT
-    products_needing_bbox = []
-    pre_collected: List[Tuple[Any, Optional[Point], Optional[BBox]]] = []
-
-    for product in all_products:
-        point = None
-        if sample_strategy == TopologySampleStrategy.PLACEMENT:
-            point = _placement_point(product, scale_factor)
-            if point is not None:
-                pre_collected.append((product, point, None))
-                continue
-
-        products_needing_bbox.append(product)
-        pre_collected.append((product, None, None))
-
-    # Compute bounding boxes in parallel for those that need it
+    # Always compute geometry bboxes so PLACEMENT can be validated against them.
+    products_needing_bbox = list(all_products)
     bboxes = _bboxes_from_iterator(model, products_needing_bbox, settings)
 
-    # Finalize element candidates
-    bbox_needed_set = {p.id() for p in products_needing_bbox}
-
-    for product, point, bbox in pre_collected:
+    for product in all_products:
         pid = product.id()
-        if pid in bbox_needed_set:
-            bbox = bboxes.get(pid)
-            if bbox is None:
-                # Last resort fallback to placement point
-                point = _placement_point(product, scale_factor)
-                if point is None:
-                    geometry_failures += 1
-                    continue
-            else:
-                point = _sample_point(product, bbox, sample_strategy, scale_factor)
-                if point is None:
-                    geometry_failures += 1
-                    continue
+        bbox = bboxes.get(pid)
+        if bbox is None:
+            point = _placement_point(product, scale_factor)
+            if point is None:
+                geometry_failures += 1
+                continue
+        else:
+            point = _sample_point(product, bbox, sample_strategy, scale_factor)
+            if point is None:
+                geometry_failures += 1
+                continue
 
         elements.append(
             ElementCandidate(
@@ -1205,34 +1263,82 @@ def _path_under_output_root(output_dir: str, requested_path: str) -> str:
     return os.path.join(output_dir, normalized)
 
 
-def _resolve_original_filename(
-    source_key: str, version_id: Optional[str] = None
+def _resolve_element_original_filename(
+    request: TopologicpyRequest,
+    source_file: str,
+    input_pins: Dict[str, Optional[str]],
 ) -> str:
-    """Resolve the human-readable upload name for an S3 key via audit DB lineage.
+    """Resolve the human-readable upload name for an element input (ifcpatch parity).
 
-    Falls back to the bare basename of *source_key* so downstream results
-    always carry something printable even when the DB is unavailable.
+    Walks audit lineage from the pinned element key so derivative inputs still
+    surface the root upload name (e.g. ``S2-200-MM-MASTER MODEL.ifc`` vs the
+    sanitized object key ``S2-200-MM-MASTER_MODEL.ifc``).
     """
-    fallback = os.path.basename(source_key)
+    fallback = os.path.basename(source_file) if source_file else ""
+    try:
+        source_key = s3.normalize_input_key(source_file)
+    except Exception:
+        return fallback
+
+    version_id = input_pins.get(source_key)
+    if not version_id:
+        version_id = s3.pin_for(request, source_file)
+
+    audit_id: Optional[int] = None
+    raw_audit_id = getattr(request, "input_audit_id", None)
+    if raw_audit_id is not None:
+        try:
+            candidate = int(raw_audit_id)
+            if candidate > 0:
+                row = audit_db.fetch_version_pin_by_audit_id(candidate)
+                if row and row.get("object_key") == source_key:
+                    audit_id = candidate
+        except (TypeError, ValueError):
+            pass
+
     try:
         name = audit_db.resolve_original_filename(
-            object_key=source_key, version_id=version_id
+            object_key=source_key,
+            version_id=version_id,
+            audit_id=audit_id,
         )
         if name:
             return name
     except Exception as e:
-        logger.debug("original_filename lookup failed for %s: %s", source_key, e)
+        logger.debug(
+            "original_filename lookup failed for %s: %s", source_file, e
+        )
     return fallback
 
 
-def _default_stamped_name(source_name: str, index: int) -> str:
+def _default_output_ifc_name(source_name: str) -> str:
     base, ext = os.path.splitext(os.path.basename(source_name))
-    return f"{base or 'model'}_roomstamped_{index}{ext or '.ifc'}"
+    return f"{base or 'model'}{ext or '.ifc'}"
 
 
-def _output_ifc_path(request: TopologicpyRequest, output_dir: str, source_name: str, index: int) -> str:
+def _resolve_output_ifc_basenames(element_files: List[str]) -> Dict[str, str]:
+    """Map each element source key to a unique output basename."""
+    assigned: Dict[str, str] = {}
+    usage: Dict[str, int] = {}
+    for source in element_files:
+        base_name = _default_output_ifc_name(source)
+        if base_name not in usage:
+            usage[base_name] = 1
+            assigned[source] = base_name
+            continue
+        usage[base_name] += 1
+        stem, ext = os.path.splitext(base_name)
+        assigned[source] = f"{stem}_{usage[base_name]}{ext}"
+    return assigned
+
+
+def _output_ifc_path(
+    request: TopologicpyRequest,
+    output_dir: str,
+    output_basename: str,
+) -> str:
     if not request.output_ifc_prefix:
-        return os.path.join(output_dir, _default_stamped_name(source_name, index))
+        return os.path.join(output_dir, output_basename)
 
     prefix = request.output_ifc_prefix.strip("/")
     if prefix.startswith("output/topology/"):
@@ -1240,10 +1346,217 @@ def _output_ifc_path(request: TopologicpyRequest, output_dir: str, source_name: 
     elif prefix.startswith("output/"):
         prefix = os.path.basename(prefix)
     if not prefix:
-        return os.path.join(output_dir, _default_stamped_name(source_name, index))
+        return os.path.join(output_dir, output_basename)
     if prefix.lower().endswith(".ifc") and len(request.element_files) == 1:
         return os.path.join(output_dir, os.path.basename(prefix))
-    return os.path.join(output_dir, prefix, _default_stamped_name(source_name, index))
+    return os.path.join(output_dir, prefix, output_basename)
+
+
+def _roomstamp_arguments_used(request: TopologicpyRequest) -> List[str]:
+    return [
+        json.dumps(
+            {
+                "stamp_ambiguous": request.stamp_ambiguous,
+                "pset_name": request.pset_name,
+                "element_query": request.element_query,
+                "space_query": request.space_query,
+            },
+            separators=(",", ":"),
+        )
+    ]
+
+
+def _build_ifc_result_item(
+    *,
+    local_path: str,
+    source_file: str,
+    request: TopologicpyRequest,
+    input_pins: Dict[str, Optional[str]],
+    stamped_element_count: int,
+    skipped_ambiguous_count: int,
+    skipped_unmatched_count: int,
+    output_key: Optional[str] = None,
+    audit: Optional[Dict[str, Any]] = None,
+    original_filename: Optional[str] = None,
+) -> Dict[str, Any]:
+    output_size = os.path.getsize(local_path)
+    original = original_filename or _resolve_element_original_filename(
+        request, source_file, input_pins
+    )
+    output_filename = os.path.basename(output_key) if output_key else os.path.basename(local_path)
+
+    item: Dict[str, Any] = {
+        "success": True,
+        "message": "Successfully stamped spatial relationships",
+        "output_path": local_path,
+        "recipe": "RoomStamp",
+        "is_custom": False,
+        "output_size_bytes": output_size,
+        "arguments_used": _roomstamp_arguments_used(request),
+        "original_filename": original,
+        "output_filename": output_filename,
+        "source_file": source_file,
+        "stamped_element_count": stamped_element_count,
+        "skipped_ambiguous_count": skipped_ambiguous_count,
+        "skipped_unmatched_count": skipped_unmatched_count,
+    }
+
+    if s3.is_enabled() and output_key and audit:
+        item.update(
+            {
+                "storage": "s3",
+                "bucket": s3.bucket_name(),
+                "output_key": output_key,
+                "output_path": f"s3://{s3.bucket_name()}/{output_key}",
+                "sha256": audit["sha256"],
+                "size_bytes": audit["size_bytes"],
+                "audit_id": audit["audit_id"],
+                "version_id": audit.get("version_id"),
+            }
+        )
+    else:
+        item["storage"] = "filesystem"
+
+    return item
+
+
+def _nest_ifc_results(
+    items: List[Dict[str, Any]],
+) -> Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]:
+    if not items:
+        return None
+    if len(items) == 1:
+        return items[0]
+    return items
+
+
+def _build_topology_report_meta(
+    *,
+    request: TopologicpyRequest,
+    summary: Dict[str, Any],
+    benchmark: Dict[str, Any],
+    report_path: str,
+    input_keys: List[str],
+    input_pins: Dict[str, Optional[str]],
+) -> Dict[str, Any]:
+    """Benchmark/report sidecar nested one level below the IFC result (ifcpatch-style top level)."""
+    meta: Dict[str, Any] = {
+        "summary": summary,
+        "benchmark": benchmark,
+        "storage": "filesystem",
+        "report_path": report_path,
+    }
+    if s3.is_enabled():
+        report_key = s3.normalize_output_key(request.output_file, "topology")
+        report_audit = s3.upload_and_audit(
+            report_path,
+            key=report_key,
+            operation="topologicpy_roomstamp",
+            worker=WORKER_NAME,
+            job_id=_current_job_id(),
+            parents=[("input", key) for key in input_keys],
+            parent_version_ids={k: v for k, v in input_pins.items() if v} or None,
+            metadata=summary,
+            content_type="application/json",
+        )
+        meta.update(
+            {
+                "storage": "s3",
+                "report_key": report_key,
+                "report_path": f"s3://{s3.bucket_name()}/{report_key}",
+                "report_sha256": report_audit["sha256"],
+                "report_size_bytes": report_audit["size_bytes"],
+                "report_audit_id": report_audit["audit_id"],
+                "report_version_id": report_audit.get("version_id"),
+            }
+        )
+    return meta
+
+
+def _finalize_roomstamp_result(
+    *,
+    request: TopologicpyRequest,
+    summary: Dict[str, Any],
+    benchmark: Dict[str, Any],
+    report_path: str,
+    stamped_outputs: List[Dict[str, Any]],
+    input_keys: List[str],
+    input_pins: Dict[str, Optional[str]],
+    output_dir: str,
+) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+    topology_report = _build_topology_report_meta(
+        request=request,
+        summary=summary,
+        benchmark=benchmark,
+        report_path=report_path,
+        input_keys=input_keys,
+        input_pins=input_pins,
+    )
+
+    ifc_items: List[Dict[str, Any]] = []
+    if request.stamp:
+        for item in stamped_outputs:
+            local_path = item["output_path"]
+            source_file = item["source_file"]
+            if s3.is_enabled():
+                relative_output = os.path.relpath(local_path, output_dir)
+                output_key = s3.normalize_output_key(relative_output, "topology")
+                source_key = s3.normalize_input_key(source_file)
+                audit_ifc = s3.upload_and_audit(
+                    local_path,
+                    key=output_key,
+                    operation="topologicpy_roomstamp_ifc",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[("input", source_key)],
+                    parent_version_ids=(
+                        {source_key: input_pins[source_key]}
+                        if input_pins.get(source_key)
+                        else None
+                    ),
+                    metadata={
+                        "stamped_element_count": item["stamped_element_count"],
+                        "skipped_ambiguous_count": item["skipped_ambiguous_count"],
+                        "skipped_unmatched_count": item["skipped_unmatched_count"],
+                        "pset_name": request.pset_name,
+                    },
+                    content_type="application/x-step",
+                )
+                ifc_items.append(
+                    _build_ifc_result_item(
+                        local_path=local_path,
+                        source_file=source_file,
+                        request=request,
+                        input_pins=input_pins,
+                        stamped_element_count=item["stamped_element_count"],
+                        skipped_ambiguous_count=item["skipped_ambiguous_count"],
+                        skipped_unmatched_count=item["skipped_unmatched_count"],
+                        output_key=output_key,
+                        audit=audit_ifc,
+                    )
+                )
+            else:
+                ifc_items.append(
+                    _build_ifc_result_item(
+                        local_path=local_path,
+                        source_file=source_file,
+                        request=request,
+                        input_pins=input_pins,
+                        stamped_element_count=item["stamped_element_count"],
+                        skipped_ambiguous_count=item["skipped_ambiguous_count"],
+                        skipped_unmatched_count=item["skipped_unmatched_count"],
+                    )
+                )
+
+    if request.stamp and len(ifc_items) == 1:
+        return {**ifc_items[0], "topology_report": topology_report}
+    if request.stamp and len(ifc_items) > 1:
+        return {"outputs": ifc_items, "topology_report": topology_report}
+    return {
+        "success": True,
+        "message": "Topology roomstamp benchmark completed",
+        "topology_report": topology_report,
+    }
 
 
 def _write_json(path: str, payload: Dict[str, Any]) -> None:
@@ -1262,8 +1575,7 @@ def _update_progress(
     elapsed_seconds: Optional[float] = None,
 ) -> None:
     try:
-        from rq import get_current_job
-        job = get_current_job()
+        job = _resolve_job()
         if job:
             eta_seconds = None
             if elements_per_second and elements_per_second > 0 and total > processed:
@@ -1283,7 +1595,7 @@ def _update_progress(
         pass
 
 
-def run_roomstamp_benchmark(job_data: dict) -> dict:
+def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
     """Benchmark room/zone containment and optionally stamp target IFC models with smart scaling."""
     request = TopologicpyRequest(**job_data)
     start = time.perf_counter()
@@ -1486,6 +1798,7 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
         match_seconds = 0.0
         stamp_seconds = 0.0
         planned_element_total = 0
+        output_basenames = _resolve_output_ifc_basenames(request.element_files)
 
         # Step 3: Process element files sequentially to keep memory flat
         for file_index, filename in enumerate(request.element_files, start=1):
@@ -1663,16 +1976,20 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
 
             if request.stamp:
                 file_write_start = time.perf_counter()
-                out_path = _output_ifc_path(request, output_dir, filename, file_index)
+                out_path = _output_ifc_path(
+                    request, output_dir, output_basenames[filename]
+                )
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 model.write(out_path)
-                stamped_outputs.append({
-                    "source_file": filename,
-                    "stamped_element_count": file_stamped,
-                    "skipped_ambiguous_count": file_skipped_ambiguous,
-                    "skipped_unmatched_count": file_skipped_unmatched,
-                    "output_path": out_path,
-                })
+                stamped_outputs.append(
+                    {
+                        "source_file": filename,
+                        "stamped_element_count": file_stamped,
+                        "skipped_ambiguous_count": file_skipped_ambiguous,
+                        "skipped_unmatched_count": file_skipped_unmatched,
+                        "output_path": out_path,
+                    }
+                )
                 stamp_seconds += time.perf_counter() - file_write_start
 
             # Clean up model references to free memory
@@ -1771,93 +2088,16 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
 
         _write_json(report_path, report)
 
-        result = {
-            "success": True,
-            "message": "Topology roomstamp benchmark completed",
-            "summary": summary,
-            "benchmark": benchmark,
-            "report_path": report_path,
-            "stamped_outputs": stamped_outputs,
-            "storage": "filesystem",
-        }
-
-        if s3.is_enabled():
-            report_key = s3.normalize_output_key(request.output_file, "topology")
-            audit = s3.upload_and_audit(
-                report_path,
-                key=report_key,
-                operation="topologicpy_roomstamp",
-                worker=WORKER_NAME,
-                job_id=_current_job_id(),
-                parents=[("input", key) for key in input_keys],
-                parent_version_ids={k: v for k, v in input_pins.items() if v} or None,
-                metadata=summary,
-                content_type="application/json",
-            )
-            result.update({
-                "storage": "s3",
-                "bucket": s3.bucket_name(),
-                "output_key": report_key,
-                "report_path": f"s3://{s3.bucket_name()}/{report_key}",
-                "sha256": audit["sha256"],
-                "size_bytes": audit["size_bytes"],
-                "audit_id": audit["audit_id"],
-                "version_id": audit.get("version_id"),
-            })
-
-            uploaded_ifcs = []
-            for item in stamped_outputs:
-                relative_output = os.path.relpath(item["output_path"], output_dir)
-                key = s3.normalize_output_key(
-                    relative_output,
-                    "topology",
-                )
-                source_key = s3.normalize_input_key(item["source_file"])
-                audit_ifc = s3.upload_and_audit(
-                    item["output_path"],
-                    key=key,
-                    operation="topologicpy_roomstamp_ifc",
-                    worker=WORKER_NAME,
-                    job_id=_current_job_id(),
-                    parents=[("input", source_key)],
-                    parent_version_ids={source_key: input_pins[source_key]} if input_pins.get(source_key) else None,
-                    metadata={
-                        "stamped_element_count": item["stamped_element_count"],
-                        "skipped_ambiguous_count": item["skipped_ambiguous_count"],
-                        "skipped_unmatched_count": item["skipped_unmatched_count"],
-                        "pset_name": request.pset_name,
-                    },
-                    content_type="application/x-step",
-                )
-                uploaded_ifcs.append({
-                    **item,
-                    "storage": "s3",
-                    "bucket": s3.bucket_name(),
-                    "output_key": key,
-                    "output_path": f"s3://{s3.bucket_name()}/{key}",
-                    "sha256": audit_ifc["sha256"],
-                    "size_bytes": audit_ifc["size_bytes"],
-                    "audit_id": audit_ifc["audit_id"],
-                    "version_id": audit_ifc.get("version_id"),
-                    "original_filename": _resolve_original_filename(
-                        source_key, version_id=input_pins.get(source_key)
-                    ),
-                    "output_filename": os.path.basename(key),
-                })
-            result["stamped_outputs"] = uploaded_ifcs
-            # Surface the primary stamped IFC at the top level so downstream n8n
-            # nodes can pin/consume it the same way as ifcpatch results.
-            if uploaded_ifcs:
-                primary = uploaded_ifcs[0]
-                result["stamped_output"] = primary
-                result["stamped_ifc_key"] = primary["output_key"]
-                result["stamped_ifc_path"] = primary["output_path"]
-                result["stamped_ifc_version_id"] = primary.get("version_id")
-                result["stamped_ifc_audit_id"] = primary["audit_id"]
-                result["stamped_ifc_sha256"] = primary["sha256"]
-                result["stamped_ifc_size_bytes"] = primary["size_bytes"]
-
-        return result
+        return _finalize_roomstamp_result(
+            request=request,
+            summary=summary,
+            benchmark=benchmark,
+            report_path=report_path,
+            stamped_outputs=stamped_outputs,
+            input_keys=input_keys,
+            input_pins=input_pins,
+            output_dir=output_dir,
+        )
     except Exception:
         logger.exception("Error during topology roomstamp benchmark")
         raise
@@ -1870,7 +2110,7 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def run_ingest(job_data: dict) -> dict:
+def _run_ingest_core(job_data: dict) -> dict:
     """Run a topologic ingest script to extract graph relationships from IFC.
 
     Dispatches to a named script in ingest_scripts/ (spaces, spatial, mep, structural).
@@ -1887,43 +2127,32 @@ def run_ingest(job_data: dict) -> dict:
     tmpdir = tempfile.mkdtemp(prefix="topo_ingest_")
     try:
         staged_files: List[Path] = []
-        input_pins = {}
-        if request.input_version_ids:
-            input_pins = request.input_version_ids
+        staged_basenames: set[str] = set()
 
         if request.input_s3:
             for idx, ref in enumerate(request.input_s3):
                 ref_dict = ref.model_dump() if hasattr(ref, "model_dump") else dict(ref)
                 label = request.input_files[idx] if idx < len(request.input_files) else f"input_{idx}.ifc"
                 local_path = os.path.join(tmpdir, os.path.basename(label) or f"input_{idx}.ifc")
-                if not s3.is_enabled():
-                    raise RuntimeError("input_s3 requires object storage on the worker.")
-                s3.download_to_path(
-                    ref_dict["key"],
-                    local_path,
-                    version_id=ref_dict.get("version_id"),
-                    bucket=ref_dict.get("bucket"),
-                )
-                staged_files.append(Path(local_path))
-
-        for filename in request.input_files:
-            if staged_files:
-                break
-            if s3.is_enabled():
-                key = s3.normalize_input_key(filename)
-                version_id = input_pins.get(key) or request.input_version_id
-                local_path = os.path.join(tmpdir, os.path.basename(filename))
-                s3.download_to_path(key, local_path, version_id=version_id)
-                staged_files.append(Path(local_path))
-            else:
-                for base_dir in (UPLOADS_DIR, OUTPUT_DIR, EXAMPLES_DIR):
-                    candidate = os.path.join(base_dir, filename)
-                    if os.path.isfile(candidate):
-                        staged_files.append(Path(candidate))
-                        break
+                src = str(ref_dict.get("source") or "default").lower()
+                if src == "cde" or s3.is_enabled():
+                    s3.download_s3_ref_to_path(ref_dict, local_path)
                 else:
-                    full = os.path.join(UPLOADS_DIR, filename)
-                    staged_files.append(Path(full))
+                    raise RuntimeError("input_s3 requires object storage on the worker.")
+                staged_files.append(Path(local_path))
+                staged_basenames.add(os.path.basename(local_path))
+
+        # Federated ingest: door/extra models referenced only in input_files (+ input_version_ids).
+        remaining = [
+            f for f in request.input_files
+            if os.path.basename(f) not in staged_basenames
+        ]
+        if remaining:
+            local_paths, _, _ = _stage_inputs(remaining, tmpdir, request)
+            for filename in remaining:
+                staged_files.append(Path(local_paths[filename]))
+
+        logger.info("ingest: staged %d file(s) for %s", len(staged_files), script_name)
 
         IngesterClass = load_script(script_name)
 
@@ -1962,22 +2191,31 @@ def run_ingest(job_data: dict) -> dict:
                 f.write(output_json)
 
             parent_keys = [s3.normalize_input_key(fn) for fn in request.input_files]
-            if not parent_keys:
+            if not parent_keys and request.input_s3:
                 parent_keys = [ref.key for ref in request.input_s3]
-            audit_info = s3.upload_and_audit(
-                local_out,
-                key=output_key,
-                operation=f"topologicpy_ingest_{script_name}",
-                worker=WORKER_NAME,
-                job_id=_current_job_id(),
-                parents=[("input", key) for key in parent_keys],
-            )
-            result["storage"] = "s3"
-            result["output_key"] = output_key
-            result["output_path"] = f"s3://{s3.bucket_name()}/{output_key}"
-            result["audit_id"] = audit_info.get("audit_id")
-            result["sha256"] = audit_info.get("sha256")
-            result["version_id"] = audit_info.get("version_id")
+            try:
+                audit_info = s3.upload_and_audit(
+                    local_out,
+                    key=output_key,
+                    operation=f"topologicpy_ingest_{script_name}",
+                    worker=WORKER_NAME,
+                    job_id=_current_job_id(),
+                    parents=[("input", key) for key in parent_keys],
+                )
+                result["storage"] = "s3"
+                result["output_key"] = output_key
+                result["output_path"] = f"s3://{s3.bucket_name()}/{output_key}"
+                result["audit_id"] = audit_info.get("audit_id")
+                result["sha256"] = audit_info.get("sha256")
+                result["version_id"] = audit_info.get("version_id")
+            except Exception as upload_exc:
+                logger.warning(
+                    "ingest: output upload failed for %s (relationships still returned): %s",
+                    script_name,
+                    upload_exc,
+                )
+                result["storage"] = "inline"
+                result["output_upload_error"] = str(upload_exc)
         else:
             out_dir = os.path.join(OUTPUT_DIR, "topology", "ingest")
             os.makedirs(out_dir, exist_ok=True)
@@ -1999,3 +2237,129 @@ def run_ingest(job_data: dict) -> dict:
         raise
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Spawn isolation
+# ---------------------------------------------------------------------------
+#
+# The topologicpy worker runs under ``rq.worker.SimpleWorker`` (no work-horse
+# fork) because the native topologic/OCCT geometry stack is not fork-safe. The
+# downside is that everything runs in the long-lived worker process, so the
+# native heap (OCCT cells, ifcopenshell models) and glibc arena fragmentation
+# never get returned to the OS — RSS ratchets up across jobs and looks like a
+# leak in Dozzle.
+#
+# The ifcpatch worker hit the same fork-safety wall with ifcopenshell and solved
+# it with ``multiprocessing.get_context("spawn")``: a brand-new interpreter (no
+# inherited fork state, so no fork-safety crashes) that is torn down after the
+# job. When the child exits the kernel reclaims 100% of its memory, giving the
+# fork-style reclamation back without the fork hazard. We mirror that pattern
+# here. Set ``IFCTOPOLOGY_SPAWN_ISOLATION=0`` to run in-process (debugging).
+
+_ISOLATED_FUNCS = {
+    "roomstamp": _run_roomstamp_benchmark_core,
+    "ingest": _run_ingest_core,
+}
+
+
+def _spawn_isolation_enabled() -> bool:
+    return os.environ.get("IFCTOPOLOGY_SPAWN_ISOLATION", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _isolated_job_worker(result_queue, payload: dict) -> None:
+    """Top-level entry for the spawn child. Runs the requested core function and
+    returns its result (or a formatted error) over the queue. Kept recipe-
+    agnostic so both roomstamp and ingest reuse it."""
+    import logging as _logging
+
+    _logging.basicConfig(level=_logging.INFO)
+    wlog = _logging.getLogger("topologicpy.isolated")
+
+    global _ISOLATED_JOB_ID, _ISOLATED_REDIS_URL
+    try:
+        _ISOLATED_JOB_ID = payload.get("job_id")
+        _ISOLATED_REDIS_URL = payload.get("redis_url")
+        func_name = payload["func"]
+        core = _ISOLATED_FUNCS.get(func_name)
+        if core is None:
+            raise ValueError(f"unknown isolated func {func_name!r}")
+        result = core(payload["job_data"])
+        result_queue.put(("ok", result))
+    except Exception as e:
+        import traceback as _tb
+
+        tb_str = _tb.format_exc()
+        try:
+            result_queue.put(("err", f"{type(e).__name__}: {e}\n{tb_str}"))
+        except Exception:
+            pass
+        wlog.exception("Isolated topologicpy worker failed")
+        raise
+
+
+def _run_in_spawn_isolation(func_name: str, job_data: dict) -> dict:
+    """Run a core function in a ``spawn`` subprocess so all native memory is
+    reclaimed when the child exits. A child crash (e.g. OCCT SIGSEGV) kills only
+    the child; the SimpleWorker parent survives and raises a clean RuntimeError
+    that n8n can retry."""
+    ctx = get_context("spawn")
+    payload = {
+        "func": func_name,
+        "job_data": job_data,
+        "job_id": _current_job_id(),
+        "redis_url": os.environ.get("REDIS_URL"),
+    }
+    # The result is delivered on a multiprocessing.Queue. ingest results can be
+    # large (relationships + elements), so we drain the queue BEFORE join() to
+    # avoid the classic feeder-thread deadlock (child blocks flushing a payload
+    # bigger than the pipe buffer while the parent waits in join()).
+    q = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=_isolated_job_worker, args=(q, payload))
+    proc.start()
+
+    payload_out: Optional[Tuple[str, Any]] = None
+    while True:
+        try:
+            payload_out = q.get(timeout=1.0)
+            break
+        except Empty:
+            if not proc.is_alive():
+                try:
+                    payload_out = q.get_nowait()
+                except Empty:
+                    payload_out = None
+                break
+    proc.join()
+
+    if payload_out is not None:
+        status, data = payload_out
+        if status == "ok":
+            return data
+        raise RuntimeError(f"topologicpy {func_name} isolated worker: {data}")
+
+    raise RuntimeError(
+        f"topologicpy {func_name} crashed in isolated subprocess "
+        f"(exit={proc.exitcode}) with no result"
+    )
+
+
+def run_roomstamp_benchmark(job_data: dict) -> dict:
+    """RQ entry point. Runs the benchmark in a spawn-isolated child so native
+    topologic/OCCT memory is reclaimed when the job finishes."""
+    if not _spawn_isolation_enabled():
+        return _run_roomstamp_benchmark_core(job_data)
+    return _run_in_spawn_isolation("roomstamp", job_data)
+
+
+def run_ingest(job_data: dict) -> dict:
+    """RQ entry point. Runs the ingest script in a spawn-isolated child so native
+    topologic/OCCT memory is reclaimed when the job finishes."""
+    if not _spawn_isolation_enabled():
+        return _run_ingest_core(job_data)
+    return _run_in_spawn_isolation("ingest", job_data)
