@@ -24,7 +24,11 @@ COPY topologicpy-worker/ingest_scripts /app/ingest_scripts
 RUN mkdir -p /output/topology /uploads
 RUN chmod -R 777 /output /uploads
 
+RUN useradd -m -u 1000 worker
+USER worker
+
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["rq", "worker", "topologicpy-worker", "--url", "redis://redis:6379/0", "--path", "/app"]
+# SimpleWorker: topologic/OCCT is not fork-safe under the default RQ work-horse.
+CMD ["sh", "-c", "rq worker --worker-class rq.worker.SimpleWorker topologicpy-worker --url \"${REDIS_URL:-redis://redis:6379/0}\" --path /app"]

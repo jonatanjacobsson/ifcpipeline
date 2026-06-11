@@ -41,6 +41,19 @@ _PROGRESS_LOG_EVERY = max(1, int(os.environ.get("IFCTOPOLOGY_PROGRESS_LOG_EVERY"
 # When bbox sampling places the point more than this far above min_z, snap Z to min_z + offset
 # so columns / vertical MEP map to the lowest storey zone, not mid-height.
 _VERTICAL_BIAS_OFFSET_M = float(os.environ.get("IFCTOPOLOGY_VERTICAL_BIAS_OFFSET_M", "1.2"))
+_OVERLAP_RESOLUTION = os.environ.get("IFCTOPOLOGY_OVERLAP_RESOLUTION", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+_OVERLAP_SAMPLES = max(4, min(128, int(os.environ.get("IFCTOPOLOGY_OVERLAP_SAMPLES", "24"))))
+_OVERLAP_CONFIDENCE_MARGIN = float(os.environ.get("IFCTOPOLOGY_OVERLAP_CONFIDENCE_MARGIN", "0.55"))
+_OVERLAP_COVERAGE_MIN = float(os.environ.get("IFCTOPOLOGY_OVERLAP_COVERAGE_MIN", "0.35"))
+_HYBRID_GEOMETRIC_FALLBACK = os.environ.get("IFCTOPOLOGY_HYBRID_GEOMETRIC_FALLBACK", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 Point = Tuple[float, float, float]
@@ -112,6 +125,21 @@ class ElementCandidate:
     name: Optional[str]
     sample_point: Point
     bbox: Optional[BBox]
+    sample_points: Optional[List[Point]] = None
+    verts: Optional[List[float]] = None
+    faces: Optional[List[int]] = None
+
+
+@dataclass
+class MatchResolution:
+    """Result of matching one element to a single dominant room."""
+
+    space: Optional[SpaceCandidate]
+    method: str  # overlap_majority | overlap_geometric | proximity | legacy | unmatched
+    status: str  # Contained | Resolved | Proximity | Unmatched
+    confidence: float
+    candidate_count: int = 0
+    raw_matches: Optional[List[SpaceCandidate]] = None
 
 
 class SpaceIndex:
@@ -214,6 +242,11 @@ class _JobTuning:
     max_proximate_spaces: int
     proximity_threshold_m: float
     progress_log_every: int
+    overlap_resolution: bool
+    overlap_samples: int
+    overlap_confidence_margin: float
+    overlap_coverage_min: float
+    hybrid_geometric_fallback: bool
 
 
 @dataclass
@@ -229,6 +262,33 @@ class _RunStats:
     mesh_faces_skipped: int = 0
     ambiguous_resolved: int = 0
     unmatched_resolved: int = 0
+    overlap_majority: int = 0
+    overlap_geometric: int = 0
+    proximity_forced: int = 0
+    legacy_matched: int = 0
+    confidence_histogram: Optional[Dict[str, int]] = None
+
+    def __post_init__(self) -> None:
+        if self.confidence_histogram is None:
+            self.confidence_histogram = {
+                "0.0-0.25": 0,
+                "0.25-0.5": 0,
+                "0.5-0.75": 0,
+                "0.75-1.0": 0,
+            }
+
+    def record_confidence(self, confidence: float) -> None:
+        if self.confidence_histogram is None:
+            self.confidence_histogram = {}
+        if confidence < 0.25:
+            bucket = "0.0-0.25"
+        elif confidence < 0.5:
+            bucket = "0.25-0.5"
+        elif confidence < 0.75:
+            bucket = "0.5-0.75"
+        else:
+            bucket = "0.75-1.0"
+        self.confidence_histogram[bucket] = self.confidence_histogram.get(bucket, 0) + 1
 
 
 def _tuning_from_request(request: TopologicpyRequest) -> _JobTuning:
@@ -241,6 +301,19 @@ def _tuning_from_request(request: TopologicpyRequest) -> _JobTuning:
         ),
         proximity_threshold_m=_PROXIMITY_THRESHOLD_M,
         progress_log_every=_PROGRESS_LOG_EVERY,
+        overlap_resolution=request.overlap_resolution if request.overlap_resolution is not None else _OVERLAP_RESOLUTION,
+        overlap_samples=max(4, min(128, int(request.overlap_samples or _OVERLAP_SAMPLES))),
+        overlap_confidence_margin=float(
+            request.overlap_confidence_margin if request.overlap_confidence_margin is not None else _OVERLAP_CONFIDENCE_MARGIN
+        ),
+        overlap_coverage_min=float(
+            request.overlap_coverage_min if request.overlap_coverage_min is not None else _OVERLAP_COVERAGE_MIN
+        ),
+        hybrid_geometric_fallback=(
+            request.hybrid_geometric_fallback
+            if request.hybrid_geometric_fallback is not None
+            else _HYBRID_GEOMETRIC_FALLBACK
+        ),
     )
 
 
@@ -516,16 +589,82 @@ def _space_from_cache_dict(data: Dict[str, Any]) -> SpaceCandidate:
     )
 
 
-def _bboxes_from_iterator(
+def _dedupe_sample_points(points: List[Point], max_points: int, min_sep: float = 0.05) -> List[Point]:
+    """Keep up to max_points spatially distinct sample locations."""
+    if not points:
+        return []
+    kept: List[Point] = []
+    min_sep_sq = min_sep * min_sep
+    for pt in points:
+        if len(kept) >= max_points:
+            break
+        duplicate = False
+        for existing in kept:
+            dx = pt[0] - existing[0]
+            dy = pt[1] - existing[1]
+            dz = pt[2] - existing[2]
+            if dx * dx + dy * dy + dz * dz < min_sep_sq:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(pt)
+    return kept
+
+
+def _build_element_sample_points(
+    product: Any,
+    bbox: Optional[BBox],
+    sample_strategy: TopologySampleStrategy,
+    scale_factor: float,
+    verts: Optional[List[float]],
+    faces: Optional[List[int]],
+    max_samples: int,
+) -> List[Point]:
+    """Multi-point footprint samples: primary point + mesh verts + face centroids."""
+    points: List[Point] = []
+    primary = _sample_point(product, bbox, sample_strategy, scale_factor) if bbox else _placement_point(product, scale_factor)
+    if primary is not None:
+        points.append(primary)
+
+    if verts and len(verts) >= 9:
+        vertex_count = len(verts) // 3
+        vert_budget = max(1, max_samples // 2)
+        step = max(1, vertex_count // vert_budget)
+        for vi in range(0, vertex_count, step):
+            base = vi * 3
+            points.append((float(verts[base]), float(verts[base + 1]), float(verts[base + 2])))
+
+    if faces and verts and len(faces) >= 3:
+        face_count = len(faces) // 3
+        face_budget = max(1, max_samples // 4)
+        step = max(1, face_count // face_budget)
+        vertex_count = len(verts) // 3
+        for fi in range(0, face_count, step):
+            i0, i1, i2 = faces[fi * 3], faces[fi * 3 + 1], faces[fi * 3 + 2]
+            if max(i0, i1, i2) >= vertex_count:
+                continue
+            cx = (verts[i0 * 3] + verts[i1 * 3] + verts[i2 * 3]) / 3.0
+            cy = (verts[i0 * 3 + 1] + verts[i1 * 3 + 1] + verts[i2 * 3 + 1]) / 3.0
+            cz = (verts[i0 * 3 + 2] + verts[i1 * 3 + 2] + verts[i2 * 3 + 2]) / 3.0
+            points.append((float(cx), float(cy), float(cz)))
+
+    if not points and bbox is not None:
+        points.append(_bbox_sample_point(bbox))
+
+    return _dedupe_sample_points(points, max_samples)
+
+
+def _geometry_from_iterator(
     model: Any,
     products: List[Any],
     settings: Any,
-) -> Dict[int, BBox]:
-    """Computes bounding boxes for a list of products using a multithreaded geom.iterator."""
+) -> Tuple[Dict[int, BBox], Dict[int, Tuple[List[float], List[int]]]]:
+    """Compute bboxes and triangle meshes for products using geom.iterator."""
     if not products:
-        return {}
+        return {}, {}
 
     bboxes: Dict[int, BBox] = {}
+    meshes: Dict[int, Tuple[List[float], List[int]]] = {}
     num_threads = int(os.environ.get("IFCTOPOLOGY_ITERATOR_THREADS", "0"))
     if num_threads <= 0:
         num_threads = os.cpu_count() or 4
@@ -538,11 +677,14 @@ def _bboxes_from_iterator(
                 if shape:
                     try:
                         verts = list(shape.geometry.verts)
+                        faces = list(shape.geometry.faces)
                         if len(verts) >= 3:
                             xs = verts[0::3]
                             ys = verts[1::3]
                             zs = verts[2::3]
                             bboxes[shape.id] = BBox(min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+                            if faces:
+                                meshes[shape.id] = (verts, faces)
                     except Exception as e:
                         logger.debug("Error parsing geometry for product id %s: %s", shape.id, e)
                 if not iterator.next():
@@ -554,6 +696,16 @@ def _bboxes_from_iterator(
             if bbox:
                 bboxes[product.id()] = bbox
 
+    return bboxes, meshes
+
+
+def _bboxes_from_iterator(
+    model: Any,
+    products: List[Any],
+    settings: Any,
+) -> Dict[int, BBox]:
+    """Computes bounding boxes for a list of products using a multithreaded geom.iterator."""
+    bboxes, _ = _geometry_from_iterator(model, products, settings)
     return bboxes
 
 
@@ -564,6 +716,7 @@ def _collect_elements(
     settings: Any,
     sample_strategy: TopologySampleStrategy,
     max_elements: Optional[int],
+    overlap_samples: int = _OVERLAP_SAMPLES,
 ) -> Tuple[List[ElementCandidate], int]:
     elements: List[ElementCandidate] = []
     geometry_failures = 0
@@ -578,23 +731,39 @@ def _collect_elements(
     if max_elements is not None:
         all_products = all_products[:max_elements]
 
-    # Always compute geometry bboxes so PLACEMENT can be validated against them.
+    # Always compute geometry bboxes (and meshes when available) so PLACEMENT
+    # can be validated and overlap voting has footprint samples.
     products_needing_bbox = list(all_products)
-    bboxes = _bboxes_from_iterator(model, products_needing_bbox, settings)
+    bboxes, meshes = _geometry_from_iterator(model, products_needing_bbox, settings)
 
     for product in all_products:
         pid = product.id()
         bbox = bboxes.get(pid)
+        mesh = meshes.get(pid)
+        verts = mesh[0] if mesh else None
+        faces = mesh[1] if mesh else None
         if bbox is None:
             point = _placement_point(product, scale_factor)
             if point is None:
                 geometry_failures += 1
                 continue
+            sample_points = [point]
         else:
             point = _sample_point(product, bbox, sample_strategy, scale_factor)
             if point is None:
                 geometry_failures += 1
                 continue
+            sample_points = _build_element_sample_points(
+                product,
+                bbox,
+                sample_strategy,
+                scale_factor,
+                verts,
+                faces,
+                overlap_samples,
+            )
+            if not sample_points:
+                sample_points = [point]
 
         elements.append(
             ElementCandidate(
@@ -605,6 +774,9 @@ def _collect_elements(
                 name=getattr(product, "Name", None),
                 sample_point=point,
                 bbox=bbox,
+                sample_points=sample_points,
+                verts=verts,
+                faces=faces,
             )
         )
 
@@ -1028,10 +1200,367 @@ def _distance_point_to_bbox(point: Point, bbox: BBox) -> float:
     dx = max(bbox.min_x - point[0], 0.0, point[0] - bbox.max_x)
     dy = max(bbox.min_y - point[1], 0.0, point[1] - bbox.max_y)
     dz = max(bbox.min_z - point[2], 0.0, point[2] - bbox.max_z)
-    return (dx*dx + dy*dy + dz*dz)**0.5
+    return (dx * dx + dy * dy + dz * dz) ** 0.5
 
 
-def _match_element_to_spaces(
+def _element_sample_points(element: ElementCandidate) -> List[Point]:
+    if element.sample_points:
+        return element.sample_points
+    return [element.sample_point]
+
+
+def _vote_rooms_by_samples(
+    element: ElementCandidate,
+    spaces: Iterable[SpaceCandidate],
+    tolerance: float,
+    selected_engine: str,
+    space_index: Optional[SpaceIndex],
+    stats: Optional[_RunStats],
+    tuning: _JobTuning,
+) -> Tuple[Dict[str, int], int, Dict[str, SpaceCandidate]]:
+    """Tally per-room containment hits across element sample points.
+
+    Multi-point voting uses bbox containment for throughput; ambiguous cases
+    fall through to footprint overlap resolution.
+    """
+    hits: Dict[str, int] = {}
+    space_by_gid: Dict[str, SpaceCandidate] = {s.global_id: s for s in spaces}
+    points = _element_sample_points(element)
+    points_with_hit = 0
+    vote_engine = TopologyEngine.BBOX.value
+
+    for point in points:
+        if space_index is not None:
+            candidates = space_index.query(point, tolerance)
+        else:
+            candidates = list(spaces)
+
+        point_hit_any = False
+        for space in candidates:
+            if _space_contains_point(space, point, tolerance, vote_engine, stats, tuning):
+                hits[space.global_id] = hits.get(space.global_id, 0) + 1
+                point_hit_any = True
+        if point_hit_any:
+            points_with_hit += 1
+
+    # When bbox vote finds a single room, confirm with the selected engine on the primary point.
+    if selected_engine != vote_engine and len(hits) == 1:
+        only_gid = next(iter(hits))
+        only_space = space_by_gid.get(only_gid)
+        if only_space is not None and not _space_contains_point(
+            only_space,
+            element.sample_point,
+            tolerance,
+            selected_engine,
+            stats,
+            tuning,
+        ):
+            hits.clear()
+            points_with_hit = 0
+
+    return hits, points_with_hit, space_by_gid
+
+
+def _footprint_overlap_score(element_bbox: BBox, space_bbox: BBox) -> float:
+    ix0 = max(element_bbox.min_x, space_bbox.min_x)
+    iy0 = max(element_bbox.min_y, space_bbox.min_y)
+    ix1 = min(element_bbox.max_x, space_bbox.max_x)
+    iy1 = min(element_bbox.max_y, space_bbox.max_y)
+    if ix1 <= ix0 or iy1 <= iy0:
+        return 0.0
+    inter_area = (ix1 - ix0) * (iy1 - iy0)
+    elem_area = max(
+        (element_bbox.max_x - element_bbox.min_x) * (element_bbox.max_y - element_bbox.min_y),
+        1e-9,
+    )
+    return inter_area / elem_area
+
+
+def _best_room_by_overlap(
+    element: ElementCandidate,
+    candidate_rooms: List[SpaceCandidate],
+    tolerance: float,
+    selected_engine: str,
+    stats: Optional[_RunStats],
+    tuning: _JobTuning,
+) -> Tuple[Optional[SpaceCandidate], float]:
+    """Resolve ambiguous matches using horizontal footprint overlap (stable, no boolean ops)."""
+    if not candidate_rooms or element.bbox is None:
+        return None, 0.0
+
+    scored: List[Tuple[float, SpaceCandidate]] = []
+    for space in candidate_rooms:
+        scored.append((_footprint_overlap_score(element.bbox, space.bbox), space))
+    scored.sort(key=lambda item: item[0], reverse=True)
+
+    if not scored or scored[0][0] <= 0.0:
+        if _use_topologic_distance(selected_engine, tuning) and stats is not None:
+            chosen = _closest_space_by_topologic(
+                element.sample_point,
+                candidate_rooms,
+                tolerance,
+                stats,
+                tuning,
+            )
+            if chosen is not None:
+                dist = _distance_point_to_bbox(element.sample_point, chosen.bbox)
+                return chosen, max(0.0, 1.0 - min(dist, 2.0) / 2.0)
+        chosen = _closest_space_by_bbox(element.sample_point, candidate_rooms)
+        if chosen is not None:
+            dist = _distance_point_to_bbox(element.sample_point, chosen.bbox)
+            return chosen, max(0.0, 1.0 - min(dist, 2.0) / 2.0)
+        return None, 0.0
+
+    best_score, best_space = scored[0]
+    confidence = min(1.0, best_score)
+    return best_space, confidence
+
+
+def _proximity_resolution(
+    element: ElementCandidate,
+    spaces: Iterable[SpaceCandidate],
+    tolerance: float,
+    selected_engine: str,
+    space_index: Optional[SpaceIndex],
+    stats: Optional[_RunStats],
+    tuning: _JobTuning,
+) -> Optional[SpaceCandidate]:
+    space_list = list(spaces)
+    if space_index is not None:
+        proximate_pool = space_index.query(
+            element.sample_point,
+            tuning.proximity_threshold_m,
+        )
+    else:
+        proximate_pool = space_list
+
+    proximate_candidates = _nearest_spaces_by_bbox(
+        element.sample_point,
+        proximate_pool,
+        limit=tuning.max_proximate_spaces,
+        max_distance=tuning.proximity_threshold_m,
+    )
+    if not proximate_candidates:
+        proximate_candidates = _nearest_spaces_by_bbox(
+            element.sample_point,
+            space_list,
+            limit=tuning.max_proximate_spaces,
+        )
+    if not proximate_candidates:
+        return None
+
+    if stats is not None:
+        stats.unmatched_resolved += 1
+        stats.bbox_distance_resolutions += 1
+
+    if _use_topologic_distance(selected_engine, tuning) and stats is not None:
+        chosen = _closest_space_by_topologic(
+            element.sample_point,
+            proximate_candidates,
+            tolerance,
+            stats,
+            tuning,
+        )
+        if chosen is not None:
+            return chosen
+    return _closest_space_by_bbox(element.sample_point, proximate_candidates)
+
+
+def _resolve_dominant_room(
+    element: ElementCandidate,
+    spaces: Iterable[SpaceCandidate],
+    tolerance: float,
+    selected_engine: str,
+    space_index: Optional[SpaceIndex],
+    resolve_unmatched: bool,
+    stats: Optional[_RunStats],
+    tuning: _JobTuning,
+) -> MatchResolution:
+    points = _element_sample_points(element)
+    if not points:
+        return MatchResolution(None, "unmatched", "Unmatched", 0.0, 0, [])
+
+    hits, points_with_hit, space_by_gid = _vote_rooms_by_samples(
+        element,
+        spaces,
+        tolerance,
+        selected_engine,
+        space_index,
+        stats,
+        tuning,
+    )
+    coverage = points_with_hit / len(points) if points else 0.0
+
+    if hits:
+        ranked = sorted(hits.items(), key=lambda item: item[1], reverse=True)
+        dom_gid, dom_hits = ranked[0]
+        second_hits = ranked[1][1] if len(ranked) > 1 else 0
+        total_hits = sum(hits.values())
+        confidence = dom_hits / total_hits if total_hits else 0.0
+        margin = (dom_hits - second_hits) / total_hits if total_hits else 0.0
+        candidate_spaces = [space_by_gid[gid] for gid, _ in ranked if gid in space_by_gid]
+
+        decisive = (
+            confidence >= tuning.overlap_confidence_margin
+            and coverage >= tuning.overlap_coverage_min
+            and margin >= 0.1
+        )
+        if decisive:
+            if stats is not None:
+                stats.overlap_majority += 1
+                stats.record_confidence(confidence)
+            return MatchResolution(
+                space_by_gid[dom_gid],
+                "overlap_majority",
+                "Contained",
+                confidence,
+                len(candidate_spaces),
+                candidate_spaces,
+            )
+
+        if tuning.hybrid_geometric_fallback:
+            top_k = candidate_spaces[: tuning.max_proximate_spaces]
+            if stats is not None:
+                stats.ambiguous_resolved += 1
+            chosen, geo_conf = _best_room_by_overlap(
+                element,
+                top_k,
+                tolerance,
+                selected_engine,
+                stats,
+                tuning,
+            )
+            if chosen is not None:
+                if stats is not None:
+                    stats.overlap_geometric += 1
+                    stats.record_confidence(geo_conf)
+                return MatchResolution(
+                    chosen,
+                    "overlap_geometric",
+                    "Resolved",
+                    geo_conf,
+                    len(candidate_spaces),
+                    candidate_spaces,
+                )
+
+        if stats is not None:
+            stats.bbox_distance_resolutions += 1
+            stats.ambiguous_resolved += 1
+        return MatchResolution(
+            space_by_gid[dom_gid],
+            "overlap_majority",
+            "Resolved",
+            confidence,
+            len(candidate_spaces),
+            candidate_spaces,
+        )
+
+    if resolve_unmatched:
+        chosen = _proximity_resolution(
+            element,
+            spaces,
+            tolerance,
+            selected_engine,
+            space_index,
+            stats,
+            tuning,
+        )
+        if chosen is not None:
+            dist = _distance_point_to_bbox(element.sample_point, chosen.bbox)
+            confidence = max(0.0, 1.0 - min(dist, tuning.proximity_threshold_m) / tuning.proximity_threshold_m)
+            if stats is not None:
+                stats.proximity_forced += 1
+                stats.record_confidence(confidence)
+            return MatchResolution(
+                chosen,
+                "proximity",
+                "Proximity",
+                confidence,
+                0,
+                [],
+            )
+
+    return MatchResolution(None, "unmatched", "Unmatched", 0.0, 0, [])
+
+
+def _default_job_tuning() -> _JobTuning:
+    return _JobTuning(
+        cell_mode=_CELL_MODE,
+        distance_mode=_DISTANCE_MODE,
+        max_proximate_spaces=_MAX_PROXIMATE_SPACES,
+        proximity_threshold_m=_PROXIMITY_THRESHOLD_M,
+        progress_log_every=_PROGRESS_LOG_EVERY,
+        overlap_resolution=_OVERLAP_RESOLUTION,
+        overlap_samples=_OVERLAP_SAMPLES,
+        overlap_confidence_margin=_OVERLAP_CONFIDENCE_MARGIN,
+        overlap_coverage_min=_OVERLAP_COVERAGE_MIN,
+        hybrid_geometric_fallback=_HYBRID_GEOMETRIC_FALLBACK,
+    )
+
+
+def _match_element_resolution(
+    element: ElementCandidate,
+    spaces: Iterable[SpaceCandidate],
+    tolerance: float,
+    selected_engine: str,
+    space_index: Optional[SpaceIndex] = None,
+    resolve_ambiguous: bool = True,
+    resolve_unmatched: bool = False,
+    stats: Optional[_RunStats] = None,
+    tuning: Optional[_JobTuning] = None,
+) -> MatchResolution:
+    effective_tuning = tuning or _default_job_tuning()
+
+    if effective_tuning.overlap_resolution:
+        return _resolve_dominant_room(
+            element,
+            spaces,
+            tolerance,
+            selected_engine,
+            space_index,
+            resolve_unmatched,
+            stats,
+            effective_tuning,
+        )
+
+    matches = _match_element_to_spaces_legacy(
+        element,
+        spaces,
+        tolerance,
+        selected_engine,
+        space_index=space_index,
+        resolve_ambiguous=resolve_ambiguous,
+        resolve_unmatched=resolve_unmatched,
+        stats=stats,
+        tuning=effective_tuning,
+    )
+    if not matches:
+        return MatchResolution(None, "unmatched", "Unmatched", 0.0, 0, [])
+    if len(matches) == 1:
+        if stats is not None:
+            stats.legacy_matched += 1
+            stats.record_confidence(1.0)
+        return MatchResolution(
+            matches[0],
+            "legacy",
+            "Contained" if len(matches) == 1 else "Resolved",
+            1.0,
+            len(matches),
+            matches,
+        )
+    if stats is not None:
+        stats.record_confidence(1.0 / len(matches))
+    return MatchResolution(
+        matches[0],
+        "legacy",
+        "Resolved",
+        1.0 / len(matches),
+        len(matches),
+        matches,
+    )
+
+
+def _match_element_to_spaces_legacy(
     element: ElementCandidate,
     spaces: Iterable[SpaceCandidate],
     tolerance: float,
@@ -1042,13 +1571,7 @@ def _match_element_to_spaces(
     stats: Optional[_RunStats] = None,
     tuning: Optional[_JobTuning] = None,
 ) -> List[SpaceCandidate]:
-    effective_tuning = tuning or _JobTuning(
-        cell_mode=_CELL_MODE,
-        distance_mode=_DISTANCE_MODE,
-        max_proximate_spaces=_MAX_PROXIMATE_SPACES,
-        proximity_threshold_m=_PROXIMITY_THRESHOLD_M,
-        progress_log_every=_PROGRESS_LOG_EVERY,
-    )
+    effective_tuning = tuning or _default_job_tuning()
     space_list = list(spaces)
     if space_index is not None:
         candidates = space_index.query(element.sample_point, tolerance)
@@ -1135,6 +1658,33 @@ def _match_element_to_spaces(
     return bbox_matches
 
 
+def _match_element_to_spaces(
+    element: ElementCandidate,
+    spaces: Iterable[SpaceCandidate],
+    tolerance: float,
+    selected_engine: str,
+    space_index: Optional[SpaceIndex] = None,
+    resolve_ambiguous: bool = True,
+    resolve_unmatched: bool = False,
+    stats: Optional[_RunStats] = None,
+    tuning: Optional[_JobTuning] = None,
+) -> List[SpaceCandidate]:
+    resolution = _match_element_resolution(
+        element,
+        spaces,
+        tolerance,
+        selected_engine,
+        space_index=space_index,
+        resolve_ambiguous=resolve_ambiguous,
+        resolve_unmatched=resolve_unmatched,
+        stats=stats,
+        tuning=tuning,
+    )
+    if resolution.space is not None:
+        return [resolution.space]
+    return resolution.raw_matches or []
+
+
 def _space_payload(space: Optional[SpaceCandidate]) -> Optional[Dict[str, Any]]:
     if space is None:
         return None
@@ -1149,19 +1699,23 @@ def _space_payload(space: Optional[SpaceCandidate]) -> Optional[Dict[str, Any]]:
     }
 
 
-def _element_payload(element: ElementCandidate, matches: List[SpaceCandidate]) -> Dict[str, Any]:
-    chosen = matches[0] if matches else None
+def _element_payload(element: ElementCandidate, resolution: MatchResolution) -> Dict[str, Any]:
+    matches = resolution.raw_matches or ([resolution.space] if resolution.space else [])
+    chosen = resolution.space
     return {
         "source_file": element.source_file,
         "global_id": element.global_id,
         "ifc_class": element.ifc_class,
         "name": element.name,
         "sample_point": list(element.sample_point),
+        "sample_point_count": len(_element_sample_points(element)),
         "bbox": element.bbox.to_dict() if element.bbox else None,
         "matched_space": _space_payload(chosen),
         "matched_spaces": [_space_payload(space) for space in matches],
-        "match_status": "ambiguous" if len(matches) > 1 else "matched" if matches else "unmatched",
-        "match_count": len(matches),
+        "match_status": resolution.status.lower(),
+        "match_method": resolution.method,
+        "match_confidence": round(resolution.confidence, 4),
+        "match_count": resolution.candidate_count,
     }
 
 
@@ -1182,7 +1736,7 @@ def _stamp_element(
     model: Any,
     element: Any,
     space: SpaceCandidate,
-    matches: List[SpaceCandidate],
+    resolution: MatchResolution,
     pset_name: str,
     selected_engine: str,
     pset_cache: Optional[_PsetCache] = None,
@@ -1192,8 +1746,10 @@ def _stamp_element(
     zone_names = [zone.get("name") for zone in space.zones if zone.get("name")]
     zone_ids = [zone.get("global_id") for zone in space.zones if zone.get("global_id")]
     properties = {
-        "SpatialMatchStatus": "Ambiguous" if len(matches) > 1 else "Matched",
-        "SpatialMatchCount": str(len(matches)),
+        "SpatialMatchStatus": resolution.status,
+        "SpatialMatchMethod": resolution.method,
+        "SpatialMatchConfidence": f"{resolution.confidence:.4f}",
+        "SpatialMatchCount": str(max(resolution.candidate_count, 1)),
         "SpatialSourceFile": space.source_file,
         "SpatialRelationshipEngine": selected_engine,
         "SpaceGlobalId": space.global_id,
@@ -1823,6 +2379,7 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
                 settings,
                 request.sample_strategy,
                 request.max_elements,
+                overlap_samples=tuning.overlap_samples,
             )
             element_geometry_failures += failures
             element_geometry_seconds += time.perf_counter() - file_element_start
@@ -1866,7 +2423,7 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
                 )
 
                 for element in batch:
-                    matches = _match_element_to_spaces(
+                    resolution = _match_element_resolution(
                         element,
                         spaces,
                         request.tolerance,
@@ -1878,36 +2435,40 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
                         tuning=tuning,
                     )
 
-                    num_matches = len(matches)
                     candidate_tests += len(spaces) if space_index is None else len(space_index.query(element.sample_point, request.tolerance))
                     total_elements += 1
 
-                    if num_matches > 0:
+                    if resolution.space is not None:
                         matched_count += 1
                     else:
                         if len(sample_unmatched_ids) < 100:
                             sample_unmatched_ids.append(element.global_id)
 
-                    if num_matches > 1:
+                    is_ambiguous = (
+                        resolution.space is not None
+                        and resolution.status != "Contained"
+                        and resolution.candidate_count > 1
+                    )
+                    if is_ambiguous:
                         ambiguous_count += 1
                         if len(sample_ambiguous_ids) < 100:
                             sample_ambiguous_ids.append(element.global_id)
 
                     if request.report_detail == "full":
-                        element_results.append(_element_payload(element, matches))
+                        element_results.append(_element_payload(element, resolution))
 
                     if request.stamp:
-                        if num_matches == 0:
+                        if resolution.space is None:
                             file_skipped_unmatched += 1
-                        elif num_matches > 1 and not request.stamp_ambiguous:
+                        elif resolution.status != "Contained" and not request.stamp_ambiguous:
                             file_skipped_ambiguous += 1
                         else:
                             file_stamp_start = time.perf_counter()
                             _stamp_element(
                                 model,
                                 element.element,
-                                matches[0],
-                                matches,
+                                resolution.space,
+                                resolution,
                                 request.pset_name,
                                 selected_engine,
                                 pset_cache=pset_cache,
@@ -2054,6 +2615,16 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
             "mesh_faces_skipped": stats.mesh_faces_skipped,
             "ambiguous_resolved": stats.ambiguous_resolved,
             "unmatched_resolved": stats.unmatched_resolved,
+            "overlap_majority_count": stats.overlap_majority,
+            "overlap_geometric_count": stats.overlap_geometric,
+            "proximity_forced_count": stats.proximity_forced,
+            "legacy_matched_count": stats.legacy_matched,
+            "confidence_histogram": stats.confidence_histogram,
+            "overlap_resolution": tuning.overlap_resolution,
+            "overlap_samples": tuning.overlap_samples,
+            "overlap_confidence_margin": tuning.overlap_confidence_margin,
+            "overlap_coverage_min": tuning.overlap_coverage_min,
+            "hybrid_geometric_fallback": tuning.hybrid_geometric_fallback,
             "space_cache": space_cache_status,
             "cell_cache": cell_cache_status,
         }
