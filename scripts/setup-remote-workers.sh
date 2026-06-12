@@ -10,6 +10,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 PIPELINE_HOST="${PIPELINE_HOST:-primary-host}"
 REMOTE_SSH="${REMOTE_SSH:-deploy@worker-host}"
 REMOTE_REPO="${REMOTE_REPO:-/home/deploy/apps/ifcpipeline}"

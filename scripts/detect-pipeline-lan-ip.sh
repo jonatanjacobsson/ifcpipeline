@@ -3,9 +3,9 @@
 set -euo pipefail
 
 WORKER_HOST="${WORKER_HOSTNAME:-worker-host}"
-worker_ip="$(getent hosts "$WORKER_HOST" 2>/dev/null | awk '{print $1}' | head -1)"
+worker_ip="${WORKER_VM_IP:-}"
 if [[ -z "$worker_ip" ]]; then
-  worker_ip="${WORKER_VM_IP:-}"
+  worker_ip="$(getent hosts "$WORKER_HOST" 2>/dev/null | awk '{print $1}' | head -1 || true)"
 fi
 if [[ -z "$worker_ip" ]]; then
   echo "error: cannot resolve worker host ($WORKER_HOST); set WORKER_VM_IP" >&2

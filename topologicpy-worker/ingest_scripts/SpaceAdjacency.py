@@ -16,7 +16,7 @@ from typing import List, Set
 
 import ifcopenshell
 
-from ingest_scripts import Element, Ingester as _Base, Relationship
+from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
 try:
     from topologicpy.Topology import Topology
@@ -151,7 +151,7 @@ class Ingester(_Base):
         ifc = ifcopenshell.open(str(ifc_path))
         space_to_boundaries: dict = {}
 
-        for rel in ifc.by_type("IfcRelSpaceBoundary"):
+        for rel in safe_by_type(ifc, "IfcRelSpaceBoundary"):
             space = rel.RelatingSpace
             element = rel.RelatedBuildingElement
             if not space or not element:

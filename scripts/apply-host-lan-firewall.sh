@@ -9,9 +9,9 @@
 #   chain, and therefore DOCKER-USER. Interface-agnostic rules like
 #       iptables -A DOCKER-USER -p tcp --dport 5432 -j DROP
 #   silently drop api-gateway->postgres, n8n->postgres, workers->redis, etc.
-#   We scope every rule to the EXTERNAL interface (the NIC holding
-#   PIPELINE_LAN_IP) so only off-host clients are filtered; bridge traffic
-#   (entering via br-*) is never matched and flows normally.
+#   We scope every rule to the EXTERNAL interface used to reach the worker VM
+#   so only off-host clients are filtered; bridge traffic (entering via br-*)
+#   is never matched and flows normally.
 #
 # Run on the primary host as root:
 #   sudo ./scripts/apply-host-lan-firewall.sh
@@ -36,15 +36,17 @@ set -a
 source .env
 set +a
 
-: "${PIPELINE_LAN_IP:?Set PIPELINE_LAN_IP in .env}"
-: "${WORKER_VM_IP:?Set WORKER_VM_IP in .env}"
+WORKER_HOST="${WORKER_HOSTNAME:-bimbotw1}"
+if [[ -z "${WORKER_VM_IP:-}" ]]; then
+  WORKER_VM_IP="$(getent hosts "$WORKER_HOST" 2>/dev/null | awk '{print $1}' | head -1 || true)"
+fi
+: "${WORKER_VM_IP:?Set WORKER_VM_IP in .env or ensure WORKER_HOSTNAME resolves}"
 
 PORTS=(6379 5432 8333)
 
-# External interface = the NIC that holds PIPELINE_LAN_IP.
-EXT_IF="$(ip -o -4 addr show | awk -v ip="${PIPELINE_LAN_IP}/" '$4 ~ ip {print $2; exit}')"
+EXT_IF="$(bash "$ROOT/scripts/detect-pipeline-external-interface.sh" 2>/dev/null || true)"
 if [[ -z "$EXT_IF" ]]; then
-  echo "error: could not find interface holding ${PIPELINE_LAN_IP}" >&2
+  echo "error: could not detect external interface toward worker ${WORKER_VM_IP}" >&2
   exit 1
 fi
 
@@ -54,12 +56,12 @@ echo "==> Ports:              ${PORTS[*]}"
 echo ""
 
 # 1) Remove any prior rules for these ports (both the buggy interface-agnostic
-#    form and this script's eth0-scoped form). Idempotent: ignore failures.
+#    form and this script's scoped form). Idempotent: ignore failures.
 for P in "${PORTS[@]}"; do
   # legacy interface-agnostic rules
   iptables -D DOCKER-USER -s "${WORKER_VM_IP}/32" -p tcp --dport "$P" -j RETURN 2>/dev/null || true
   iptables -D DOCKER-USER -p tcp --dport "$P" -j DROP 2>/dev/null || true
-  # this script's scoped rules
+  # older eth0-scoped rules
   iptables -D DOCKER-USER -i "$EXT_IF" -s "${WORKER_VM_IP}/32" -p tcp --dport "$P" -j RETURN 2>/dev/null || true
   iptables -D DOCKER-USER -i "$EXT_IF" -p tcp --dport "$P" -j DROP 2>/dev/null || true
 done

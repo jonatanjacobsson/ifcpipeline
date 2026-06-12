@@ -1,0 +1,10 @@
+# Re-layer local ifc-coord sources onto an existing ifcpipeline-ifccoord-worker image
+# when ghcr.io/jonatanjacobsson/ifc-coord is unavailable for a full rebuild.
+FROM ifcpipeline-ifccoord-worker:latest
+
+COPY ifcpatch-worker/custom_recipes/RemoveElements.py /app/custom_recipes/RemoveElements.py
+COPY ifc-coord/ag_ifc /app/ag_ifc
+COPY ifc-coord/ifc_coord /app/ifc_coord
+ENV PYTHONPATH=/app
+# SimpleWorker: no fork per job — IfcOpenShell/native geometry is not fork-safe.
+CMD ["sh", "-c", "rq worker --worker-class rq.worker.SimpleWorker ifccoord --url \"${REDIS_URL:-redis://redis:6379/0}\" --path /app"]

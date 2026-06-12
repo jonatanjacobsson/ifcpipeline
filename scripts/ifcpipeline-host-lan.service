@@ -1,0 +1,18 @@
+[Unit]
+Description=ifcpipeline host-LAN data plane ports and firewall
+Documentation=file:///home/bimbot-ubuntu/apps/ifcpipeline/DEPLOYMENT.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=bimbot-ubuntu
+Group=docker
+WorkingDirectory=/home/bimbot-ubuntu/apps/ifcpipeline
+Environment=HOME=/home/bimbot-ubuntu
+ExecStart=/home/bimbot-ubuntu/apps/ifcpipeline/scripts/apply-host-lan-access.sh
+
+[Install]
+WantedBy=multi-user.target

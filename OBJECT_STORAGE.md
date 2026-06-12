@@ -49,8 +49,12 @@ S3-compatible object store so that:
   - `/ifc2json/{filename}` fetches the JSON body from S3 first, then falls
     back to disk for legacy callers.
   - `/create_download_link` + `/download/{token}` auto-detect S3-backed
-    paths and redirect the download to a **presigned URL** (see
-    `S3_PUBLIC_ENDPOINT_URL`) so the client streams directly from object storage.
+    paths and redirect the download to a **presigned URL**. Callers on the
+    Docker network (n8n → `http://api-gateway`, allowed container IP ranges)
+    get URLs signed against **`S3_INTERNAL_ENDPOINT_URL`** (defaults to
+    `S3_ENDPOINT_URL`, e.g. `http://seaweedfs:8333`). Browsers and traffic
+    arriving via the published gateway port / Cloudflare get
+    **`S3_PUBLIC_ENDPOINT_URL`**.
 
 ### Design choices
 
@@ -63,8 +67,11 @@ S3-compatible object store so that:
   library against local paths, and push the result back up. The S3 path is a
   drop-in replacement for the bind-mounts — no API or queue shape changes.
 - `S3_PUBLIC_ENDPOINT_URL` lets the gateway mint presigned URLs that point at
-  whatever hostname clients can actually reach (e.g. a public HTTPS hostname
+  whatever hostname **external** clients can reach (e.g. a public HTTPS hostname
   in prod; loopback `:8333` for local smoke tests).
+- `S3_INTERNAL_ENDPOINT_URL` (optional) overrides the host used when
+  `/download/{token}` detects a Docker-network caller. Defaults to
+  `S3_ENDPOINT_URL`.
 
 ## Ports (default compose)
 
@@ -174,7 +181,8 @@ redirects, e.g. `https://s3-api.example.com`):
 | --- | --- | --- | --- |
 | `USE_OBJECT_STORAGE` | `true` | gateway + workers | Flip to `false` for legacy mode |
 | `S3_ENDPOINT_URL` | `http://seaweedfs:8333` | gateway + workers | Internal SeaweedFS S3 URL |
-| `S3_PUBLIC_ENDPOINT_URL` | (set in `.env`) | gateway | Rewritten host for presigned URLs |
+| `S3_INTERNAL_ENDPOINT_URL` | (same as `S3_ENDPOINT_URL`) | gateway | Presigned host for Docker-network download redirects |
+| `S3_PUBLIC_ENDPOINT_URL` | (set in `.env`) | gateway | Presigned host for browsers / Cloudflare callers |
 | `S3_ACCESS_KEY` | (set in `.env`) | all | SeaweedFS S3 identity (also in `seaweedfs/s3.json`) |
 | `S3_SECRET_KEY` | (set in `.env`) | all | SeaweedFS S3 secret |
 | `S3_BUCKET` | `ifcpipeline` | all | Single bucket name |

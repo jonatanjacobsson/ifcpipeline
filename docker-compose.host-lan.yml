@@ -1,24 +1,25 @@
-# Primary-host overlay: publish Redis, Postgres, and the SeaweedFS S3 API on
-# PIPELINE_LAN_IP so worker hosts can reach them over the LAN.
+# Primary-host overlay: publish Redis, Postgres, and SeaweedFS S3 on all host
+# interfaces so DHCP / reboot IP changes do not break container startup.
 #
-# Usage (from repo root, with PIPELINE_LAN_IP in .env):
+# Usage (from repo root):
 #   docker compose -f docker-compose.control-plane.yml -f docker-compose.host-lan.yml up -d redis postgres seaweedfs
 #
-# Keeps loopback bindings from docker-compose.yml AND adds LAN bindings.
-# Restrict access with ufw to WORKER_VM_IP only (see scripts/apply-host-lan-firewall.sh).
+# Restrict off-host access to the worker VM with:
+#   sudo ./scripts/apply-host-lan-firewall.sh
+#
+# PIPELINE_LAN_IP in .env is auto-synced by scripts for worker .env.remote only;
+# it is not used for Docker port bindings.
 
 services:
   redis:
     ports:
-      - "127.0.0.1:6379:6379"
-      - "${PIPELINE_LAN_IP:?Set PIPELINE_LAN_IP in .env}:6379:6379"
+      - "6379:6379"
 
   seaweedfs:
     ports:
-      - "127.0.0.1:8333:8333"
+      - "8333:8333"
       - "127.0.0.1:8443:8888"
-      - "${PIPELINE_LAN_IP:?Set PIPELINE_LAN_IP in .env}:8333:8333"
 
   postgres:
     ports:
-      - "${PIPELINE_LAN_IP:?Set PIPELINE_LAN_IP in .env}:5432:5432"
+      - "5432:5432"

@@ -3,6 +3,9 @@ import os
 import json
 import tempfile
 import shutil
+from multiprocessing import get_context
+from queue import Empty
+
 import ifcopenshell
 from ifcdiff import IfcDiff
 from shared.classes import IfcDiffRequest
@@ -192,15 +195,13 @@ def safe_json_export(diff_instance, output_path):
             # Re-raise if it's not a JSON serialization error
             raise
 
-def run_ifcdiff(job_data: dict) -> dict:
+def _execute_ifcdiff(job_data: dict) -> dict:
     """
     Compare two IFC files and generate a diff report using the ifcdiff library.
-    
-    Args:
-        job_data: Dictionary containing job parameters conforming to IfcDiffRequest.
-        
-    Returns:
-        Dictionary containing the diff results.
+
+    Runs in-process; prefer ``run_ifcdiff`` which isolates this in a spawn
+    subprocess so intermittent ifcopenshell/ifcdiff SIGSEGVs do not kill the
+    RQ work-horse (signal 11 / exit 139).
     """
     try:
         request = IfcDiffRequest(**job_data)
@@ -373,4 +374,75 @@ def run_ifcdiff(job_data: dict) -> dict:
         raise
     except Exception as e:
         logger.error(f"Error during IFC diff: {str(e)}", exc_info=True)
-        raise # Re-raise for RQ failure 
+        raise
+
+
+def _isolated_ifcdiff_worker(result_queue, job_data: dict) -> None:
+    """Spawn entrypoint: keeps ifcopenshell C++ crashes out of the rq work-horse."""
+    import logging as _logging
+
+    _logging.basicConfig(level=_logging.INFO)
+    wlog = _logging.getLogger("ifcdiff.isolated_worker")
+    try:
+        result = _execute_ifcdiff(job_data)
+        result_queue.put(("ok", result))
+    except Exception as e:
+        import traceback as _tb
+
+        tb_str = _tb.format_exc()
+        try:
+            result_queue.put(("err", f"{type(e).__name__}: {e}\n{tb_str}"))
+        except Exception:
+            pass
+        wlog.exception("Isolated ifcdiff worker failed")
+        raise
+
+
+def _run_ifcdiff_in_spawn_isolation(job_data: dict) -> dict:
+    """Run ifcdiff in a spawned child; SIGSEGV in ifcopenshell kills only the child."""
+    ctx = get_context("spawn")
+    result_queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=_isolated_ifcdiff_worker, args=(result_queue, job_data))
+    proc.start()
+    proc.join()
+
+    if proc.exitcode == 0:
+        try:
+            status, data = result_queue.get(timeout=60)
+        except Empty as e:
+            raise RuntimeError("ifcdiff child exited 0 but sent no result") from e
+        if status == "ok":
+            return data
+        raise RuntimeError(f"ifcdiff isolated worker: {data}")
+
+    child_err = None
+    try:
+        status, data = result_queue.get_nowait()
+        if status == "err":
+            child_err = data
+    except Empty:
+        pass
+
+    # Negative exit codes are signal numbers on Linux (-11 = SIGSEGV).
+    sig_hint = ""
+    if proc.exitcode is not None and proc.exitcode < 0:
+        sig_hint = f", signal={-proc.exitcode}"
+    elif proc.exitcode in (139, -11):
+        sig_hint = ", likely SIGSEGV"
+
+    raise RuntimeError(
+        "ifcdiff crashed in isolated subprocess "
+        f"(exit={proc.exitcode}{sig_hint}"
+        + (f", child={child_err!r}" if child_err else "")
+        + ")"
+    )
+
+
+def run_ifcdiff(job_data: dict) -> dict:
+    """
+    RQ entrypoint: compare two IFC files with spawn isolation for native crashes.
+
+    The api-gateway enqueues with ``retry=Retry(max=3, ...)`` so a child
+    SIGSEGV surfaces here as RuntimeError and RQ requeues on a fresh work-horse.
+    """
+    return _run_ifcdiff_in_spawn_isolation(job_data)

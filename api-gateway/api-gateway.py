@@ -868,6 +868,38 @@ async def topologicpy_ingest_scripts(_: str = Depends(verify_access)):
     return {"scripts": scripts, "total_count": len(scripts)}
 
 
+@app.get("/topologicpy/ingest/routing", tags=["Topology"])
+async def topologicpy_ingest_routing(filename: str, _: str = Depends(verify_access)):
+    """Resolve discipline ingest routing for an IFC filename.
+
+    Rules mirror ``ingest_scripts.routing.resolve_route`` (single source of truth).
+    """
+    import sys
+    from pathlib import Path as _Path
+
+    scripts_dir = _Path("/app/ingest_scripts")
+    if not scripts_dir.exists():
+        worker_dir = _Path(__file__).parent.parent / "topologicpy-worker"
+        scripts_dir = worker_dir / "ingest_scripts"
+        worker_root = worker_dir
+    else:
+        worker_root = scripts_dir.parent
+
+    for path in (str(scripts_dir), str(worker_root)):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+
+    from ingest_scripts.routing import resolve_route
+
+    route = resolve_route(filename)
+    return {
+        "filename": filename,
+        "scripts": route.scripts,
+        "skip_reason": route.skip_reason,
+        "branch": route.branch,
+    }
+
+
 @app.post("/ifctester", tags=["Validation"])
 async def ifctester(request: IfcTesterRequest, _: str = Depends(verify_access)):
     """
@@ -1032,7 +1064,16 @@ def _frag_output_candidates(filename: str) -> list[str]:
 
 def _frag_input_from_filename(filename: str) -> str:
     """Derive the IFC input key used to bake a frag for ``filename``."""
-    base = os.path.basename(filename)
+    normalized = s3.normalize_input_key(filename)
+    # Preserve chained pipeline keys (e.g. output/topology/model.ifc).
+    if "/" in normalized:
+        base = os.path.basename(normalized)
+        stem, ext = os.path.splitext(base)
+        if ext.lower() == ".frag":
+            dir_part = os.path.dirname(normalized)
+            return f"{dir_part}/{stem}.ifc" if dir_part else s3.normalize_input_key(f"{stem}.ifc")
+        return normalized
+    base = os.path.basename(normalized)
     stem, ext = os.path.splitext(base)
     if ext.lower() == ".frag":
         ifc_name = f"{stem}.ifc"
@@ -1664,9 +1705,11 @@ def _attachment_disposition_for_basename(basename: str) -> str:
 
 
 @app.get("/download/{token}", tags=["File Operations"])
-async def download_file(token: str):
+async def download_file(token: str, request: Request):
     """Download a file using a temporary token. For S3-backed tokens we issue
-    a redirect to a presigned URL so the client streams straight from MinIO."""
+    a redirect to a short-lived presigned URL so the client streams straight from
+    object storage. Docker-network callers (n8n, ``Host: api-gateway``) get an
+    internal presign; browsers and Cloudflare-fronted traffic get the public host."""
     if token not in download_links:
         raise HTTPException(status_code=404, detail="Invalid or expired download token")
 
@@ -1683,11 +1726,34 @@ async def download_file(token: str):
             raise HTTPException(status_code=404, detail="File not found in object storage")
         remaining = max(int((download_link.expiry - datetime.now()).total_seconds()), 60)
         disp = _attachment_disposition_for_basename(os.path.basename(target))
-        url = s3.presigned_get_url_public(
-            target,
-            expires_in=remaining,
-            response_content_disposition=disp,
+        use_internal = s3.use_internal_presign_for_request(
+            request.headers.get("host"),
+            request.client.host if request.client else None,
+            allowed_ip_ranges=ALLOWED_IP_RANGES,
+            docker_gateway_ips=DOCKER_GATEWAY_IPS,
         )
+        if use_internal:
+            url = s3.presigned_get_url(
+                target,
+                expires_in=remaining,
+                response_content_disposition=disp,
+            )
+            logger.info(
+                "Download redirect (internal S3) for token %s… → %s",
+                token[:8],
+                s3.internal_endpoint_url(),
+            )
+        else:
+            url = s3.presigned_get_url_public(
+                target,
+                expires_in=remaining,
+                response_content_disposition=disp,
+            )
+            logger.info(
+                "Download redirect (public S3) for token %s… → %s",
+                token[:8],
+                s3.public_endpoint_url(),
+            )
         return RedirectResponse(url=url, status_code=307)
 
     if not os.path.exists(target):

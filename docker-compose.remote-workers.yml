@@ -1,16 +1,18 @@
 # Remote worker stack (worker host). Includes canonical worker definitions from
 # docker-compose.workers.yml and applies external broker/storage env from .env.remote.
 #
-# Remote profile (bimbotw1): ifctester, ifcpatch, ifcclash, ifcdiff.
-# Primary-local workers (ifc5d, ifcconvert, ifccsv, ifcfast, ifc2json, ifcfrag,
-# ifccoord, topologicpy) and guid-index-worker use profile [never] here.
+# Remote profile (bimbotw1): ifctester, ifcpatch, ifcclash, ifcdiff, ifccoord,
+# topologicpy.
+# Primary-local workers (ifc5d, ifcconvert, ifccsv, ifcfast, ifc2json, ifcfrag)
+# and guid-index-worker use profile [never] here.
 # Usage (worker host, repo root):
 #   COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml \
 #     --env-file .env.remote up -d ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker
 #
 # Or: ./scripts/start-remote-workers.sh
 
-name: ifcpipeline-remote
+# Container prefix: ifcpipeline-w1-<service>-1 (override per worker VM in .env.remote)
+name: ${REMOTE_COMPOSE_PROJECT:-ifcpipeline-w1}
 
 include:
   - path: docker-compose.workers.yml
@@ -114,6 +116,86 @@ services:
           cpus: "1.0"
           memory: 4G
 
+  ifccoord-worker:
+    profiles: [remote]
+    image: ifcpipeline-ifccoord-worker:latest
+    depends_on: !reset []
+    environment:
+      <<: *remote-worker-env
+      IFCCLASH_GEOMETRY_LIBRARY: ${IFCCLASH_GEOMETRY_LIBRARY:-hybrid-cgal-simple-opencascade}
+      IFCCLASH_ITERATOR_THREADS: ${IFCCLASH_ITERATOR_THREADS:-1}
+      IFCCLASH_ISOLATE: ${IFCCLASH_ISOLATE:-1}
+      IFCCLASH_COARSE_PROFILE: ${IFCCLASH_COARSE_PROFILE:-nobel}
+      IFCCLASH_BVH_CACHE: ${IFCCLASH_BVH_CACHE:-off}
+    command: >
+      rq worker --worker-class rq.worker.SimpleWorker ifccoord
+      --url ${REDIS_URL} --path /app --logging_level INFO
+    deploy:
+      replicas: ${IFCCOORD_REMOTE_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 16G
+    mem_limit: 16g
+    memswap_limit: 16g
+
+  topologicpy-worker:
+    profiles: [remote]
+    image: ifcpipeline-topologicpy-worker:latest
+    user: "1000:1000"
+    depends_on: !reset []
+    networks: !reset []
+    environment:
+      <<: *remote-worker-env
+      IFCTOPOLOGY_ITERATOR_THREADS: ${IFCTOPOLOGY_ITERATOR_THREADS:-4}
+      IFCTOPOLOGY_CELL_MODE: ${IFCTOPOLOGY_CELL_MODE:-prism}
+      IFCTOPOLOGY_DISTANCE_MODE: ${IFCTOPOLOGY_DISTANCE_MODE:-bbox}
+      IFCTOPOLOGY_MAX_PROXIMATE_SPACES: ${IFCTOPOLOGY_MAX_PROXIMATE_SPACES:-32}
+      IFCTOPOLOGY_PROXIMITY_THRESHOLD_M: ${IFCTOPOLOGY_PROXIMITY_THRESHOLD_M:-10.0}
+      IFCTOPOLOGY_PROGRESS_LOG_EVERY: ${IFCTOPOLOGY_PROGRESS_LOG_EVERY:-250}
+      IFCTOPOLOGY_SPACE_CACHE: ${IFCTOPOLOGY_SPACE_CACHE:-off}
+      IFCTOPOLOGY_SPACE_CACHE_DIR: ${IFCTOPOLOGY_SPACE_CACHE_DIR:-/tmp/topology-space-cache}
+      IFCTOPOLOGY_SPACE_CACHE_MAX_MB: ${IFCTOPOLOGY_SPACE_CACHE_MAX_MB:-2048}
+      IFCTOPOLOGY_SPACE_CACHE_MINIO_PREFIX: ${IFCTOPOLOGY_SPACE_CACHE_MINIO_PREFIX:-cache/topology-spaces}
+      IFCTOPOLOGY_CELL_CACHE: ${IFCTOPOLOGY_CELL_CACHE:-off}
+      CDE_S3_ENDPOINT_URL: ${CDE_S3_ENDPOINT_URL:-}
+      CDE_S3_BUCKET: ${CDE_S3_BUCKET:-cde}
+      CDE_S3_ACCESS_KEY: ${CDE_S3_ACCESS_KEY:-}
+      CDE_S3_SECRET_KEY: ${CDE_S3_SECRET_KEY:-}
+      CDE_S3_REGION: ${CDE_S3_REGION:-us-east-1}
+    command: >
+      rq worker --worker-class rq.worker.SimpleWorker topologicpy-worker
+      --url ${REDIS_URL} --path /app --logging_level INFO
+    deploy:
+      replicas: ${TOPOLOGICPY_REMOTE_REPLICAS:-1}
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 6G
+
+  # Dozzle agent — primary Dozzle at :9182 connects via DOZZLE_REMOTE_AGENT.
+  dozzle-agent:
+    image: amir20/dozzle:latest
+    command: agent
+    environment:
+      - DOZZLE_HOSTNAME=${DOZZLE_AGENT_HOSTNAME:-bimbotw1}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "7007:7007"
+    healthcheck:
+      test: ["CMD", "/dozzle", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+
   # Workers not deployed remotely — disable when using this compose file.
   ifc5d-worker:
     profiles: [never]
@@ -126,8 +208,4 @@ services:
   ifc2json-worker:
     profiles: [never]
   ifcfrag-worker:
-    profiles: [never]
-  ifccoord-worker:
-    profiles: [never]
-  topologicpy-worker:
     profiles: [never]

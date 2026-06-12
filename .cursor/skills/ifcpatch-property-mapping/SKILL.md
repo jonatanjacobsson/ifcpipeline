@@ -169,7 +169,7 @@ Local smoke:
 | Contract IDs | All rule outputs ∈ `VALID_DE_CODES` / Baserow set |
 | Stats | Smoke: `unmapped` / `errors` acceptable per user |
 | Git | Mapping tables gitignored; examples + recipes tracked |
-| Security | `aikido_full_scan` on new Python (if MCP available) |
+| Security | `aikido_full_scan` on new Python before commit only (if MCP available; skip if not committing) |
 
 ## Anti-patterns
 

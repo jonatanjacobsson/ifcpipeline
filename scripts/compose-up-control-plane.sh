@@ -10,10 +10,10 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-if ! grep -q '^PIPELINE_LAN_IP=' .env 2>/dev/null; then
-  echo "warn: PIPELINE_LAN_IP not set in .env — host-lan overlay may fail" >&2
-fi
+echo "==> Syncing reboot-safe host-LAN bindings"
+bash "$ROOT/scripts/apply-host-lan-access.sh"
 
+echo ""
 echo "==> Starting control plane (no workers)"
 echo "    WARNING: never run 'docker compose down -v' on the primary host."
 
