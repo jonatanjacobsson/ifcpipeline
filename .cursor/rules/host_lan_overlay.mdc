@@ -11,11 +11,10 @@ workers on `bimbotw1` (`192.168.109.54`) reach redis/postgres/seaweedfs over the
 LAN. (Object storage is **SeaweedFS** on port 8333; MinIO was decommissioned
 2026-06.)
 
-`docker-compose.host-lan.yml` adds the `PIPELINE_LAN_IP:*` port bindings. The
-base `docker-compose.yml` does **not**. So any `docker compose up -d` run
-**without** the overlay makes Compose "converge" redis/seaweedfs/postgres back to
-loopback-only — it **recreates them and strips the LAN bindings**, and every
-remote worker breaks with `Error 111 ... Connection refused`.
+`docker-compose.host-lan.yml` publishes redis/postgres/seaweedfs on all host
+interfaces (reboot-safe). Restrict off-host access with
+`scripts/apply-host-lan-firewall.sh`. `PIPELINE_LAN_IP` in `.env` is
+auto-synced for worker `.env.remote` only.
 
 ## Rule
 
@@ -34,7 +33,7 @@ because Compose still reconciles its dependencies.
 
 ```bash
 docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|seaweedfs)|postgres_objectstorage'
-# redis + seaweedfs must show 192.168.101.195 (seaweedfs on :8333); postgres must show 192.168.101.195:5432
+# redis + seaweedfs must show 0.0.0.0:6379 / 0.0.0.0:8333; postgres 0.0.0.0:5432
 ```
 
 ## Recovery if LAN bindings were stripped

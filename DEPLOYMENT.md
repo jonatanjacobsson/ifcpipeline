@@ -19,7 +19,7 @@ How to run the stack on a **primary host** (control plane + optional local worke
 |------|---------|---------|
 | **Primary** | `docker-compose.yml` or control plane + workers | `ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`, `ifcfrag`, `ifccoord`, `topologicpy` (+ optional duplicate remote workers during migration) |
 | **Primary control plane** | `docker-compose.control-plane.yml` | `guid-index-worker` (not in `workers.yml`) |
-| **Worker VM** | `docker-compose.remote-workers.yml` | `ifctester`, `ifcpatch`, `ifcclash`, `ifcdiff` only |
+| **Worker VM** | `docker-compose.remote-workers.yml` | `ifctester`, `ifcpatch`, `ifcclash`, `ifcdiff`, `ifccoord`, `topologicpy` (the `remote` profile) |
 
 All twelve RQ workers in `docker-compose.workers.yml`: `ifc5d`, `ifcpatch`,
 `ifcconvert`, `ifcclash`, `ifccsv`, `ifcfast`, `ifctester`, `ifcdiff`,
@@ -54,16 +54,21 @@ Apply LAN publish and firewall before remote workers connect (see [Remote worker
 
 ### 3. Workers on worker host(s)
 
-Worker-only project (`name: ifcpipeline-remote`). Requires `.env.remote` with `REDIS_URL`, `POSTGRES_HOST`, and `S3_ENDPOINT_URL` pointing at the primary LAN IP — not `redis` / `seaweedfs` Docker service names.
+Worker-only project (`name: ifcpipeline-w1`, set `REMOTE_COMPOSE_PROJECT` in `.env.remote` per VM). Requires `.env.remote` with `REDIS_URL`, `POSTGRES_HOST`, and `S3_ENDPOINT_URL` pointing at the primary LAN IP — not `redis` / `seaweedfs` Docker service names.
 
 ```bash
 # On worker host (after images are pushed from primary):
 ./scripts/start-remote-workers.sh
-# equivalent:
+# equivalent (all six remote workers — keep this list in sync with the script's REMOTE_SERVICES):
 COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml \
   --env-file .env.remote up -d \
-  ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker
+  ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker ifccoord-worker topologicpy-worker
 ```
+
+> **Prefer `start-remote-workers.sh`.** It deploys the full `REMOTE_SERVICES`
+> set (the six workers above + `dozzle-agent`) and applies replica scaling.
+> A hand-typed `up -d` that omits a worker is the usual reason a queue ends up
+> with no consumer on the worker VM.
 
 Multiple worker VMs use the same recipe; set `REMOTE_SSH` / `REMOTE_REPO` per host in deploy scripts.
 
@@ -83,7 +88,7 @@ Multiple worker VMs use the same recipe; set `REMOTE_SSH` / `REMOTE_REPO` per ho
 | n8n | Bind mount `./n8n-data` | Workflows, credentials, custom nodes |
 | Worker containers | Ephemeral | Safe to recreate |
 
-Worker hosts **must not** run `postgres`, `redis`, or `seaweedfs` services. Use `.env.remote` only. Worker compose project name is `ifcpipeline-remote` so it never creates competing `postgres-data` volumes.
+Worker hosts **must not** run `postgres`, `redis`, or `seaweedfs` services. Use `.env.remote` only. Worker compose project name is `ifcpipeline-w1` (or `REMOTE_COMPOSE_PROJECT`) so it never creates competing `postgres-data` volumes.
 
 ### Compose invariants (do not break)
 
@@ -143,7 +148,7 @@ docker compose up -d --scale ifctester-worker=0 --scale ifcpatch-worker=0 \
 
 ## Remote workers
 
-Run **ifctester**, **ifcpatch**, **ifcclash**, and **ifcdiff** on a worker host while the control plane stays on the primary host. Workers connect over TCP to Redis, Postgres, and SeaweedFS S3 on `PIPELINE_LAN_IP`.
+Run the `remote`-profile workers — **ifctester**, **ifcpatch**, **ifcclash**, **ifcdiff**, **ifccoord**, **topologicpy** — on a worker host while the control plane stays on the primary host. Workers connect over TCP to Redis, Postgres, and SeaweedFS S3 on `PIPELINE_LAN_IP`.
 
 ### Files
 
@@ -208,11 +213,61 @@ COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml --en
 
 From worker: `redis-cli -h <primary-lan-ip> ping`, `nc -z <primary-lan-ip> 8333` (SeaweedFS S3).
 
+### Worker health check (track expected vs actual)
+
+Use this when "the worker VM is missing workers" or workers crash-loop. It
+answers three questions: are all expected containers up, are they registered in
+the broker, and are they pointing at the **current** primary LAN IP.
+
+```bash
+# 1. On the worker VM: every remote worker should be `running` with restarts not climbing.
+#    `restarting` (or a RestartCount that keeps growing) means it cannot reach the broker.
+for c in ifctester ifcpatch ifcclash ifcdiff ifccoord topologicpy; do
+  n=ifcpipeline-w1-$c-worker-1
+  docker inspect -f "$c: {{.State.Status}} restarts={{.RestartCount}}" "$n"
+done
+
+# 2. On the worker VM: confirm each container's baked-in REDIS_URL matches the CURRENT primary LAN IP.
+#    A stale IP here (from a DHCP change) is the classic crash-loop cause — see note below.
+for c in ifctester ifcpatch ifcclash ifcdiff ifccoord topologicpy; do
+  docker inspect -f "$c: {{range .Config.Env}}{{println .}}{{end}}" ifcpipeline-w1-$c-worker-1 \
+    | grep '^REDIS_URL='
+done
+
+# 3. On the primary: which queues actually have a registered consumer (across all hosts).
+#    Each remote queue should show at least 1; with primary duplicates it shows more.
+RID=$(docker ps -qf name=ifcpipeline-redis | head -1)
+for k in $(docker exec "$RID" redis-cli smembers rq:workers | grep '^rq:worker:'); do
+  docker exec "$RID" redis-cli hget "$k" queues
+done | sort | uniq -c
+```
+
+Expected remote queues registered: `ifctester`, `ifcpatch`, `ifcclash`,
+`ifcdiff`, `ifccoord`, `topologicpy-worker`. `ifccoord` runs **only** on the
+worker VM, so if it is missing the queue has zero consumers anywhere.
+
+> **Primary LAN IP changed → recreate, do not restart.** Worker containers bake
+> `REDIS_URL` / `POSTGRES_HOST` / `S3_ENDPOINT_URL` in at create time. After the
+> primary's DHCP lease changes its IP, `docker restart` reuses the old (dead) IP
+> and the worker crash-loops with `redis.exceptions.TimeoutError: Timeout
+> connecting to server`. You must **recreate** so containers re-read
+> `.env.remote`. Two separate things must both be fixed:
+> 1. **Primary** republishes the broker on the new IP: `./scripts/apply-host-lan-access.sh`
+>    (a plain `restart` of `redis`/`postgres`/`seaweedfs` drops the `host-lan` port mapping).
+> 2. **Worker VM** picks up the new IP: `./scripts/deploy-remote-workers-from-primary.sh`
+>    from the primary, or on the worker VM:
+>    `COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml --env-file .env.remote up -d --force-recreate`.
+>
+> A reserved/static DHCP lease for the primary avoids this class of breakage entirely.
+
 ### Troubleshooting
 
 | Symptom | Check |
 |---------|--------|
 | Connection refused to Redis/SeaweedFS | Re-run `./scripts/apply-host-lan-access.sh`; update `.env.remote` with current `PIPELINE_LAN_IP` |
+| Workers crash-loop with `redis ... Timeout connecting to server` after a primary reboot/IP change | Stale IP baked into containers. **Recreate** (not restart) — see [Worker health check](#worker-health-check-track-expected-vs-actual) |
+| Worker VM missing a worker / queue has no consumer | Started via hand-typed `up -d` that omitted a service; use `./scripts/start-remote-workers.sh`. Verify with the broker queue check above |
+| Broker port unreachable from worker though host firewall is open | `redis`/`postgres`/`seaweedfs` was recreated without the `host-lan` overlay (shows `6379/tcp`, no `0.0.0.0:6379->`). Re-run `./scripts/apply-host-lan-access.sh` |
 | Postgres auth fails | `POSTGRES_PASSWORD` matches primary `.env` |
 | S3 errors | `S3_ENDPOINT_URL` uses primary LAN IP `:8333`, not `http://seaweedfs:8333` |
 | Deploy SSH fails | Run from your terminal; `ssh -o RemoteCommand=none deploy@worker-host` |

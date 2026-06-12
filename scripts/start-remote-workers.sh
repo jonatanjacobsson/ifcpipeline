@@ -88,7 +88,15 @@ preflight() {
 
 preflight
 
-REMOTE_SERVICES=(ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker)
+REMOTE_SERVICES=(
+  dozzle-agent
+  ifctester-worker
+  ifcpatch-worker
+  ifcclash-worker
+  ifcdiff-worker
+  ifccoord-worker
+  topologicpy-worker
+)
 
 UP_FLAGS=(-d)
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
@@ -103,7 +111,9 @@ for svc_var in \
   "ifctester-worker:IFCTESTER_REMOTE_REPLICAS" \
   "ifcpatch-worker:IFCPATCH_REMOTE_REPLICAS" \
   "ifcclash-worker:IFCCLASH_REMOTE_REPLICAS" \
-  "ifcdiff-worker:IFCDIFF_REMOTE_REPLICAS"; do
+  "ifcdiff-worker:IFCDIFF_REMOTE_REPLICAS" \
+  "ifccoord-worker:IFCCOORD_REMOTE_REPLICAS" \
+  "topologicpy-worker:TOPOLOGICPY_REMOTE_REPLICAS"; do
   svc="${svc_var%%:*}"
   var="${svc_var#*:}"
   n="${!var:-1}"

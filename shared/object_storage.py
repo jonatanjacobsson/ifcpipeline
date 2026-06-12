@@ -29,6 +29,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -84,6 +85,84 @@ def get_client():
         config=Config(s3={"addressing_style": "path"}, signature_version="s3v4"),
     )
     return _client
+
+
+_cde_client = None  # optional read-only client for the CDE bucket (cross-stack ingest)
+
+
+def get_client_for_source(source: str = "default"):
+    """Return an S3 client for ``default`` (worker bucket) or ``cde`` (CDE MinIO)."""
+    src = (source or "default").strip().lower()
+    if src in ("cde", "cde_minio"):
+        global _cde_client
+        endpoint = os.environ.get("CDE_S3_ENDPOINT_URL") or os.environ.get("CDE_S3_ENDPOINT")
+        if not endpoint:
+            raise RuntimeError("CDE_S3_ENDPOINT_URL is not configured on this worker.")
+        if _cde_client is None:
+            import boto3
+            from botocore.config import Config
+
+            _cde_client = boto3.client(
+                "s3",
+                endpoint_url=endpoint,
+                region_name=os.environ.get("CDE_S3_REGION", _region()),
+                aws_access_key_id=os.environ.get("CDE_S3_ACCESS_KEY"),
+                aws_secret_access_key=os.environ.get("CDE_S3_SECRET_KEY"),
+                config=Config(s3={"addressing_style": "path"}, signature_version="s3v4"),
+            )
+        return _cde_client
+    return get_client()
+
+
+def _stream_object_to_path(
+    client,
+    bucket: str,
+    key: str,
+    local_path: str,
+    *,
+    version_id: Optional[str] = None,
+) -> None:
+    """Stream an object to disk via ``get_object``.
+
+    SeaweedFS (and some other S3-compatible backends) return ETags for versioned
+    objects that do not pass boto3 ``download_file`` / s3transfer post-download
+    verification (``PreconditionFailed`` / "did not match expected ETag").
+    Streaming avoids that check while still honoring ``VersionId`` pins.
+    """
+    kwargs: Dict[str, Any] = {"Bucket": bucket, "Key": key}
+    if version_id:
+        kwargs["VersionId"] = version_id
+    resp = client.get_object(**kwargs)
+    body = resp["Body"]
+    try:
+        with open(local_path, "wb") as fh:
+            for chunk in body.iter_chunks(chunk_size=1 << 20):
+                if chunk:
+                    fh.write(chunk)
+    finally:
+        body.close()
+
+
+def download_s3_ref_to_path(
+    ref: dict,
+    dest_path: str,
+    *,
+    default_bucket: Optional[str] = None,
+) -> None:
+    """Download one ``input_s3`` ref dict to a local path."""
+    bucket = ref.get("bucket") or default_bucket or bucket_name()
+    key = ref["key"]
+    version_id = ref.get("version_id")
+    client = get_client_for_source(str(ref.get("source") or "default"))
+    logger.info(
+        "GET s3://%s/%s%s (source=%s) → %s",
+        bucket,
+        key,
+        f"?versionId={version_id}" if version_id else "",
+        ref.get("source") or "default",
+        dest_path,
+    )
+    _stream_object_to_path(client, bucket, key, dest_path, version_id=version_id)
 
 
 def ensure_bucket(bucket: Optional[str] = None) -> None:
@@ -571,13 +650,12 @@ def download_to_tempfile(
     fd, tmp_path = tempfile.mkstemp(suffix=suffix)
     os.close(fd)
     try:
-        extra: Optional[Dict[str, Any]] = {"VersionId": version_id} if version_id else None
         logger.info(
             "GET s3://%s/%s%s → %s",
             bucket, key, f"?versionId={version_id}" if version_id else "", tmp_path,
         )
-        get_client().download_file(
-            Bucket=bucket, Key=key, Filename=tmp_path, ExtraArgs=extra,
+        _stream_object_to_path(
+            get_client(), bucket, key, tmp_path, version_id=version_id,
         )
         yield tmp_path
     finally:
@@ -662,16 +740,18 @@ def download_to_path(
     version_id: Optional[str] = None,
     bucket: Optional[str] = None,
 ) -> None:
-    """Helper matching `get_client().download_file` but with version pinning
-    and consistent logging. Workers call this to honor a pinned version."""
+    """Download an object to a local path with optional ``VersionId`` pinning.
+
+    Uses streaming ``get_object`` (not ``download_file``) for SeaweedFS
+    compatibility on versioned keys.
+    """
     bucket = bucket or bucket_name()
-    extra: Optional[Dict[str, Any]] = {"VersionId": version_id} if version_id else None
     logger.info(
         "GET s3://%s/%s%s → %s",
         bucket, key, f"?versionId={version_id}" if version_id else "", local_path,
     )
-    get_client().download_file(
-        Bucket=bucket, Key=key, Filename=local_path, ExtraArgs=extra,
+    _stream_object_to_path(
+        get_client(), bucket, key, local_path, version_id=version_id,
     )
 
 
@@ -821,7 +901,56 @@ def public_endpoint_url() -> Optional[str]:
     return os.environ.get("S3_PUBLIC_ENDPOINT_URL") or _endpoint_url()
 
 
+def internal_endpoint_url() -> Optional[str]:
+    """S3 endpoint for presigned URLs when the download client is on the Docker network.
+
+    Defaults to ``S3_ENDPOINT_URL`` (e.g. ``http://seaweedfs:8333``). Override with
+    ``S3_INTERNAL_ENDPOINT_URL`` when internal presigns must target a different host."""
+    return os.environ.get("S3_INTERNAL_ENDPOINT_URL") or _endpoint_url()
+
+
+# Hostnames on the compose network that should receive internal presigned redirects
+# (n8n → ``http://api-gateway``, local smoke tests, etc.).
+_INTERNAL_PRESIGN_HOSTS = frozenset({"api-gateway", "localhost", "127.0.0.1"})
+
+
+def use_internal_presign_for_request(
+    host: Optional[str],
+    client_ip: Optional[str],
+    *,
+    allowed_ip_ranges: Iterable[Any],
+    docker_gateway_ips: Iterable[Any],
+) -> bool:
+    """Return True when ``/download/{token}`` should redirect to an internal S3 URL.
+
+    External callers (browser via Cloudflare, public API hostname) get
+    ``S3_PUBLIC_ENDPOINT_URL``. Docker-network callers (n8n, workers) get
+    ``S3_INTERNAL_ENDPOINT_URL`` / ``S3_ENDPOINT_URL`` so downloads never need
+    to leave the compose network.
+    """
+    hostname = (host or "").split(":")[0].lower()
+    if hostname in _INTERNAL_PRESIGN_HOSTS:
+        return True
+
+    if not client_ip:
+        return False
+
+    try:
+        ip = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+
+    if ip in set(docker_gateway_ips):
+        return False
+
+    for net in allowed_ip_ranges:
+        if ip in net:
+            return True
+    return False
+
+
 _presign_client = None  # module-level cache, separate from the internal client
+_internal_presign_client = None
 
 
 def _get_presign_client():
@@ -851,13 +980,44 @@ def _get_presign_client():
     return _presign_client
 
 
-def presigned_get_url(key: str, expires_in: int = 1800, bucket: Optional[str] = None) -> str:
+def _get_internal_presign_client():
+    """Presign client for Docker-network download redirects (Host = seaweedfs, etc.)."""
+    global _internal_presign_client
+    if _internal_presign_client is not None:
+        return _internal_presign_client
+
+    import boto3
+    from botocore.config import Config
+
+    internal = internal_endpoint_url()
+    _internal_presign_client = boto3.client(
+        "s3",
+        endpoint_url=internal,
+        region_name=_region(),
+        aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
+        config=Config(s3={"addressing_style": "path"}, signature_version="s3v4"),
+    )
+    return _internal_presign_client
+
+
+def presigned_get_url(
+    key: str,
+    expires_in: int = 1800,
+    bucket: Optional[str] = None,
+    *,
+    response_content_disposition: Optional[str] = None,
+) -> str:
     """Return a pre-signed GET URL signed against the internal S3 endpoint.
+
     Only use this when the caller is inside the Docker network."""
     bucket = bucket or bucket_name()
-    return get_client().generate_presigned_url(
+    params: Dict[str, Any] = {"Bucket": bucket, "Key": key}
+    if response_content_disposition:
+        params["ResponseContentDisposition"] = response_content_disposition
+    return _get_internal_presign_client().generate_presigned_url(
         ClientMethod="get_object",
-        Params={"Bucket": bucket, "Key": key},
+        Params=params,
         ExpiresIn=expires_in,
     )
 

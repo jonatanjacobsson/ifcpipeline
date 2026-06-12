@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 import ifcopenshell
 import ifcopenshell.util.element
 
-from ingest_scripts import Element, Ingester as _Base, Relationship
+from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
 
 class Ingester(_Base):
@@ -49,7 +49,7 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("spaces: opening %s", ifc_path.name)
             ifc = ifcopenshell.open(str(ifc_path))
-            spaces = ifc.by_type("IfcSpace")
+            spaces = safe_by_type(ifc, "IfcSpace")
             self.log.info("spaces: found %d IfcSpace elements", len(spaces))
 
             for space in spaces:
@@ -86,7 +86,7 @@ class Ingester(_Base):
 
                 total_spaces += 1
 
-            zones = ifc.by_type("IfcZone")
+            zones = safe_by_type(ifc, "IfcZone")
             for zone in zones:
                 zone_id = zone.GlobalId
                 zone_name = zone.Name or ""

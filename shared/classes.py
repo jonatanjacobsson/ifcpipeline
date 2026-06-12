@@ -705,7 +705,12 @@ class TopologicpyRequest(VersionPinOptional):
     )
     output_ifc_prefix: Optional[str] = Field(
         default=None,
-        description="Output IFC path or subdirectory under output/topology for stamped models",
+        description=(
+            "Stamped IFC output: when it ends with .ifc and exactly one element file is "
+            "provided, use that filename (like ifcpatch output_file); otherwise treat as a "
+            "subdirectory under output/topology and write each stamped model using the "
+            "input basename"
+        ),
     )
     max_elements: Optional[int] = Field(
         default=None,
@@ -730,6 +735,32 @@ class TopologicpyRequest(VersionPinOptional):
         ge=1,
         le=256,
         description="Cap proximate room candidates per unmatched element. Overrides worker env IFCTOPOLOGY_MAX_PROXIMATE_SPACES.",
+    )
+    overlap_resolution: bool = Field(
+        default=True,
+        description="Use multi-point footprint voting and hybrid geometric overlap for dominant-room matching",
+    )
+    overlap_samples: int = Field(
+        default=24,
+        ge=4,
+        le=128,
+        description="Maximum sample points per element for overlap voting",
+    )
+    overlap_confidence_margin: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description="Minimum dominant-room vote share (dom_hits/total_hits) to accept without geometric fallback",
+    )
+    overlap_coverage_min: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Minimum fraction of sample points hitting any room to accept overlap_majority",
+    )
+    hybrid_geometric_fallback: bool = Field(
+        default=True,
+        description="When vote is inconclusive, resolve via element-vs-room geometric overlap",
     )
 
     @field_validator("spatial_files", "element_files")

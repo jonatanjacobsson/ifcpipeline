@@ -124,7 +124,8 @@ class Ingester(_Base):
         :param include_openings_without_door: (door_portal) Include bare openings as portals.
         :param tolerance: (door_portal) Graph construction tolerance in model units.
         :param door_link_distance: (door_portal) Max distance door centroid → space centroid.
-        :param same_storey_only: (door_portal) Only link spaces on the same storey.
+        :param same_storey_only: (door_portal) Only link two spaces that share the same
+            storey (IFC containment, room-number prefix, or elevation — not door Z proximity).
         :param storey_z_tolerance: (door_portal) Z fallback tolerance in model units.
         :param face_tolerance: (space_adjacency) Max bbox gap (metres) to count as touching.
         :param min_shared_face: (space_adjacency) Min shared edge (metres) for adjacency.
@@ -570,13 +571,21 @@ class Ingester(_Base):
             models = _merge_ifc_models(models, self.log)
             methods.add("federated_merge")
 
-        space_points, space_sources = _collect_spaces_centroids(models)
+        space_points, space_sources, space_names = _collect_spaces_centroids(models)
         element_storey, storey_elevations = _collect_storey_maps(models)
+        storey_stats = _storey_resolution_stats(
+            space_points, space_names, element_storey, storey_elevations, self.storey_z_tolerance,
+        )
         self.log.info(
-            "EgressCirculation: %d file(s), %d spaces, %d doors across inputs",
+            "EgressCirculation: %d file(s), %d spaces, %d doors across inputs "
+            "(storey: %d IFC, %d prefix, %d Z-inferred, %d unresolved)",
             len(models),
             len(space_points),
             sum(len(_safe_by_type(ifc, "IfcDoor")) for _, ifc in models),
+            storey_stats["ifc_containment"],
+            storey_stats.get("prefix_key", 0),
+            storey_stats["z_inferred"],
+            storey_stats["unresolved"],
         )
 
         if len(space_points) >= 2:
@@ -584,6 +593,7 @@ class Ingester(_Base):
                 models,
                 space_points,
                 space_sources,
+                space_names,
                 element_storey,
                 storey_elevations,
                 seen_edges,
@@ -609,6 +619,7 @@ class Ingester(_Base):
                 element_storey,
                 storey_elevations,
                 space_points,
+                space_names,
                 seen_edges,
                 portal_elements,
             ):
@@ -630,11 +641,20 @@ class Ingester(_Base):
             {rel.evidence.get("portal_global_id") for rel in self._relationships}
         )
         method_label = "+".join(sorted(methods)) if methods else "none"
+        cross_storey = self._count_cross_storey_door_edges(
+            space_points, space_names, element_storey, storey_elevations,
+        )
         self._summary = {
             "portals_used": portal_count,
             "method": method_label,
+            "strategy": "door_portal",
             "input_files": [p.name for p in self.ifc_files],
             "space_count": len(space_points),
+            "storey_ifc_containment": storey_stats["ifc_containment"],
+            "storey_z_inferred": storey_stats["z_inferred"],
+            "storey_unresolved": storey_stats["unresolved"],
+            "building_storeys": len(storey_elevations),
+            "cross_storey_edges": cross_storey,
             "duration_ms": int((time.time() - t0) * 1000),
         }
         self.log.info(
@@ -644,8 +664,34 @@ class Ingester(_Base):
             method_label,
         )
 
+    def _count_cross_storey_door_edges(
+        self,
+        space_points: Dict[str, Tuple[float, float, float]],
+        space_names: Dict[str, str],
+        element_storey: Dict[str, str],
+        storey_elevations: Dict[str, float],
+    ) -> int:
+        """Count door-portal edges whose space endpoints belong to different storeys."""
+        cross = 0
+        for rel in self._relationships:
+            method = (rel.evidence or {}).get("method") or ""
+            if method not in ("door_space_proximity", "ifc_portal_boundary", "topologicpy_portal_graph"):
+                continue
+            s1, s2 = rel.subject_global_id, rel.object_global_id
+            pt1 = space_points.get(s1)
+            pt2 = space_points.get(s2)
+            k1 = _storey_group_key(
+                s1, pt1, space_names.get(s1, ""), element_storey, storey_elevations, self.storey_z_tolerance,
+            )
+            k2 = _storey_group_key(
+                s2, pt2, space_names.get(s2, ""), element_storey, storey_elevations, self.storey_z_tolerance,
+            )
+            if k1 and k2 and k1 != k2:
+                cross += 1
+        return cross
+
     # ------------------------------------------------------------------
-    # door_portal helpers (unchanged from original)
+    # door_portal helpers
     # ------------------------------------------------------------------
 
     def _extract_from_topologic_graph(
@@ -707,11 +753,13 @@ class Ingester(_Base):
         models: List[Tuple[Path, ifcopenshell.file]],
         space_points: Dict[str, Tuple[float, float, float]],
         space_sources: Dict[str, str],
+        space_names: Dict[str, str],
         element_storey: Dict[str, str],
         storey_elevations: Dict[str, float],
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
     ) -> Tuple[int, int]:
+        """Link each door to the two nearest spaces on the same storey (space-to-space)."""
         portals_used = 0
         added = 0
         max_dist = max(float(self.door_link_distance), 0.5)
@@ -724,29 +772,40 @@ class Ingester(_Base):
                 if door_pt is None:
                     continue
 
-                door_storey = _resolve_element_storey(
-                    door.GlobalId, door_pt, element_storey,
-                    storey_elevations, self.storey_z_tolerance,
-                )
-
                 ranked = sorted(
                     space_points.items(),
                     key=lambda item: _planar_dist(door_pt[0], door_pt[1], item[1][0], item[1][1]),
                 )
-                nearby = []
+                by_storey: Dict[str, List[Tuple[str, Tuple[float, float, float], float]]] = defaultdict(list)
                 for sid, pt in ranked:
                     dist = _planar_dist(door_pt[0], door_pt[1], pt[0], pt[1])
                     if dist > max_dist:
                         break
-                    if self.same_storey_only and not _spaces_on_same_level(
-                        door_storey, door_pt, sid, pt,
+                    storey_key = _storey_group_key(
+                        sid, pt, space_names.get(sid, ""),
                         element_storey, storey_elevations, self.storey_z_tolerance,
-                    ):
+                    )
+                    if self.same_storey_only and not storey_key:
                         continue
-                    nearby.append((sid, pt, dist))
-                if len(nearby) < 2:
+                    group_key = storey_key if self.same_storey_only else "_all"
+                    by_storey[group_key].append((sid, pt, dist))
+
+                best_pair: Optional[Tuple[str, Tuple[float, float, float], str, Tuple[float, float, float], str]] = None
+                best_lead_dist = float("inf")
+                for _storey_key, group in by_storey.items():
+                    if len(group) < 2:
+                        continue
+                    group.sort(key=lambda item: item[2])
+                    lead_dist = group[0][2]
+                    if lead_dist < best_lead_dist:
+                        best_lead_dist = lead_dist
+                        s1, pt1, _ = group[0]
+                        s2, pt2, _ = group[1]
+                        best_pair = (s1, pt1, s2, pt2, _storey_key)
+
+                if best_pair is None:
                     continue
-                (s1, pt1, d1), (s2, pt2, d2) = nearby[0], nearby[1]
+                s1, _pt1, s2, _pt2, storey_key = best_pair
 
                 portals_used += 1
                 portal_elements[door.GlobalId] = door.is_a()
@@ -763,6 +822,7 @@ class Ingester(_Base):
                     getattr(door, "Name", None) or door.GlobalId,
                     "door_space_proximity",
                     evidence_source,
+                    extra_evidence={"storey_key": storey_key} if storey_key else None,
                 ):
                     added += 1
 
@@ -776,6 +836,7 @@ class Ingester(_Base):
         element_storey: Dict[str, str],
         storey_elevations: Dict[str, float],
         space_points: Dict[str, Tuple[float, float, float]],
+        space_names: Dict[str, str],
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
     ) -> int:
@@ -788,33 +849,18 @@ class Ingester(_Base):
             portal_class = portal_elem.is_a() if portal_elem else "Unknown"
             portal_name = getattr(portal_elem, "Name", None) or portal_id
             portal_elements[portal_id] = portal_class
-            portal_pt = _element_centroid(portal_elem) if portal_elem else None
-            portal_storey = _resolve_element_storey(
-                portal_id, portal_pt, element_storey,
-                storey_elevations, self.storey_z_tolerance,
-            )
 
             for s1, s2 in combinations(sorted(space_ids), 2):
                 if self.same_storey_only:
                     pt1 = space_points.get(s1)
                     pt2 = space_points.get(s2)
-                    if not _spaces_on_same_level(
-                        portal_storey, portal_pt, s1, pt1,
-                        element_storey, storey_elevations, self.storey_z_tolerance,
-                    ):
-                        continue
-                    if not _spaces_on_same_level(
-                        portal_storey, portal_pt, s2, pt2,
-                        element_storey, storey_elevations, self.storey_z_tolerance,
-                    ):
-                        continue
-                    st1 = _resolve_element_storey(
-                        s1, pt1, element_storey, storey_elevations, self.storey_z_tolerance
+                    k1 = _storey_group_key(
+                        s1, pt1, space_names.get(s1, ""), element_storey, storey_elevations, self.storey_z_tolerance,
                     )
-                    st2 = _resolve_element_storey(
-                        s2, pt2, element_storey, storey_elevations, self.storey_z_tolerance
+                    k2 = _storey_group_key(
+                        s2, pt2, space_names.get(s2, ""), element_storey, storey_elevations, self.storey_z_tolerance,
                     )
-                    if st1 and st2 and st1 != st2:
+                    if not k1 or not k2 or k1 != k2:
                         continue
                 _append_edge(
                     self._relationships, seen_edges,
@@ -985,11 +1031,21 @@ def _append_edge(
     portal_name: str,
     method: str,
     source_file: str,
+    extra_evidence: Optional[Dict[str, str]] = None,
 ) -> bool:
     key = tuple(sorted((s1, s2)))
     if key in seen_edges:
         return False
     seen_edges.add(key)
+    evidence: Dict[str, str] = {
+        "method": method,
+        "portal_global_id": portal_id,
+        "portal_class": portal_class,
+        "portal_name": portal_name or portal_id,
+        "source_file": source_file,
+    }
+    if extra_evidence:
+        evidence.update(extra_evidence)
     relationships.append(
         Relationship(
             subject_global_id=s1,
@@ -998,13 +1054,7 @@ def _append_edge(
             relationship_type="egress_connects",
             confidence=0.95,
             source_kind="topologic_ingest_EgressCirculation",
-            evidence={
-                "method": method,
-                "portal_global_id": portal_id,
-                "portal_class": portal_class,
-                "portal_name": portal_name or portal_id,
-                "source_file": source_file,
-            },
+            evidence=evidence,
         )
     )
     return True
@@ -1059,6 +1109,63 @@ def _merge_ifc_models(
     return [(base_path, base)]
 
 
+def _storey_group_key(
+    global_id: str,
+    point: Optional[Tuple[float, float, float]],
+    space_name: str,
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    z_tolerance: float,
+) -> Optional[str]:
+    """Comparable storey key for a space — IFC containment, room prefix, or elevation."""
+    storey_gid = element_storey.get(global_id)
+    if storey_gid and storey_gid in storey_elevations:
+        return f"elev:{round(storey_elevations[storey_gid], 2)}"
+    if storey_gid:
+        return f"gid:{storey_gid}"
+    prefix = _parse_room_prefix(space_name)
+    if prefix:
+        return f"prefix:{prefix}"
+    if point is not None and storey_elevations:
+        inferred = _infer_storey_from_z(point[2], storey_elevations, z_tolerance)
+        if inferred and inferred in storey_elevations:
+            return f"elev:{round(storey_elevations[inferred], 2)}"
+        return f"z:{round(point[2], 1)}"
+    return None
+
+
+def _storey_resolution_stats(
+    space_points: Dict[str, Tuple[float, float, float]],
+    space_names: Dict[str, str],
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    z_tolerance: float,
+) -> Dict[str, int]:
+    """How each space resolves a storey for same-level filtering."""
+    ifc_containment = 0
+    prefix_key = 0
+    z_inferred = 0
+    unresolved = 0
+    for gid, pt in space_points.items():
+        key = _storey_group_key(
+            gid, pt, space_names.get(gid, ""), element_storey, storey_elevations, z_tolerance,
+        )
+        if not key:
+            unresolved += 1
+        elif key.startswith("prefix:"):
+            prefix_key += 1
+        elif gid in element_storey:
+            ifc_containment += 1
+        else:
+            z_inferred += 1
+    return {
+        "ifc_containment": ifc_containment,
+        "prefix_key": prefix_key,
+        "z_inferred": z_inferred,
+        "unresolved": unresolved,
+    }
+
+
 def _collect_storey_maps(
     models: List[Tuple[Path, ifcopenshell.file]],
 ) -> Tuple[Dict[str, str], Dict[str, float]]:
@@ -1078,6 +1185,14 @@ def _collect_storey_maps(
             storey_id = _element_storey_id(element)
             if storey_id:
                 element_storey[element.GlobalId] = storey_id
+
+        for rel in _safe_by_type(ifc, "IfcRelContainedInSpatialStructure"):
+            struct = getattr(rel, "RelatingStructure", None)
+            if not struct or not struct.is_a("IfcBuildingStorey"):
+                continue
+            for obj in getattr(rel, "RelatedElements", []) or []:
+                if obj.is_a() in ("IfcSpace", "IfcDoor"):
+                    element_storey[obj.GlobalId] = struct.GlobalId
 
     return element_storey, storey_elevations
 
@@ -1147,9 +1262,10 @@ def _spaces_on_same_level(
 
 def _collect_spaces_centroids(
     models: List[Tuple[Path, ifcopenshell.file]],
-) -> Tuple[Dict[str, Tuple[float, float, float]], Dict[str, str]]:
+) -> Tuple[Dict[str, Tuple[float, float, float]], Dict[str, str], Dict[str, str]]:
     space_points: Dict[str, Tuple[float, float, float]] = {}
     space_sources: Dict[str, str] = {}
+    space_names: Dict[str, str] = {}
     for ifc_path, ifc in models:
         for space in _safe_by_type(ifc, "IfcSpace"):
             gid = space.GlobalId
@@ -1160,7 +1276,8 @@ def _collect_spaces_centroids(
                 continue
             space_points[gid] = pt
             space_sources[gid] = ifc_path.name
-    return space_points, space_sources
+            space_names[gid] = space.Name or gid
+    return space_points, space_sources, space_names
 
 
 def _vertex_meta(vertex) -> Optional[Tuple[str, str]]:

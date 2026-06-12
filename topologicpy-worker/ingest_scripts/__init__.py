@@ -27,6 +27,40 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def ifc_schema(ifc) -> str:
+    """Return the IFC schema identifier (e.g. IFC2X3, IFC4)."""
+    return str(getattr(ifc, "schema", "") or "")
+
+
+def safe_by_type(ifc, type_name: str) -> List:
+    """Query entities by IFC type, returning [] when the class is absent in the schema."""
+    try:
+        return list(ifc.by_type(type_name))
+    except RuntimeError:
+        return []
+
+
+def safe_by_types(ifc, type_names: List[str]) -> List:
+    """Union of safe_by_type results for each type name (deduped by entity id)."""
+    seen_ids: set = set()
+    result: List = []
+    for type_name in type_names:
+        for entity in safe_by_type(ifc, type_name):
+            eid = entity.id()
+            if eid in seen_ids:
+                continue
+            seen_ids.add(eid)
+            result.append(entity)
+    return result
+
+
+def default_mep_system_types(ifc) -> List[str]:
+    """IFC classes to query for MEP distribution systems (schema-dependent)."""
+    if ifc_schema(ifc).upper() == "IFC2X3":
+        return ["IfcSystem"]
+    return ["IfcDistributionSystem"]
+
+
 @dataclass
 class Relationship:
     subject_global_id: str

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Set
 
 import ifcopenshell
 
-from ingest_scripts import Element, Ingester as _Base, Relationship
+from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
 try:
     from topologicpy.Topology import Topology
@@ -61,7 +61,7 @@ class Ingester(_Base):
             ifc = ifcopenshell.open(str(ifc_path))
 
             for cls_name in self.structural_types:
-                for elem in ifc.by_type(cls_name):
+                for elem in safe_by_type(ifc, cls_name):
                     self._elements.append(Element(
                         global_id=elem.GlobalId,
                         ifc_class=elem.is_a(),
@@ -91,7 +91,7 @@ class Ingester(_Base):
     def _extract_analytical(self, ifc, ifc_path: Path, seen: Set[tuple]) -> int:
         """Extract from IfcRelConnectsStructuralMember (analytical model)."""
         count = 0
-        for rel in ifc.by_type("IfcRelConnectsStructuralMember"):
+        for rel in safe_by_type(ifc, "IfcRelConnectsStructuralMember"):
             member = rel.RelatingStructuralMember
             connection = rel.RelatedStructuralConnection
             if not member or not connection:
@@ -125,7 +125,7 @@ class Ingester(_Base):
         structural_types = set(self.structural_types) | {"IfcPlate", "IfcStairFlight"}
         count = 0
 
-        for rel in ifc.by_type("IfcRelConnectsElements"):
+        for rel in safe_by_type(ifc, "IfcRelConnectsElements"):
             elem_a = rel.RelatingElement
             elem_b = rel.RelatedElement
             if not elem_a or not elem_b:

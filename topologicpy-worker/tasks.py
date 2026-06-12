@@ -161,13 +161,39 @@ class SpaceIndex:
 
             for gx in range(min_gx, max_gx + 1):
                 for gy in range(min_gy, max_gy + 1):
-                    self.grid.setdefault((gx, gy), []).append(space)
+                    self._append_to_cell((gx, gy), space)
+
+    @staticmethod
+    def _normalize_cell_spaces(cell_spaces: Any) -> Optional[List[SpaceCandidate]]:
+        """Coerce a grid bucket to a list (guards native-heap type confusion)."""
+        if cell_spaces is None:
+            return None
+        if isinstance(cell_spaces, SpaceCandidate):
+            return [cell_spaces]
+        if isinstance(cell_spaces, list):
+            return cell_spaces
+        return None
+
+    def _append_to_cell(self, cell_key: Tuple[int, int], space: SpaceCandidate) -> None:
+        bucket = self._normalize_cell_spaces(self.grid.get(cell_key))
+        if bucket is None:
+            bucket = []
+        bucket.append(space)
+        self.grid[cell_key] = bucket
 
     def query(self, point: Point, tolerance: float = 0.0) -> List[SpaceCandidate]:
         """
         Returns space candidates that overlap the query point.
         """
-        x, y, z = point
+        coerced = _coerce_point(point)
+        if coerced is None:
+            logger.warning(
+                "SpaceIndex.query skipped invalid point type=%s value=%r",
+                type(point).__name__,
+                point,
+            )
+            return []
+        x, y, z = coerced
         gx = int(np.floor(x / self.grid_size))
         gy = int(np.floor(y / self.grid_size))
 
@@ -176,13 +202,23 @@ class SpaceIndex:
 
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
-                cell_spaces = self.grid.get((gx + dx, gy + dy))
-                if cell_spaces:
-                    for space in cell_spaces:
-                        if space.global_id not in seen:
-                            if space.bbox.min_z - tolerance <= z <= space.bbox.max_z + tolerance:
-                                candidates.append(space)
-                                seen.add(space.global_id)
+                raw_cell = self.grid.get((gx + dx, gy + dy))
+                cell_spaces = self._normalize_cell_spaces(raw_cell)
+                if cell_spaces is None:
+                    if raw_cell is not None:
+                        logger.warning(
+                            "SpaceIndex.query skipping corrupt grid cell %s type=%s",
+                            (gx + dx, gy + dy),
+                            type(raw_cell).__name__,
+                        )
+                    continue
+                if raw_cell is not None and not isinstance(raw_cell, list):
+                    self.grid[(gx + dx, gy + dy)] = cell_spaces
+                for space in cell_spaces:
+                    if space.global_id not in seen:
+                        if space.bbox.min_z - tolerance <= z <= space.bbox.max_z + tolerance:
+                            candidates.append(space)
+                            seen.add(space.global_id)
 
         return candidates
 
@@ -589,13 +625,46 @@ def _space_from_cache_dict(data: Dict[str, Any]) -> SpaceCandidate:
     )
 
 
+def _coerce_point(value: Any) -> Optional[Point]:
+    """Return a finite XYZ tuple, or None when value is not a usable sample point."""
+    if value is None:
+        return None
+    if isinstance(value, (tuple, list)) and len(value) >= 3:
+        try:
+            coords = (float(value[0]), float(value[1]), float(value[2]))
+        except (TypeError, ValueError):
+            return None
+        if all(np.isfinite(c) for c in coords):
+            return coords
+    return None
+
+
+def _sanitize_sample_points(points: Iterable[Any], *, context: str = "") -> List[Point]:
+    """Drop corrupt sample points instead of aborting the whole roomstamp job."""
+    kept: List[Point] = []
+    for index, raw in enumerate(points):
+        pt = _coerce_point(raw)
+        if pt is not None:
+            kept.append(pt)
+            continue
+        logger.warning(
+            "Skipping invalid sample point context=%s index=%s type=%s value=%r",
+            context or "unknown",
+            index,
+            type(raw).__name__,
+            raw,
+        )
+    return kept
+
+
 def _dedupe_sample_points(points: List[Point], max_points: int, min_sep: float = 0.05) -> List[Point]:
     """Keep up to max_points spatially distinct sample locations."""
-    if not points:
+    cleaned = _sanitize_sample_points(points, context="dedupe_sample_points")
+    if not cleaned:
         return []
     kept: List[Point] = []
     min_sep_sq = min_sep * min_sep
-    for pt in points:
+    for pt in cleaned:
         if len(kept) >= max_points:
             break
         duplicate = False
@@ -1205,8 +1274,20 @@ def _distance_point_to_bbox(point: Point, bbox: BBox) -> float:
 
 def _element_sample_points(element: ElementCandidate) -> List[Point]:
     if element.sample_points:
-        return element.sample_points
-    return [element.sample_point]
+        cleaned = _sanitize_sample_points(
+            element.sample_points,
+            context=f"element:{element.global_id}",
+        )
+        if cleaned:
+            return cleaned
+    coerced = _coerce_point(element.sample_point)
+    if coerced is not None:
+        return [coerced]
+    logger.warning(
+        "Element %s has no valid sample points; matching will treat it as unmatched",
+        element.global_id,
+    )
+    return []
 
 
 def _vote_rooms_by_samples(

@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 import ifcopenshell
 import ifcopenshell.geom
 
-from ingest_scripts import Element, Ingester as _Base, Relationship
+from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
 try:
     from topologicpy.Topology import Topology
@@ -143,7 +143,7 @@ class Ingester(_Base):
         t0 = time.time()
         ifc = ifcopenshell.open(str(ifc_path))
 
-        for rel in ifc.by_type("IfcRelContainedInSpatialStructure"):
+        for rel in safe_by_type(ifc, "IfcRelContainedInSpatialStructure"):
             space = rel.RelatingStructure
             if not space or not hasattr(space, "GlobalId"):
                 continue
@@ -161,7 +161,7 @@ class Ingester(_Base):
                     evidence={"method": "ifc_native_rel", "source_file": ifc_path.name},
                 ))
 
-        for rel in ifc.by_type("IfcRelAggregates"):
+        for rel in safe_by_type(ifc, "IfcRelAggregates"):
             parent = rel.RelatingObject
             if not parent or not parent.is_a("IfcSpatialStructureElement"):
                 continue

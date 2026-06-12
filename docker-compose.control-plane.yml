@@ -34,6 +34,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - USE_OBJECT_STORAGE=${USE_OBJECT_STORAGE:-true}
       - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-http://seaweedfs:8333}
+      - S3_INTERNAL_ENDPOINT_URL=${S3_INTERNAL_ENDPOINT_URL:-}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-ifcpipeline}
@@ -70,8 +71,7 @@ services:
 
   redis:
     image: "redis:7.2.11-alpine"
-    ports:
-      - "127.0.0.1:6379:6379"
+    # Host ports are published by docker-compose.host-lan.yml (primary host).
     # Persist Redis to disk so the RQ failed-job registry survives restarts.
     # Previously /data was tmpfs, which wiped all RQ history on every container
     # restart and made post-mortem analysis impossible after the May 13/14
@@ -110,8 +110,8 @@ services:
   # Replaced MinIO as the sole object store (2026-06). Pilot docs archived at
   # ../ifcpipeline-minio-pilot-archive/.
   # S3 identities live in seaweedfs/s3.json (gitignored; keep accessKey/secretKey
-  # in sync with .env's S3_ACCESS_KEY/S3_SECRET_KEY). Loopback-only host ports;
-  # the LAN binding for remote workers is added by docker-compose.host-lan.yml.
+  # in sync with .env's S3_ACCESS_KEY/S3_SECRET_KEY). Host ports are published by
+  # docker-compose.host-lan.yml on the primary host.
   # Presigned URLs must use the public hostname (S3_PUBLIC_ENDPOINT_URL).
   seaweedfs:
     image: chrislusf/seaweedfs:4.29
@@ -123,9 +123,6 @@ services:
       -s3
       -s3.config=/etc/seaweedfs/s3.json
       -master.volumeSizeLimitMB=1024
-    ports:
-      - "127.0.0.1:8333:8333"   # S3 API
-      - "127.0.0.1:8443:8888"   # Filer browser (loopback only)
     volumes:
       - seaweedfs-data:/data
       - ./seaweedfs:/etc/seaweedfs:ro
@@ -194,7 +191,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - DOZZLE_LEVEL=info
-      - DOZZLE_TAILSIZE=300
+      # Agent on worker sets DOZZLE_HOSTNAME=bimbotw1 (see docker-compose.remote-workers.yml).
+      - DOZZLE_REMOTE_AGENT=${WORKER_VM_IP:?Set WORKER_VM_IP in .env}:7007
     restart: unless-stopped
     deploy:
       resources:
