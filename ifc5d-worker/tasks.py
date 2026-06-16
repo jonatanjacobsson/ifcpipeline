@@ -1,18 +1,117 @@
 import logging
 import os
-import tempfile
 import shutil
-import ifcopenshell
-import ifcopenshell.geom
-from ifc5d import qto
+import tempfile
+from multiprocessing import get_context
+from queue import Empty
+from typing import Any, Optional
+
 from shared.classes import IfcQtoRequest
 from shared import object_storage as s3
 
-# Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 WORKER_NAME = "ifc5d-worker"
+
+
+def _execute_qto_core(input_file_path: str, output_file_path: str) -> dict[str, int]:
+    """Open IFC, quantify, edit QTOs, and write output."""
+    import ifcopenshell
+    from ifc5d import qto
+
+    ifc_file = ifcopenshell.open(input_file_path)
+    elements = set(ifc_file.by_type("IfcProduct"))
+    qto_rule = qto.rules.get("IFC4QtoBaseQuantities")
+    if not qto_rule:
+        raise ValueError("Required QTO rule not found.")
+    qto_results = qto.quantify(ifc_file, elements, qto_rule)
+    qto.edit_qtos(ifc_file, qto_results)
+    ifc_file.write(output_file_path)
+    if not os.path.exists(output_file_path):
+        raise RuntimeError("Output IFC file was not created successfully.")
+    return {
+        "element_count": len(elements),
+        "qto_result_count": len(qto_results),
+    }
+
+
+def _isolated_qto_worker(result_queue, payload: dict) -> None:
+    """Top-level spawn entry: isolate ifcopenshell/ifc5d from the rq work-horse."""
+    import logging as _logging
+
+    _logging.basicConfig(level=_logging.INFO)
+    wlog = _logging.getLogger("ifc5d.isolated_qto")
+    try:
+        meta = _execute_qto_core(payload["input_file_path"], payload["output_file_path"])
+        wlog.info(
+            "QTO complete: %d elements, %d results",
+            meta["element_count"],
+            meta["qto_result_count"],
+        )
+        result_queue.put(("ok", meta))
+    except Exception as e:
+        import traceback as _tb
+
+        tb_str = _tb.format_exc()
+        try:
+            result_queue.put(("err", f"{type(e).__name__}: {e}\n{tb_str}"))
+        except Exception:
+            pass
+        wlog.exception("Isolated QTO worker failed")
+        raise
+
+
+def _run_in_spawn_isolation(
+    worker_target,
+    payload: dict,
+    *,
+    label: str = "default",
+    operation: str = "ifc5d",
+    result_timeout: int = 3600,
+) -> dict[str, Any]:
+    """Run ifcopenshell work in a spawn subprocess."""
+    ctx = get_context("spawn")
+    q = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=worker_target, args=(q, payload))
+    proc.start()
+    proc.join()
+    if proc.exitcode == 0:
+        try:
+            status, data = q.get(timeout=result_timeout)
+        except Empty as e:
+            raise RuntimeError(
+                f"{operation} child exited 0 but sent no result"
+            ) from e
+        if status == "ok":
+            return data
+        raise RuntimeError(f"{operation} isolated worker: {data}")
+    child_err: Optional[str] = None
+    try:
+        status, data = q.get_nowait()
+        if status == "err":
+            child_err = data
+    except Empty:
+        pass
+    raise RuntimeError(
+        f"{operation} crashed in isolated subprocess "
+        f"(label={label!r}, exit={proc.exitcode}"
+        + (f", child={child_err!r}" if child_err else "")
+        + ")"
+    )
+
+
+def _run_qto_in_spawn_isolation(input_file_path: str, output_file_path: str) -> dict[str, int]:
+    payload = {
+        "input_file_path": input_file_path,
+        "output_file_path": output_file_path,
+    }
+    return _run_in_spawn_isolation(
+        _isolated_qto_worker,
+        payload,
+        label="qto",
+        operation="ifc5d qto",
+    )
 
 
 def _current_job_id():
@@ -23,20 +122,12 @@ def _current_job_id():
     except Exception:
         return None
 
+
 def run_qto_calculation(job_data: dict) -> dict:
-    """
-    Calculate quantities for elements in an IFC file using ifc5d rules 
-    and insert them back into a new or the original IFC file.
-    
-    Args:
-        job_data: Dictionary containing job parameters conforming to IfcQtoRequest.
-        
-    Returns:
-        Dictionary containing the operation results.
-    """
+    """Calculate quantities for elements in an IFC file and write a new IFC."""
     try:
         request = IfcQtoRequest(**job_data)
-        logger.info(f"Starting QTO calculation job for input: {request.input_file}")
+        logger.info("Starting QTO calculation job for input: %s", request.input_file)
 
         s3_ctx = None
         if s3.is_enabled():
@@ -57,7 +148,11 @@ def run_qto_calculation(job_data: dict) -> dict:
                 "input_key": input_key,
                 "input_pin": input_pin,
             }
-            logger.info("[s3] staged ifc5d input, output → s3://%s/%s", s3.bucket_name(), output_key)
+            logger.info(
+                "[s3] staged ifc5d input, output → s3://%s/%s",
+                s3.bucket_name(),
+                output_key,
+            )
         else:
             models_dir = "/uploads"
             output_dir = "/output/qto"
@@ -70,53 +165,18 @@ def run_qto_calculation(job_data: dict) -> dict:
                 output_file_path = os.path.join(output_dir, default_output_name)
             os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
             if not os.path.exists(input_file_path):
-                logger.error(f"Input IFC file not found: {input_file_path}")
+                logger.error("Input IFC file not found: %s", input_file_path)
                 raise FileNotFoundError(f"Input IFC file {request.input_file} not found")
-            logger.info(f"Input file found: {input_file_path}")
+            logger.info("Input file found: %s", input_file_path)
 
-        # Load the input IFC file
-        logger.info("Loading IFC file...")
-        ifc_file = ifcopenshell.open(input_file_path)
-        logger.info("IFC file loaded.")
+        logger.info("Running QTO in spawn-isolated subprocess")
+        qto_meta = _run_qto_in_spawn_isolation(input_file_path, output_file_path)
+        logger.info(
+            "QTO calculation completed: %d elements, %d results",
+            qto_meta["element_count"],
+            qto_meta["qto_result_count"],
+        )
 
-        # Get elements to process (e.g., all IfcProduct)
-        # TODO: Allow filtering elements via request?
-        elements = set(ifc_file.by_type("IfcProduct"))
-        logger.info(f"Processing {len(elements)} IfcProduct elements.")
-
-        # Calculate quantities
-        # TODO: Make the rule selection configurable via request?
-        qto_rule = qto.rules.get("IFC4QtoBaseQuantities")
-        if not qto_rule:
-             logger.error("QTO rule 'IFC4QtoBaseQuantities' not found in ifc5d library.")
-             raise ValueError("Required QTO rule not found.")
-             
-        logger.info("Calculating quantities using rule: IFC4QtoBaseQuantities")
-        qto_results = qto.quantify(ifc_file, elements, qto_rule)
-        logger.info(f"Quantification results generated for {len(qto_results)} elements.")
-
-        # Insert calculated quantities back into the IFC model
-        logger.info("Inserting calculated quantities into IFC model...")
-        qto.edit_qtos(ifc_file, qto_results)
-        logger.info("Quantities inserted.")
-
-        # Save the modified IFC file
-        logger.info(f"Saving modified IFC file to: {output_file_path}")
-        try:
-            ifc_file.write(output_file_path)
-            logger.info("Successfully wrote modified IFC file.")
-        except Exception as write_error:
-            logger.error(f"Failed to write modified IFC file to {output_file_path}: {str(write_error)}", exc_info=True)
-            # Raise a more specific error if possible, otherwise re-raise for RQ
-            raise RuntimeError(f"Failed to save the modified IFC file: {str(write_error)}")
-        
-        # Verify file creation (optional but good practice)
-        if not os.path.exists(output_file_path):
-            logger.error(f"Output IFC file was expected but not found at {output_file_path}")
-            # This indicates a problem despite write not throwing an error
-            raise RuntimeError("Output IFC file was not created successfully.")
-
-        logger.info(f"QTO calculation job completed successfully for {request.input_file}")
         result = {
             "success": True,
             "message": f"Quantities calculated and inserted. Results saved to {output_file_path}",
@@ -133,12 +193,13 @@ def run_qto_calculation(job_data: dict) -> dict:
                     parents=[("input", s3_ctx["input_key"])],
                     parent_version_ids=(
                         {s3_ctx["input_key"]: s3_ctx["input_pin"]}
-                        if s3_ctx.get("input_pin") else None
+                        if s3_ctx.get("input_pin")
+                        else None
                     ),
                     metadata={
                         "rule": "IFC4QtoBaseQuantities",
-                        "element_count": len(elements),
-                        "qto_result_count": len(qto_results),
+                        "element_count": qto_meta["element_count"],
+                        "qto_result_count": qto_meta["qto_result_count"],
                     },
                     content_type="application/x-step",
                 )
@@ -155,9 +216,9 @@ def run_qto_calculation(job_data: dict) -> dict:
                 shutil.rmtree(s3_ctx["tmpdir"], ignore_errors=True)
         return result
 
-    except FileNotFoundError as e:
-        logger.error(f"File not found error during QTO calculation: {str(e)}", exc_info=True)
+    except FileNotFoundError:
+        logger.exception("File not found error during QTO calculation")
         raise
-    except Exception as e:
-        logger.error(f"Error during QTO calculation: {str(e)}", exc_info=True)
-        raise # Re-raise for RQ failure 
+    except Exception:
+        logger.exception("Error during QTO calculation")
+        raise
