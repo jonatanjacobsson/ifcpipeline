@@ -1,0 +1,211 @@
+{
+  "name": "Nobel Center Dashboard Webhooks - Diffs",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "bimhealth/nobel/diffs",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*"
+        },
+        "responseData": "allEntries"
+      },
+      "id": "8894ac00-f370-494f-b45b-22697694a006",
+      "name": "Diffs Endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "ccfccdeb-b49a-4ffa-8b23-f5c45e1ead19"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH latest AS (\n  SELECT DISTINCT ON (old_file, new_file)\n    id, old_file, new_file, diff_data, created_at\n  FROM diff_results\n  WHERE diff_count > 0\n  ORDER BY old_file, new_file, created_at DESC\n)\nSELECT json_build_object(\n  'data', COALESCE(json_agg(\n            json_build_object(\n              'run_id', id::text,\n              'old_file', regexp_replace(old_file, '^.*/', ''),\n              'new_file', regexp_replace(new_file, '^.*/', ''),\n              'added',   COALESCE(jsonb_array_length(diff_data->'added'), 0),\n              'deleted', COALESCE(jsonb_array_length(diff_data->'deleted'), 0),\n              'changed', CASE WHEN jsonb_typeof(diff_data->'changed')='object'\n                           THEN (SELECT count(*) FROM jsonb_object_keys(diff_data->'changed')) ELSE 0 END,\n              'timestamp', to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS')\n            ) ORDER BY created_at DESC\n          ), '[]'::json),\n  'date', to_char(max(created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS'),\n  'last_week_date', NULL\n) AS result\nFROM latest;",
+        "options": {}
+      },
+      "id": "4d8af5e0-aaaa-4ba2-bee7-8824b27d3481",
+      "name": "query diff_table",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "DayfeOedf7i7XWk2",
+          "name": "ifcpipeline postgress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7b96f0eb-e7da-4193-b540-8072c25e58b7",
+              "name": ".data",
+              "value": "={{ $json.result.data }}",
+              "type": "array"
+            },
+            {
+              "id": "c93d2cb6-982a-4c67-a6f8-cdbd0c5ef016",
+              "name": ".date",
+              "value": "={{ $json.result.date }}",
+              "type": "string"
+            },
+            {
+              "id": "b090a26c-8d81-4205-a623-bb8d6f26240e",
+              "name": ".last_week_date",
+              "value": "={{ $json.result.last_week_date }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "673e391e-02ef-4945-874f-f5c6edf4f3bd",
+      "name": "Return diff data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "path": "bimhealth/nobel/diff-detail",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "58dbf56a-784a-4d00-81d4-5f6cb57fd73e",
+      "name": "Diff Detail Endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        220
+      ],
+      "webhookId": "562a8bda-47fb-4a29-8805-51796221e9a9"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id,\n       regexp_replace(old_file,'^.*/','') AS old_file,\n       regexp_replace(new_file,'^.*/','') AS new_file,\n       diff_data\nFROM diff_results\nWHERE regexp_replace(old_file,'^.*/','') ILIKE $1\n  AND regexp_replace(new_file,'^.*/','') ILIKE $2\n  AND diff_count > 0\nORDER BY created_at DESC\nLIMIT 1",
+        "options": {
+          "queryReplacement": "={{ $json.query.old_file }},{{ $json.query.new_file }}"
+        }
+      },
+      "id": "8c5bbf27-11a0-4415-85b9-40293c8124b9",
+      "name": "Fetch diff row",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "DayfeOedf7i7XWk2",
+          "name": "ifcpipeline postgress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Diff Detail Endpoint').first().json;\nconst row = $input.first().json;\nconst ofile = String(req.query?.old_file ?? '').trim();\nconst nfile = String(req.query?.new_file ?? '').trim();\nif (!row || row.diff_data == null) {\n  return [{ json: { _status: 404, error: 'not_found', run_id: '',\n    old_file: ofile, new_file: nfile, added: [], deleted: [], changed: [] } }];\n}\nconst dd = row.diff_data || {};\nconst added = Array.isArray(dd.added) ? dd.added : [];\nconst deleted = Array.isArray(dd.deleted) ? dd.deleted : [];\nconst changed = (dd.changed && typeof dd.changed === 'object' && !Array.isArray(dd.changed))\n  ? Object.keys(dd.changed).map((g) => ({ guid: g })) : [];\nreturn [{ json: { _status: 200, run_id: String(row.id ?? ''),\n  old_file: row.old_file, new_file: row.new_file, added, deleted, changed } }];"
+      },
+      "id": "3dfb5591-5ab1-4d54-b762-ba01d8c5b474",
+      "name": "Build diff detail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json._status === 200 ? { run_id: $json.run_id, old_file: $json.old_file, new_file: $json.new_file, added: $json.added, deleted: $json.deleted, changed: $json.changed } : { error: $json.error, run_id: '', old_file: $json.old_file, new_file: $json.new_file, added: [], deleted: [], changed: [] } }}",
+        "options": {
+          "responseCode": "={{ $json._status || 200 }}"
+        }
+      },
+      "id": "ebf46d7a-4d39-4391-85fc-af6d26339c9c",
+      "name": "Respond Diff Detail",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Diffs Endpoint": {
+      "main": [
+        [
+          {
+            "node": "query diff_table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query diff_table": {
+      "main": [
+        [
+          {
+            "node": "Return diff data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff Detail Endpoint": {
+      "main": [
+        [
+          {
+            "node": "Fetch diff row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch diff row": {
+      "main": [
+        [
+          {
+            "node": "Build diff detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build diff detail": {
+      "main": [
+        [
+          {
+            "node": "Respond Diff Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
