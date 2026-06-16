@@ -1,8 +1,10 @@
 import logging
 import os
-import ifcopenshell
-import ifcopenshell.util.selector
-import ifccsv
+import tempfile
+from multiprocessing import get_context
+from queue import Empty
+from typing import Any, Optional
+
 from shared.classes import IfcCsvRequest, IfcCsvImportRequest
 from shared import object_storage as s3
 
@@ -12,10 +14,18 @@ logger = logging.getLogger(__name__)
 WORKER_NAME = "ifccsv-worker"
 
 
+def _ifc_csv_request_to_dict(request: IfcCsvRequest) -> dict:
+    if hasattr(request, "model_dump"):
+        return request.model_dump()
+    return request.dict()
+
+
 def _run_ifccsv_export_to_path(
     model, elements, request: IfcCsvRequest, output_path: str
 ) -> None:
     """Single ifccsv export call (writes csv/ods/xlsx via format=)."""
+    import ifccsv
+
     attrs = list(request.attributes or [])
     include_gid = request.include_global_id
     if include_gid and "GlobalId" in attrs:
@@ -40,6 +50,156 @@ def _run_ifccsv_export_to_path(
         formatting=request.formatting,
         include_global_id=include_gid,
     )
+
+
+def _isolated_export_worker(result_queue, payload: dict) -> None:
+    """Top-level spawn entry: open IFC, filter, export — isolates ifcopenshell
+    SIGSEGVs and lark corruption from the rq work-horse."""
+    import logging as _logging
+
+    import ifcopenshell
+    import ifcopenshell.util.selector
+
+    _logging.basicConfig(level=_logging.INFO)
+    wlog = _logging.getLogger("ifccsv.isolated_export")
+    try:
+        req = IfcCsvRequest(**payload["request"])
+        model = ifcopenshell.open(payload["ifc_path"])
+        elements = (
+            ifcopenshell.util.selector.filter_elements(model, req.query)
+            if req.query
+            else model.by_type("IfcElement")
+        )
+        element_count = len(elements)
+        wlog.info("Processing %d elements with %s", element_count, req.attributes)
+        _run_ifccsv_export_to_path(model, elements, req, payload["output_path"])
+        result_queue.put(("ok", {"element_count": element_count}))
+    except Exception as e:
+        import traceback as _tb
+
+        tb_str = _tb.format_exc()
+        try:
+            result_queue.put(("err", f"{type(e).__name__}: {e}\n{tb_str}"))
+        except Exception:
+            pass
+        wlog.exception("Isolated export worker failed")
+        raise
+
+
+def _isolated_import_worker(result_queue, payload: dict) -> None:
+    """Top-level spawn entry: import tabular data into IFC and write output."""
+    import logging as _logging
+
+    import ifcopenshell
+    import ifccsv
+
+    _logging.basicConfig(level=_logging.INFO)
+    wlog = _logging.getLogger("ifccsv.isolated_import")
+    try:
+        model = ifcopenshell.open(payload["ifc_path"])
+        importer = ifccsv.IfcCsv()
+        importer.Import(model, payload["data_path"])
+        model.write(payload["output_path"])
+        result_queue.put(("ok", {}))
+    except Exception as e:
+        import traceback as _tb
+
+        tb_str = _tb.format_exc()
+        try:
+            result_queue.put(("err", f"{type(e).__name__}: {e}\n{tb_str}"))
+        except Exception:
+            pass
+        wlog.exception("Isolated import worker failed")
+        raise
+
+
+def _run_in_spawn_isolation(
+    worker_target,
+    payload: dict,
+    *,
+    label: str = "default",
+    operation: str = "ifccsv",
+    result_timeout: int = 600,
+) -> dict:
+    """Run ifcopenshell work in a spawn subprocess.
+
+    A SIGSEGV inside ``_ifcopenshell_wrapper`` kills only the child; the rq
+    work-horse survives and converts the non-zero exit into RuntimeError for
+    n8n retry.
+    """
+    ctx = get_context("spawn")
+    q = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=worker_target, args=(q, payload))
+    proc.start()
+    proc.join()
+    if proc.exitcode == 0:
+        try:
+            status, data = q.get(timeout=result_timeout)
+        except Empty as e:
+            raise RuntimeError(
+                f"{operation} child exited 0 but sent no result"
+            ) from e
+        if status == "ok":
+            return data
+        raise RuntimeError(f"{operation} isolated worker: {data}")
+    child_err: Optional[str] = None
+    try:
+        status, data = q.get_nowait()
+        if status == "err":
+            child_err = data
+    except Empty:
+        pass
+    raise RuntimeError(
+        f"{operation} crashed in isolated subprocess "
+        f"(label={label!r}, exit={proc.exitcode}"
+        + (f", child={child_err!r}" if child_err else "")
+        + ")"
+    )
+
+
+def _run_export_in_spawn_isolation(
+    request: IfcCsvRequest, ifc_path: str, output_path: str
+) -> dict[str, Any]:
+    payload = {
+        "request": _ifc_csv_request_to_dict(request),
+        "ifc_path": ifc_path,
+        "output_path": output_path,
+    }
+    return _run_in_spawn_isolation(
+        _isolated_export_worker,
+        payload,
+        label="export",
+        operation="ifccsv export",
+    )
+
+
+def _run_import_in_spawn_isolation(
+    ifc_path: str, data_path: str, output_path: str
+) -> dict[str, Any]:
+    payload = {
+        "ifc_path": ifc_path,
+        "data_path": data_path,
+        "output_path": output_path,
+    }
+    return _run_in_spawn_isolation(
+        _isolated_import_worker,
+        payload,
+        label="import",
+        operation="ifccsv import",
+    )
+
+
+def _prepare_export_output_path(request: IfcCsvRequest) -> str:
+    out_suffix = os.path.splitext(request.output_filename)[1] or f".{request.format}"
+    fd, out_tmp = tempfile.mkstemp(suffix=out_suffix)
+    os.close(fd)
+    # mkstemp leaves a zero-byte file. ifccsv.export_xlsx() treats any existing
+    # path as a workbook to append to and calls openpyxl.load_workbook → BadZipFile.
+    try:
+        os.unlink(out_tmp)
+    except OSError:
+        pass
+    return out_tmp
 
 
 def _current_job_id():
@@ -84,25 +244,11 @@ def _run_export_s3(request: IfcCsvRequest) -> dict:
     suffix = os.path.splitext(request.filename)[1] or ".ifc"
 
     with s3.download_to_tempfile(input_key, suffix=suffix, version_id=input_pin) as ifc_tmp:
-        model = ifcopenshell.open(ifc_tmp)
-        elements = (
-            ifcopenshell.util.selector.filter_elements(model, request.query)
-            if request.query else model.by_type("IfcElement")
-        )
-        logger.info("Processing %d elements with %s", len(elements), request.attributes)
-
-        out_suffix = os.path.splitext(request.output_filename)[1] or f".{request.format}"
-        import tempfile
-        fd, out_tmp = tempfile.mkstemp(suffix=out_suffix)
-        os.close(fd)
-        # mkstemp leaves a zero-byte file. ifccsv.export_xlsx() treats any existing
-        # path as a workbook to append to and calls openpyxl.load_workbook → BadZipFile.
+        out_tmp = _prepare_export_output_path(request)
         try:
-            os.unlink(out_tmp)
-        except OSError:
-            pass
-        try:
-            _run_ifccsv_export_to_path(model, elements, request, out_tmp)
+            export_meta = _run_export_in_spawn_isolation(request, ifc_tmp, out_tmp)
+            element_count = export_meta["element_count"]
+            logger.info("Exported %d elements with %s", element_count, request.attributes)
             audit = s3.upload_and_audit(
                 out_tmp,
                 key=output_key,
@@ -116,7 +262,7 @@ def _run_export_s3(request: IfcCsvRequest) -> dict:
                     "query": request.query,
                     "delimiter": request.delimiter,
                     "attribute_count": len(request.attributes or []),
-                    "element_count": len(elements),
+                    "element_count": element_count,
                     "has_groups": bool(request.groups),
                 },
                 content_type=_csv_content_type(request.format),
@@ -158,14 +304,12 @@ def _run_export_filesystem(request: IfcCsvRequest) -> dict:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Input IFC file {request.filename} not found")
 
-    model = ifcopenshell.open(file_path)
-    elements = (
-        ifcopenshell.util.selector.filter_elements(model, request.query)
-        if request.query else model.by_type("IfcElement")
+    export_meta = _run_export_in_spawn_isolation(request, file_path, output_path)
+    logger.info(
+        "Exported %d elements with %s",
+        export_meta["element_count"],
+        request.attributes,
     )
-    logger.info("Processing %d elements with %s", len(elements), request.attributes)
-
-    _run_ifccsv_export_to_path(model, elements, request, output_path)
 
     return {
         "success": True,
@@ -209,8 +353,6 @@ def _derive_updated_name(ifc_filename: str, output_filename: str | None) -> str:
 
 
 def _run_import_s3(request: IfcCsvImportRequest) -> dict:
-    import tempfile
-
     ifc_key = s3.build_upload_key(request.ifc_filename)
     ifc_pin = s3.pin_for(request, request.ifc_filename)
     # Treat csv_filename as a key under output/ (matches legacy data_input_dir=/output)
@@ -227,14 +369,10 @@ def _run_import_s3(request: IfcCsvImportRequest) -> dict:
              suffix=os.path.splitext(request.csv_filename)[1] or ".csv",
              version_id=csv_pin,
          ) as data_tmp:
-        model = ifcopenshell.open(ifc_tmp)
-        importer = ifccsv.IfcCsv()
-        importer.Import(model, data_tmp)
-
         fd, out_tmp = tempfile.mkstemp(suffix=".ifc")
         os.close(fd)
         try:
-            model.write(out_tmp)
+            _run_import_in_spawn_isolation(ifc_tmp, data_tmp, out_tmp)
             parent_pins = {}
             if ifc_pin:
                 parent_pins[ifc_key] = ifc_pin
@@ -289,10 +427,7 @@ def _run_import_filesystem(request: IfcCsvImportRequest) -> dict:
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Input data file {request.csv_filename} not found")
 
-    model = ifcopenshell.open(ifc_path)
-    importer = ifccsv.IfcCsv()
-    importer.Import(model, data_path)
-    model.write(output_ifc_path)
+    _run_import_in_spawn_isolation(ifc_path, data_path, output_ifc_path)
 
     return {
         "success": True,
