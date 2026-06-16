@@ -1,0 +1,1182 @@
+{
+  "name": "Nobel Center Dashboard Webhooks",
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        1856,
+        208
+      ],
+      "id": "8e7670e2-b2d1-48e5-91cc-1852efaf9f5e",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "value",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2304,
+        208
+      ],
+      "id": "ab0863e3-a392-4d99-af5f-d6c03b1bb949",
+      "name": "Split Childrens"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "40d509e1-0ad1-47e2-9560-1b0a61cce299",
+              "leftValue": "={{ $json.isfile }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        2752,
+        208
+      ],
+      "id": "855c1415-4e55-428a-8b90-0187ecd68622",
+      "name": "Only return Files"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/sites/{{ $json.id }}/drive/root:/{{ $json.folder }}:/children",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Sharepoint Token').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        208
+      ],
+      "id": "2949afb6-1ee4-47cc-895c-e03d8fa0b8a8",
+      "name": "Get Folder Childrens"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "folder",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        320
+      ],
+      "id": "d4d5ad8f-bcd4-4781-b640-17abd4a4ed58",
+      "name": "Split Folders"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ad0ac4e-b228-408c-b741-bd946303912d",
+              "name": "tenant_id",
+              "value": "f2331605-5182-4286-9dd2-71953083f008",
+              "type": "string"
+            },
+            {
+              "id": "f8cf7665-9b5f-4b48-bea6-0a4decb1180e",
+              "name": "tenant_url",
+              "value": "nobelcenter.sharepoint.com",
+              "type": "string"
+            },
+            {
+              "id": "975af818-009a-48e8-905e-f38784bb7e99",
+              "name": "sharepoint_site_name",
+              "value": "Syncpoint",
+              "type": "string"
+            },
+            {
+              "id": "8f216278-d5ed-4167-8936-86d80809bdb3",
+              "name": "folder",
+              "value": "[\n\"General/Pipeline/IFC-from-Revit\", \n\"General/StreamBIM\"\n]",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1184,
+        208
+      ],
+      "id": "443e298c-ed20-4047-a2da-a4a50e9bf260",
+      "name": "Variables"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://login.microsoftonline.com/{{ $json.tenant_id }}/oauth2/v2.0/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1408,
+        128
+      ],
+      "id": "681cade7-dc2e-4336-b09a-d3484d5868a7",
+      "name": "Get Sharepoint Token",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "ORKQrOywP28Uepv0",
+          "name": "Nobel Center Sharepoint Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/sites/{{ $('Variables').item.json.tenant_url }}:/sites/{{ $('Variables').item.json.sharepoint_site_name }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization ",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1632,
+        128
+      ],
+      "id": "1fd13445-4f9a-4129-9c8d-f4279a6d0940",
+      "name": "Get Site ID"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6b0f325b-9e49-4e43-9588-536de84a72e0",
+              "name": "name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "05e424ab-a7eb-471a-9d91-3ffc7e56c281",
+              "name": "size",
+              "value": "={{ ($json.size / 1048576).toFixed(2) }} MB",
+              "type": "string"
+            },
+            {
+              "id": "7c3fb8d8-099e-44a2-8ff6-4390872e2754",
+              "name": "lastModifiedDateTime",
+              "value": "={{ $json.lastModifiedDateTime }}",
+              "type": "string"
+            },
+            {
+              "id": "21733c0e-6d11-4c3e-b81e-6c6d32e1f9d7",
+              "name": "createdBy",
+              "value": "={{ $json.createdBy.user.displayName }}",
+              "type": "string"
+            },
+            {
+              "id": "c8276f5e-0f8d-486f-89fe-2a8f46b504ad",
+              "name": "isfile",
+              "value": "={{ $json.file.isNotEmpty() }}",
+              "type": "boolean"
+            },
+            {
+              "id": "dbd9cabf-e04a-45fd-8702-9396ba104a3c",
+              "name": "folder",
+              "value": "={{ $json.parentReference.name }}",
+              "type": "string"
+            },
+            {
+              "id": "34b33f39-d83f-4621-8916-3c9839de8b19",
+              "name": "status_ignore",
+              "value": "={{ $json.name.startsWith(\"A1\") }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2528,
+        208
+      ],
+      "id": "9eae83fc-6676-4c56-b88b-a873c05dc794",
+      "name": "Prepare data for dashboard"
+    },
+    {
+      "id": "28b66d38-3288-421a-ba84-bd98536626e5",
+      "name": "Clash Matrix Endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        960,
+        624
+      ],
+      "webhookId": "1207b13f-e0e7-4125-8ab2-b5714a5f71ea",
+      "parameters": {
+        "path": "bimhealth/nobel/clashes",
+        "options": {
+          "allowedOrigins": "https://c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovableproject.com,https://id-preview--c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovable.app,https://nobelpipelinedashboard.lovable.app,https://nobelpipelinedashboard.byggstyrning.se,https://nobelhub.byggstyrning.se,http://localhost:8080,http://localhost:5173"
+        },
+        "responseData": "allEntries",
+        "responseMode": "lastNode"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "fb4333e7-e705-4d2d-afff-bab331760d28",
+      "name": "Nobel Dashboard Endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        960,
+        320
+      ],
+      "webhookId": "1207b13f-e0e7-4125-8ab2-b5714a5f71ea",
+      "parameters": {
+        "path": "bimhealth/nobel/sharepoint",
+        "options": {
+          "allowedOrigins": "https://c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovableproject.com,https://id-preview--c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovable.app,https://nobelpipelinedashboard.lovable.app,https://nobelpipelinedashboard.byggstyrning.se,https://nobelhub.byggstyrning.se,http://localhost:8080,http://localhost:5173"
+        },
+        "responseMode": "responseNode"
+      },
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 4
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        128
+      ],
+      "id": "46dd54e9-2245-4e4d-b33d-703270e6e447",
+      "name": "Schedule Trigger",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3648,
+        128
+      ],
+      "id": "68c95a3e-d6d1-417e-8137-83d3245375fb",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.folder }}",
+                    "rightValue": "IFC-from-Revit",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0c92a3e3-0673-4238-bbad-c1149d9e03df"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2976,
+        400
+      ],
+      "id": "540b5f82-4102-4dea-85c9-7b12921808ed",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "4da881d4-95c6-4a01-9fab-d940ca8dfe1c",
+              "leftValue": "={{ ($json.lastModifiedDateTime.toDateTime().diffTo($now, 'days') * -1) < 1  }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3200,
+        400
+      ],
+      "id": "c65ce63b-71de-48a4-937a-b25780228a30",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "name"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        3424,
+        400
+      ],
+      "id": "4001e987-afc7-4cb1-aeca-7993dd6c74f9",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "toRecipients": "jonatan.jacobsson@byggstyrning.se",
+        "subject": "Nobel not updated!",
+        "bodyContent": "=F\u00f6ljande filer har inte uppdaterats inatt:\n{{ $json.name.compact() }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        3648,
+        400
+      ],
+      "id": "2956f3c6-c98a-4592-9589-31df70eeda7d",
+      "name": "Microsoft Outlook",
+      "webhookId": "5f72eff3-abd6-4754-9ac7-8d50243fec4a",
+      "credentials": {
+        "microsoftOutlookOAuth2Api": {
+          "id": "pYVgXSs8AxNDuqoB",
+          "name": "Microsoft Outlook account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6ae4b222-10a0-4509-824d-4b98344f5379",
+              "name": ".data",
+              "value": "={{ $json.result.data }}",
+              "type": "array"
+            },
+            {
+              "id": "3d6cc951-18f8-4674-a5e9-ef321c2089d1",
+              "name": ".date",
+              "value": "={{ $json.result.date }}",
+              "type": "string"
+            },
+            {
+              "id": "ae0ee65f-cae8-4ba2-8b3f-977a1db2764c",
+              "name": ".last_week_date",
+              "value": "={{ $json.result.last_week_date }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1408,
+        624
+      ],
+      "id": "0b970400-b62c-43c2-8619-b43ef66cd977",
+      "name": "Return clash data"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH latest_rows AS (\n  SELECT DISTINCT ON (clash_set_name) id, clash_set_name, created_at, clash_data\n  FROM clash_results WHERE lower(clash_set_name) NOT LIKE '%test%'\n  ORDER BY clash_set_name, created_at DESC\n),\nlast_week_rows AS (\n  SELECT DISTINCT ON (clash_set_name) id, clash_set_name, created_at, clash_data\n  FROM clash_results\n  WHERE created_at BETWEEN (NOW() - INTERVAL '7 days') AND NOW()\n    AND lower(clash_set_name) NOT LIKE '%test%'\n  ORDER BY clash_set_name, created_at ASC\n),\nlatest_counts AS (\n  SELECT lr.id, lr.clash_set_name, lr.created_at,\n    (SELECT COUNT(DISTINCT (clash->>'smart_group'))\n     FROM jsonb_array_elements(lr.clash_data) cs, jsonb_each(cs->'clashes') AS ce(k, clash)\n     WHERE clash->>'smart_group' IS NOT NULL)::int AS unique_smart_groups,\n    regexp_replace(lr.clash_data->0->'a'->0->>'file', '^.*/', '') AS model_a_file,\n    regexp_replace(lr.clash_data->0->'b'->0->>'file', '^.*/', '') AS model_b_file\n  FROM latest_rows lr\n),\nlast_week_counts AS (\n  SELECT lw.id, lw.clash_set_name, lw.created_at,\n    (SELECT COUNT(DISTINCT (clash->>'smart_group'))\n     FROM jsonb_array_elements(lw.clash_data) cs, jsonb_each(cs->'clashes') AS ce(k, clash)\n     WHERE clash->>'smart_group' IS NOT NULL)::int AS unique_smart_groups\n  FROM last_week_rows lw\n),\nresults_json AS (\n  SELECT json_build_object(\n    'data', COALESCE((\n      SELECT json_agg(result_row) FROM (\n        SELECT lr.clash_set_name as clash_set,\n          split_part(lr.clash_set_name, ' vs ', 1) as model_a,\n          split_part(lr.clash_set_name, ' vs ', 2) as model_b,\n          lr.unique_smart_groups as clash_groups,\n          COALESCE(lr.unique_smart_groups - lw.unique_smart_groups, 0) as clash_groups_change,\n          lr.model_a_file, lr.model_b_file\n        FROM latest_counts lr\n        LEFT JOIN last_week_counts lw ON lr.clash_set_name = lw.clash_set_name\n        ORDER BY lr.clash_set_name\n      ) as result_row\n    ), '[]'::json),\n    'date', (SELECT to_char(MAX(created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') FROM latest_counts),\n    'last_week_date', (SELECT to_char(MIN(created_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') FROM last_week_counts)\n  ) as result\n)\nSELECT result FROM results_json;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1184,
+        624
+      ],
+      "id": "2ac32546-9042-462e-bd34-b8ea74c4c4c6",
+      "name": "query clash_table",
+      "credentials": {
+        "postgres": {
+          "id": "DayfeOedf7i7XWk2",
+          "name": "ifcpipeline postgress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name,\n       added_count,\n       updated_count,\n       deleted_count,\n       total_changes,\n       checked_at\nFROM (\n    SELECT\n        REPLACE(new_file, '/uploads/', '') AS name,\n        COALESCE(jsonb_array_length(diff_data->'added'), 0)::int AS added_count,\n        (SELECT COUNT(*) FROM jsonb_object_keys(diff_data->'changed'))::int AS updated_count,\n        COALESCE(jsonb_array_length(diff_data->'deleted'), 0)::int AS deleted_count,\n        (\n            COALESCE(jsonb_array_length(diff_data->'added'), 0)::int\n          + (SELECT COUNT(*) FROM jsonb_object_keys(diff_data->'changed'))::int\n          + COALESCE(jsonb_array_length(diff_data->'deleted'), 0)::int\n        ) AS total_changes,\n        created_at AS checked_at,\n        ROW_NUMBER() OVER (\n            PARTITION BY REPLACE(new_file, '/uploads/', '')\n            ORDER BY created_at DESC\n        ) AS rn\n    FROM diff_results\n) AS sub\nWHERE rn = 1\nORDER BY checked_at DESC;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3200,
+        208
+      ],
+      "id": "f60b9df2-5e1e-4dc7-98ea-38522524e884",
+      "name": "Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "DayfeOedf7i7XWk2",
+          "name": "ifcpipeline postgress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "fieldsToMatchString": "name",
+        "joinMode": "enrichInput1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.1,
+      "position": [
+        3424,
+        128
+      ],
+      "id": "02abf1ce-1458-490e-a5a4-8451a4392153",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        2976,
+        208
+      ],
+      "id": "cce22c06-cd13-44fc-bfd1-2450f5ff047b",
+      "name": "Limit"
+    },
+    {
+      "id": "929156a2-07ce-42ef-8fed-893db0b27057",
+      "name": "Nobel Dashboard Endpoint1",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        960,
+        -96
+      ],
+      "webhookId": "1207b13f-e0e7-4125-8ab2-b5714a5f71ea",
+      "parameters": {
+        "path": "bimhealth/nobel/radar",
+        "options": {
+          "allowedOrigins": "https://c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovableproject.com,https://id-preview--c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovable.app,https://nobelpipelinedashboard.lovable.app,https://nobelpipelinedashboard.byggstyrning.se,https://nobelhub.byggstyrning.se,http://localhost:8080,http://localhost:5173"
+        },
+        "responseMode": "responseNode"
+      },
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "SndHdIf8lSbshPI5"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tenant_id": "f2331605-5182-4286-9dd2-71953083f008",
+            "tenant_url": "nobelcenter.sharepoint.com",
+            "sharepoint_site_name": "Syncpoint",
+            "folder": "General/Pipeline/Radar/Reports"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "tenant_url",
+              "displayName": "tenant_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sharepoint_site_name",
+              "displayName": "sharepoint_site_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "folder",
+              "displayName": "folder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1632,
+        -96
+      ],
+      "id": "830db236-a73e-4cf8-bf55-151744aee21f",
+      "name": "Radar reports"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2304,
+        -96
+      ],
+      "id": "18cbfb8a-593a-4daa-a493-c96d7962d857",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json['@microsoft.graph.downloadUrl'] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1856,
+        -96
+      ],
+      "id": "676d82e2-b569-4f92-b0d5-d0305b2ceaf1",
+      "name": "Fetch Radar Reports from Sharepoint"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ef3f29ba-323c-42db-87f4-6c47026984f5",
+              "name": "name",
+              "value": "={{ $json.Metadata.FileName }}",
+              "type": "string"
+            },
+            {
+              "id": "7a971259-3720-401d-a063-e0ef5ce8d35c",
+              "name": "timestamp",
+              "value": "={{ $json.ReportTimestamp }}",
+              "type": "string"
+            },
+            {
+              "id": "6db61510-8c3f-4649-86a2-32652455b809",
+              "name": "report",
+              "value": "={{ $json.ReportBenchMark.Others }}",
+              "type": "object"
+            },
+            {
+              "id": "ef034a17-fd0c-40bf-a1a9-fbc4627f7f71",
+              "name": "elements",
+              "value": "={{ $json.TrackedElements }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2080,
+        -96
+      ],
+      "id": "95134df8-55d7-47dc-a5c2-42a32cb38311",
+      "name": "prepare for endpoint"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ad0ac4e-b228-408c-b741-bd946303912d",
+              "name": "tenant_id",
+              "value": "f2331605-5182-4286-9dd2-71953083f008",
+              "type": "string"
+            },
+            {
+              "id": "f8cf7665-9b5f-4b48-bea6-0a4decb1180e",
+              "name": "tenant_url",
+              "value": "nobelcenter.sharepoint.com",
+              "type": "string"
+            },
+            {
+              "id": "975af818-009a-48e8-905e-f38784bb7e99",
+              "name": "sharepoint_site_name",
+              "value": "Syncpoint",
+              "type": "string"
+            },
+            {
+              "id": "8f216278-d5ed-4167-8936-86d80809bdb3",
+              "name": "folder",
+              "value": "[\n\"General/Pipeline/IFC-from-Revit\", \n\"General/Pipeline/IFC-from-Revit/Processed\", \n\"General/StreamBIM\"\n]",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1184,
+        -96
+      ],
+      "id": "f6f05f0b-5fb4-4a5d-a7fa-b2cacf63963d",
+      "name": "Variables1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://login.microsoftonline.com/{{ $json.tenant_id }}/oauth2/v2.0/token",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1408,
+        -96
+      ],
+      "id": "2b135c39-5bab-4db7-b7ac-a7b02008deae",
+      "name": "Get Sharepoint Token2",
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "ORKQrOywP28Uepv0",
+          "name": "Nobel Center Sharepoint Auth"
+        }
+      }
+    },
+    {
+      "id": "76df2e60-cdbb-486e-a885-7fbe2305d4a6",
+      "name": "Clash Groups Endpoint",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        960,
+        848
+      ],
+      "webhookId": "039ed992-478c-4737-9100-45b4c1a274a3",
+      "parameters": {
+        "path": "bimhealth/nobel/clash-groups",
+        "options": {
+          "allowedOrigins": "https://c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovableproject.com,https://id-preview--c23b70d8-3d96-4f36-ab8c-dab207d8997c.lovable.app,https://nobelpipelinedashboard.lovable.app,https://nobelpipelinedashboard.byggstyrning.se,https://nobelhub.byggstyrning.se,http://localhost:8080,http://localhost:5173"
+        },
+        "responseMode": "responseNode"
+      },
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, clash_set_name, clash_count, clash_data\nFROM clash_results\nWHERE original_clash_id IS NULL\n  AND clash_set_name ILIKE '%' || $1::text || '%'\n  AND clash_set_name ILIKE '%' || $2::text || '%'\nORDER BY created_at DESC\nLIMIT 1",
+        "options": {
+          "queryReplacement": "={{ $json.query.model_a }},{{ $json.query.model_b }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1184,
+        848
+      ],
+      "id": "b89934be-eb91-453d-a25e-659c74209fc1",
+      "name": "Fetch clash row for pair",
+      "credentials": {
+        "postgres": {
+          "id": "DayfeOedf7i7XWk2",
+          "name": "ifcpipeline postgress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const req = $('Clash Groups Endpoint').first().json;\nconst ma = String(req.query?.model_a ?? '').trim();\nconst mb = String(req.query?.model_b ?? '').trim();\nconst slug = [ma, mb].filter(Boolean).join('-') || 'unknown';\n\nconst row = $input.first().json;\nconst hasData = row && row.clash_data != null;\n\nif (!hasData) {\n  return [{ json: { _status: 404, error: 'not_found',\n    message: 'No clash result for this model pair', clash_set: slug } }];\n}\n\nlet data = row.clash_data;\nif (typeof data === 'string') data = JSON.parse(data);\nif (!Array.isArray(data)) data = [data];\n\n// Find the matching clash set\nlet cs = data.find(s => {\n  const n = (s.name || '').toLowerCase();\n  return n.includes(ma.toLowerCase()) && n.includes(mb.toLowerCase());\n}) || data[0];\n\nif (!cs) {\n  return [{ json: { _status: 404, error: 'not_found',\n    clash_set: slug, message: 'No matching set in clash_data' } }];\n}\n\nconst pickFile = (arr) => (Array.isArray(arr) && arr[0] && arr[0].file ? String(arr[0].file).split('/').pop() : null);\nconst model_a_file = pickFile(cs.a);\nconst model_b_file = pickFile(cs.b);\nconst clashes = cs.clashes || {};\nconst groups = new Map();\n\nfor (const [cid, c] of Object.entries(clashes)) {\n  const sg = c.smart_group;\n  const gk = sg != null ? `cg-${sg}` : `cg-${cid}`;\n  if (!groups.has(gk)) {\n    groups.set(gk, { id: gk,\n      name: sg != null ? `Smart group ${sg}` : `Clash ${cid}`,\n      count: 0, change: 0, guids_a: [], guids_b: [], center_guid: null });\n  }\n  const g = groups.get(gk);\n  g.count++;\n  if (c.a_global_id) {\n    g.guids_a.push(c.a_global_id);\n    if (!g.center_guid) g.center_guid = c.a_global_id;\n  }\n  if (c.b_global_id) g.guids_b.push(c.b_global_id);\n}\n\nfor (const g of groups.values()) {\n  g.guids_a = [...new Set(g.guids_a)];\n  g.guids_b = [...new Set(g.guids_b)];\n}\n\nreturn [{ json: { _status: 200,\n  clash_set: slug, model_a_file, model_b_file, groups: [...groups.values()] } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        848
+      ],
+      "id": "bd7ddfeb-a8f7-4bb8-b9d5-b69eff1a55ad",
+      "name": "Build clash groups JSON"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json._status === 200 ? { clash_set: $json.clash_set, groups: $json.groups } : { error: $json.error, message: $json.message, clash_set: $json.clash_set } }}",
+        "options": {
+          "responseCode": "={{ $json._status || 200 }}"
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1632,
+        848
+      ],
+      "id": "3a12c7dd-b6d2-4235-b134-c3dd0c1b8107",
+      "name": "Respond Clash Groups"
+    }
+  ],
+  "connections": {
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Get Folder Childrens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Childrens": {
+      "main": [
+        [
+          {
+            "node": "Prepare data for dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only return Files": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Folder Childrens": {
+      "main": [
+        [
+          {
+            "node": "Split Childrens",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Folders": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Variables": {
+      "main": [
+        [
+          {
+            "node": "Get Sharepoint Token",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sharepoint Token": {
+      "main": [
+        [
+          {
+            "node": "Get Site ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Site ID": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare data for dashboard": {
+      "main": [
+        [
+          {
+            "node": "Only return Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clash Matrix Endpoint": {
+      "main": [
+        [
+          {
+            "node": "query clash_table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nobel Dashboard Endpoint": {
+      "main": [
+        [
+          {
+            "node": "Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Variables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Microsoft Outlook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query clash_table": {
+      "main": [
+        [
+          {
+            "node": "Return clash data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nobel Dashboard Endpoint1": {
+      "main": [
+        [
+          {
+            "node": "Variables1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Radar reports": {
+      "main": [
+        [
+          {
+            "node": "Fetch Radar Reports from Sharepoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Radar Reports from Sharepoint": {
+      "main": [
+        [
+          {
+            "node": "prepare for endpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare for endpoint": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Variables1": {
+      "main": [
+        [
+          {
+            "node": "Get Sharepoint Token2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sharepoint Token2": {
+      "main": [
+        [
+          {
+            "node": "Radar reports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clash Groups Endpoint": {
+      "main": [
+        [
+          {
+            "node": "Fetch clash row for pair",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch clash row for pair": {
+      "main": [
+        [
+          {
+            "node": "Build clash groups JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build clash groups JSON": {
+      "main": [
+        [
+          {
+            "node": "Respond Clash Groups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  }
+}
