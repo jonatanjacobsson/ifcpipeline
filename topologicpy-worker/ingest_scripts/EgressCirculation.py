@@ -3,9 +3,21 @@
 Two routing strategies are supported:
 
 ``strategy="door_portal"`` (default)
-    Builds edges through IfcDoor / IfcOpeningElement portals. Uses
-    IfcRelSpaceBoundary, TopologicPy graph adjacency, and door-centroid
-    proximity. Suited for models that have doors and space boundaries.
+    Builds edges through IfcDoor portals between IfcSpace rooms on the same storey:
+
+    1. Authoring-tool space boundaries (``IfcRelSpaceBoundary`` / wall-hosted map)
+    2. Plan-view point containment — sample both sides of each door in XY
+    3. Centroid proximity fallback when geometry is inconclusive
+
+    Each physical portal is modelled two-hop rather than as a direct space↔space
+    edge: every room reaches the IfcDoor/opening that separates it via an
+    ``egress_through`` edge, so the door is the shared middle node
+    (space → door → space). Door-less heuristic links (vertical connectors,
+    apartment clusters) stay direct space↔space ``egress_connects`` edges since
+    there is no portal element to route through.
+
+    Vertical travel (stairs/lifts/shafts) uses named connector labels and stacked
+    footprint matching across consecutive storeys.
 
 ``strategy="space_adjacency"``
     Builds edges directly from the IfcSpace geometry without requiring any
@@ -42,6 +54,7 @@ import ifcopenshell.util.element as ifc_element_util
 import ifcopenshell.util.unit
 
 from ingest_scripts import Element, Ingester as _Base, Relationship
+from ingest_scripts import ifc_thin_spaces
 
 try:
     from topologicpy.Topology import Topology
@@ -75,6 +88,10 @@ WALL_TYPES: FrozenSet[str] = frozenset(
 
 SPACE_MARKER = "IfcSpace"
 
+# Two-hop portal model: a space reaches the IfcDoor/opening that separates it
+# from the adjacent room (space -> door -> space). The door is the shared node.
+EGRESS_THROUGH_TYPE = "egress_through"  # IfcSpace --> IfcDoor/IfcOpeningElement
+
 # Keywords that identify a space as a vertical connector (stairway or lift).
 # Matched case-insensitively against the space LongName.
 _VERTICAL_KEYWORDS: Tuple[str, ...] = (
@@ -86,6 +103,13 @@ _VERTICAL_KEYWORDS: Tuple[str, ...] = (
 # Regex to extract the three-digit storey prefix from a room number such as
 # "040-206_16,17m²" → group 1 = "040".
 _ROOM_NR_RE = re.compile(r"\b(\d{3})-\d{3,}")
+# Revit apartment aggregate anchors (Name ``2-1103``) share XY across floors and
+# must not participate in door proximity linking.
+_APARTMENT_AGGREGATE_RE = re.compile(r"^\d+-\d+$")
+
+# Skip Graph.ByIFCFile on large federated exports (SBUF ~360k–710k entities) where
+# OCCT routinely hangs or SIGSEGVs even when space count is modest.
+_TOPOLOGIC_MAX_ENTITIES = 120_000
 
 
 # ---------------------------------------------------------------------------
@@ -110,12 +134,17 @@ class Ingester(_Base):
         include_openings_without_door: bool = True,
         tolerance: float = 0.01,
         door_link_distance: float = 4.0,
+        door_side_offset: float = 0.6,
+        door_plan_tolerance: float = 0.25,
         same_storey_only: bool = True,
         storey_z_tolerance: float = 2.5,
         # --- space_adjacency options ---
         face_tolerance: float = 0.15,
         min_shared_face: float = 0.30,
         vertical_keywords: Optional[Tuple[str, ...]] = None,
+        use_topologic: bool = True,
+        force_ifc_native: bool = False,
+        thin_spaces: bool = True,
     ):
         """Extract space-to-space circulation edges.
 
@@ -123,21 +152,34 @@ class Ingester(_Base):
         :param include_virtual_boundaries: (door_portal) Include virtual space boundaries.
         :param include_openings_without_door: (door_portal) Include bare openings as portals.
         :param tolerance: (door_portal) Graph construction tolerance in model units.
-        :param door_link_distance: (door_portal) Max distance door centroid → space centroid.
+        :param door_link_distance: (door_portal) Fallback max distance door centroid → space centroid.
+        :param door_side_offset: (door_portal) Plan offset (m) from door centre to sample both sides.
+        :param door_plan_tolerance: (door_portal) XY tolerance (m) for point-in-space footprint tests.
         :param same_storey_only: (door_portal) Only link two spaces that share the same
             storey (IFC containment, room-number prefix, or elevation — not door Z proximity).
         :param storey_z_tolerance: (door_portal) Z fallback tolerance in model units.
         :param face_tolerance: (space_adjacency) Max bbox gap (metres) to count as touching.
         :param min_shared_face: (space_adjacency) Min shared edge (metres) for adjacency.
         :param vertical_keywords: (space_adjacency) Override stair/lift keyword list.
+        :param use_topologic: (door_portal) When False, skip Graph.ByIFCFile portal graph step.
+        :param force_ifc_native: Internal retry flag after SIGSEGV (same as use_topologic=False).
+        :param thin_spaces: When True (default), build a spaces-only IFC via RemoveElements
+            (one pass) for space/Topologic work while doors are read from the full input file(s).
         """
         super().__init__(ifc_files, log)
         self.strategy = strategy.strip().lower()
+        self.use_topologic = bool(use_topologic) and not bool(force_ifc_native)
+        self.thin_spaces = bool(thin_spaces)
+        self._temp_paths: List[Path] = []
+        # Two-hop portal model state (door_portal strategy): space -> door -> space
+        self._portal_space_pairs: List[Tuple[str, str, str]] = []
         # door_portal params
         self.include_virtual_boundaries = include_virtual_boundaries
         self.include_openings_without_door = include_openings_without_door
         self.tolerance = tolerance
         self.door_link_distance = door_link_distance
+        self.door_side_offset = door_side_offset
+        self.door_plan_tolerance = door_plan_tolerance
         self.same_storey_only = same_storey_only
         self.storey_z_tolerance = storey_z_tolerance
         # space_adjacency params
@@ -171,64 +213,75 @@ class Ingester(_Base):
         """
         t0 = time.time()
 
-        models: List[Tuple[Path, ifcopenshell.file]] = []
-        for ifc_path in self.ifc_files:
-            self.log.info("EgressCirculation[space_adjacency]: opening %s", ifc_path.name)
-            models.append((ifc_path, ifcopenshell.open(str(ifc_path))))
+        try:
+            try:
+                space_models, _ = self._prepare_space_and_portal_models()
+                models = space_models
+            except Exception as exc:
+                self.log.warning(
+                    "EgressCirculation[space_adjacency]: thin spaces prep failed (%s); opening raw inputs",
+                    exc,
+                )
+                models = []
+                for ifc_path in self.ifc_files:
+                    self.log.info("EgressCirculation[space_adjacency]: opening %s", ifc_path.name)
+                    models.append((ifc_path, ifcopenshell.open(str(ifc_path))))
 
-        # Collect geometry for all spaces
-        all_spaces = self._collect_space_geometry(models)
-        if not all_spaces:
-            self.log.warning("EgressCirculation[space_adjacency]: no spaces with geometry found")
-            self._summary = {"edges": 0, "method": "space_adjacency", "spaces": 0}
-            return
+            # Collect geometry for all spaces
+            all_spaces = self._collect_space_geometry(models)
+            if not all_spaces:
+                self.log.warning("EgressCirculation[space_adjacency]: no spaces with geometry found")
+                self._summary = {"edges": 0, "method": "space_adjacency", "spaces": 0}
+                return
 
-        self.log.info(
-            "EgressCirculation[space_adjacency]: %d spaces with geometry across %d file(s)",
-            len(all_spaces), len(models),
-        )
+            self.log.info(
+                "EgressCirculation[space_adjacency]: %d spaces with geometry across %d file(s)",
+                len(all_spaces), len(models),
+            )
 
-        # Assign storeys from IFC containment, room-number prefix, or Z-centroid
-        storey_elevations = self._collect_storey_elevations(models)
-        storey_containment = self._collect_containment(models)
-        self._assign_storeys(all_spaces, storey_containment, storey_elevations)
+            # Assign storeys from IFC containment, room-number prefix, or Z-centroid
+            storey_elevations = self._collect_storey_elevations(models)
+            storey_containment = self._collect_containment(models)
+            self._assign_storeys(all_spaces, storey_containment, storey_elevations)
 
-        # Emit elements
-        for sp in all_spaces.values():
-            self._elements.append(Element(
-                global_id=sp["gid"],
-                ifc_class="IfcSpace",
-                name=sp["name"],
-                extra={
-                    "long_name": sp["long_name"],
-                    "storey_key": sp["storey_key"],
-                    "source_file": sp["source"],
-                    "is_vertical_connector": sp["is_vc"],
-                },
-            ))
+            # Emit elements
+            for sp in all_spaces.values():
+                self._elements.append(Element(
+                    global_id=sp["gid"],
+                    ifc_class="IfcSpace",
+                    name=sp["name"],
+                    extra={
+                        "long_name": sp["long_name"],
+                        "storey_key": sp["storey_key"],
+                        "source_file": sp["source"],
+                        "is_vertical_connector": sp["is_vc"],
+                    },
+                ))
 
-        seen: Set[Tuple[str, str]] = set()
-        h_edges = self._build_horizontal_edges(all_spaces, seen)
-        v_edges = self._build_vertical_edges(all_spaces, storey_elevations, seen)
-        isolated = self._resolve_isolated(all_spaces, seen)
+            seen: Set[Tuple[str, str]] = set()
+            h_edges = self._build_horizontal_edges(all_spaces, seen)
+            v_edges = self._build_vertical_edges(all_spaces, storey_elevations, seen)
+            isolated = self._resolve_isolated(all_spaces, seen)
 
-        elapsed = time.time() - t0
-        self._summary = {
-            "method": "space_adjacency",
-            "strategy": "bbox_face_adjacency+named_stair_lift",
-            "spaces": len(all_spaces),
-            "horizontal_edges": h_edges,
-            "vertical_edges": v_edges,
-            "isolated_resolved": isolated,
-            "total_edges": len(self._relationships),
-            "input_files": [p.name for p in self.ifc_files],
-            "duration_ms": int(elapsed * 1000),
-        }
-        self.log.info(
-            "EgressCirculation[space_adjacency]: %d edges "
-            "(%d horizontal, %d vertical, %d isolated resolved) in %.1fs",
-            len(self._relationships), h_edges, v_edges, isolated, elapsed,
-        )
+            elapsed = time.time() - t0
+            self._summary = {
+                "method": "space_adjacency",
+                "strategy": "bbox_face_adjacency+named_stair_lift",
+                "spaces": len(all_spaces),
+                "horizontal_edges": h_edges,
+                "vertical_edges": v_edges,
+                "isolated_resolved": isolated,
+                "total_edges": len(self._relationships),
+                "input_files": [p.name for p in self.ifc_files],
+                "duration_ms": int(elapsed * 1000),
+            }
+            self.log.info(
+                "EgressCirculation[space_adjacency]: %d edges "
+                "(%d horizontal, %d vertical, %d isolated resolved) in %.1fs",
+                len(self._relationships), h_edges, v_edges, isolated, elapsed,
+            )
+        finally:
+            self._cleanup_temp_paths()
 
     # ------------------------------------------------------------------
     # Space geometry collection
@@ -561,73 +614,127 @@ class Ingester(_Base):
         seen_edges: Set[Tuple[str, str]] = set()
         portal_elements: Dict[str, str] = {}
         methods: Set[str] = set()
+        self._portal_space_pairs = []
 
-        models: List[Tuple[Path, ifcopenshell.file]] = []
-        for ifc_path in self.ifc_files:
-            self.log.info("EgressCirculation: opening %s", ifc_path.name)
-            models.append((ifc_path, ifcopenshell.open(str(ifc_path))))
+        try:
+            space_models, portal_models = self._prepare_space_and_portal_models()
+            if len(self.ifc_files) > 1:
+                methods.add("federated_inputs")
+            if self.thin_spaces and self._temp_paths:
+                methods.add("thin_spaces_remove")
 
-        if len(models) > 1:
-            models = _merge_ifc_models(models, self.log)
-            methods.add("federated_merge")
-
-        space_points, space_sources, space_names = _collect_spaces_centroids(models)
-        element_storey, storey_elevations = _collect_storey_maps(models)
-        storey_stats = _storey_resolution_stats(
-            space_points, space_names, element_storey, storey_elevations, self.storey_z_tolerance,
-        )
-        self.log.info(
-            "EgressCirculation: %d file(s), %d spaces, %d doors across inputs "
-            "(storey: %d IFC, %d prefix, %d Z-inferred, %d unresolved)",
-            len(models),
-            len(space_points),
-            sum(len(_safe_by_type(ifc, "IfcDoor")) for _, ifc in models),
-            storey_stats["ifc_containment"],
-            storey_stats.get("prefix_key", 0),
-            storey_stats["z_inferred"],
-            storey_stats["unresolved"],
-        )
-
-        if len(space_points) >= 2:
-            added, portals = self._link_all_doors_to_spaces(
-                models,
-                space_points,
-                space_sources,
-                space_names,
-                element_storey,
-                storey_elevations,
-                seen_edges,
-                portal_elements,
+            space_points, space_sources, space_names = _collect_spaces_centroids(space_models)
+            element_storey, storey_elevations = _collect_storey_maps(space_models + portal_models)
+            storey_stats = _storey_resolution_stats(
+                space_points, space_names, element_storey, storey_elevations, self.storey_z_tolerance,
             )
-            if portals:
-                methods.add("door_space_proximity")
+            self.log.info(
+                "EgressCirculation: %d space file(s), %d portal file(s), %d spaces, %d doors "
+                "(storey: %d IFC, %d prefix, %d Z-inferred, %d unresolved)",
+                len(space_models),
+                len(portal_models),
+                len(space_points),
+                sum(len(_safe_by_type(ifc, "IfcDoor")) for _, ifc in portal_models),
+                storey_stats["ifc_containment"],
+                storey_stats.get("prefix_key", 0),
+                storey_stats["z_inferred"],
+                storey_stats["unresolved"],
+            )
 
-        for ifc_path, ifc in models:
-            space_count = len(_safe_by_type(ifc, "IfcSpace"))
-            if HAS_TOPOLOGICPY and 0 < space_count <= 400 and len(self.ifc_files) == 1:
-                added, _ = self._extract_from_topologic_graph(
-                    ifc_path, seen_edges, portal_elements
+            if len(space_points) >= 2:
+                space_bboxes = _collect_space_bboxes(space_models)
+                door_methods: Set[str] = set()
+                added, portals = self._link_all_doors_to_spaces(
+                    portal_models,
+                    space_models,
+                    space_bboxes,
+                    space_points,
+                    space_sources,
+                    space_names,
+                    element_storey,
+                    storey_elevations,
+                    seen_edges,
+                    portal_elements,
+                    door_methods,
                 )
-                if added:
-                    methods.add("topologicpy_portal_graph")
+                methods.update(door_methods)
 
-            portal_to_spaces = self._collect_portal_spaces(ifc)
-            if self._emit_ifc_portal_edges(
-                ifc,
-                ifc_path,
-                portal_to_spaces,
-                element_storey,
-                storey_elevations,
-                space_points,
-                space_names,
-                seen_edges,
-                portal_elements,
-            ):
-                methods.add("ifc_portal_boundary")
+                apt_added = self._link_apartment_room_clusters(
+                    space_models,
+                    space_points,
+                    space_names,
+                    element_storey,
+                    storey_elevations,
+                    seen_edges,
+                )
+                if apt_added:
+                    methods.add("apartment_room_cluster")
 
+                vert_added = self._link_vertical_connectors(
+                    space_models,
+                    space_bboxes,
+                    space_points,
+                    space_names,
+                    element_storey,
+                    storey_elevations,
+                    seen_edges,
+                )
+                if vert_added:
+                    methods.add("vertical_connector")
+
+            for ifc_path, ifc in space_models:
+                space_count = len(_safe_by_type(ifc, "IfcSpace"))
+                entity_count = ifc_thin_spaces.approx_entity_count(ifc)
+                topologic_ok = (
+                    HAS_TOPOLOGICPY
+                    and self.use_topologic
+                    and 0 < space_count <= 400
+                    and entity_count <= _TOPOLOGIC_MAX_ENTITIES
+                )
+                if (
+                    HAS_TOPOLOGICPY
+                    and self.use_topologic
+                    and not topologic_ok
+                    and entity_count > _TOPOLOGIC_MAX_ENTITIES
+                ):
+                    self.log.info(
+                        "EgressCirculation: skipping TopologicPy graph for %s "
+                        "(%d entities > %d)",
+                        ifc_path.name,
+                        entity_count,
+                        _TOPOLOGIC_MAX_ENTITIES,
+                    )
+                if topologic_ok:
+                    added, _ = self._extract_from_topologic_graph(
+                        ifc_path, seen_edges, portal_elements
+                    )
+                    if added:
+                        methods.add("topologicpy_portal_graph")
+
+            for ifc_path, ifc in portal_models:
+                portal_to_spaces = self._collect_portal_spaces(ifc)
+                if self._emit_ifc_portal_edges(
+                    ifc,
+                    ifc_path,
+                    portal_to_spaces,
+                    element_storey,
+                    storey_elevations,
+                    space_points,
+                    space_names,
+                    seen_edges,
+                    portal_elements,
+                ):
+                    methods.add("ifc_portal_boundary")
+        finally:
+            self._cleanup_temp_paths()
+
+        existing_ids = {e.global_id for e in self._elements}
+        # Doors/openings are the shared egress-portal nodes the space->door->space
+        # edges route through; emit them as their real IFC class.
         for portal_id, portal_class in portal_elements.items():
-            if any(e.global_id == portal_id for e in self._elements):
+            if portal_id in existing_ids:
                 continue
+            existing_ids.add(portal_id)
             self._elements.append(
                 Element(
                     global_id=portal_id,
@@ -638,7 +745,11 @@ class Ingester(_Base):
             )
 
         portal_count = len(
-            {rel.evidence.get("portal_global_id") for rel in self._relationships}
+            {
+                pid
+                for rel in self._relationships
+                if (pid := rel.evidence.get("portal_global_id"))
+            }
         )
         method_label = "+".join(sorted(methods)) if methods else "none"
         cross_storey = self._count_cross_storey_door_edges(
@@ -664,6 +775,73 @@ class Ingester(_Base):
             method_label,
         )
 
+    def _prepare_space_and_portal_models(
+        self,
+    ) -> Tuple[List[Tuple[Path, ifcopenshell.file]], List[Tuple[Path, ifcopenshell.file]]]:
+        """Resolve spaces-only thin model(s) and full portal source model(s).
+
+        Single combined IFC: one RemoveElements pass (!IfcSpace) on a temp copy for
+        spaces; doors and boundaries are read from the original file.
+
+        Federated inputs: files that are already spaces-only are used as-is; files with
+        doors/architecture supply portal geometry without a second remove pass.
+        """
+        space_models: List[Tuple[Path, ifcopenshell.file]] = []
+        portal_models: List[Tuple[Path, ifcopenshell.file]] = []
+        seen_space_paths: Set[str] = set()
+
+        for ifc_path in self.ifc_files:
+            ifc_path = ifc_path.resolve()
+            self.log.info("EgressCirculation: opening %s", ifc_path.name)
+            full_ifc = ifcopenshell.open(str(ifc_path))
+            portal_models.append((ifc_path, full_ifc))
+
+            space_count = len(_safe_by_type(full_ifc, "IfcSpace"))
+            if space_count == 0:
+                continue
+
+            already_thin = ifc_thin_spaces.is_spaces_only_file(full_ifc)
+            if already_thin or not self.thin_spaces:
+                key = str(ifc_path)
+                if key not in seen_space_paths:
+                    space_models.append((ifc_path, full_ifc))
+                    seen_space_paths.add(key)
+                continue
+
+            try:
+                thin_path = ifc_thin_spaces.thin_spaces_copy(ifc_path, log=self.log)
+                self._temp_paths.append(thin_path)
+                space_models.append((thin_path, ifcopenshell.open(str(thin_path))))
+            except Exception as exc:
+                self.log.warning(
+                    "EgressCirculation: thin spaces failed for %s (%s); using full file for spaces",
+                    ifc_path.name,
+                    exc,
+                )
+                key = str(ifc_path)
+                if key not in seen_space_paths:
+                    space_models.append((ifc_path, full_ifc))
+                    seen_space_paths.add(key)
+
+        if not space_models and portal_models:
+            # Portal-only inputs — fall back to full files for space discovery.
+            self.log.warning(
+                "EgressCirculation: no dedicated space file; using full input(s) for spaces",
+            )
+            space_models = list(portal_models)
+
+        return space_models, portal_models
+
+    def _cleanup_temp_paths(self) -> None:
+        import os
+
+        for path in self._temp_paths:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        self._temp_paths.clear()
+
     def _count_cross_storey_door_edges(
         self,
         space_points: Dict[str, Tuple[float, float, float]],
@@ -671,13 +849,9 @@ class Ingester(_Base):
         element_storey: Dict[str, str],
         storey_elevations: Dict[str, float],
     ) -> int:
-        """Count door-portal edges whose space endpoints belong to different storeys."""
+        """Count portal-mediated connections whose two spaces belong to different storeys."""
         cross = 0
-        for rel in self._relationships:
-            method = (rel.evidence or {}).get("method") or ""
-            if method not in ("door_space_proximity", "ifc_portal_boundary", "topologicpy_portal_graph"):
-                continue
-            s1, s2 = rel.subject_global_id, rel.object_global_id
+        for s1, s2, _method in self._portal_space_pairs:
             pt1 = space_points.get(s1)
             pt2 = space_points.get(s2)
             k1 = _storey_group_key(
@@ -689,6 +863,68 @@ class Ingester(_Base):
             if k1 and k2 and k1 != k2:
                 cross += 1
         return cross
+
+    # ------------------------------------------------------------------
+    # Two-hop portal linking (space -> door -> space)
+    # ------------------------------------------------------------------
+
+    def _append_portal_link(
+        self,
+        seen_edges: Set[Tuple[str, str]],
+        space_ids: Set[str],
+        portal_id: str,
+        portal_class: str,
+        portal_name: str,
+        method: str,
+        source_file: str,
+        extra_evidence: Optional[Dict[str, str]] = None,
+    ) -> int:
+        """Connect spaces through their shared door/opening: space -> door -> space.
+
+        Emits an ``egress_through`` edge from every involved space to the portal
+        element (IfcDoor/opening), which becomes the shared middle node. Requires
+        a real ``portal_id`` — there is no synthetic node, so a portal-less call
+        does nothing.
+
+        Returns the number of ``egress_through`` edges added. The connected space
+        *pairs* are recorded in ``seen_edges`` so later heuristic passes (vertical
+        connectors, apartment clusters) don't also link the same pair.
+        """
+        spaces = sorted({s for s in space_ids if s})
+        if len(spaces) < 2 or not portal_id:
+            return 0
+
+        pairs = [tuple(sorted(p)) for p in combinations(spaces, 2)]
+        if all(p in seen_edges for p in pairs):
+            return 0
+        for p in pairs:
+            seen_edges.add(p)
+            self._portal_space_pairs.append((p[0], p[1], method))
+
+        evidence: Dict[str, str] = {
+            "method": method,
+            "portal_global_id": portal_id,
+            "portal_class": portal_class,
+            "portal_name": portal_name or portal_id,
+            "source_file": source_file,
+        }
+        if extra_evidence:
+            evidence.update(extra_evidence)
+
+        added = 0
+        for sid in spaces:
+            self._relationships.append(Relationship(
+                subject_global_id=sid,
+                object_global_id=portal_id,
+                relationship_family="circulation",
+                relationship_type=EGRESS_THROUGH_TYPE,
+                confidence=0.95,
+                source_kind="topologic_ingest_EgressCirculation",
+                evidence=evidence,
+            ))
+            added += 1
+
+        return added
 
     # ------------------------------------------------------------------
     # door_portal helpers
@@ -730,16 +966,13 @@ class Ingester(_Base):
             for portal_id, space_ids in portal_to_spaces.items():
                 portals_used += 1
                 portal_elem = portal_elements.get(portal_id, "Portal")
-                for s1, s2 in combinations(sorted(space_ids), 2):
-                    if _append_edge(
-                        self._relationships,
-                        seen_edges,
-                        s1, s2,
-                        portal_id, portal_elem, "",
-                        "topologicpy_portal_graph",
-                        ifc_path.name,
-                    ):
-                        added += 1
+                added += self._append_portal_link(
+                    seen_edges,
+                    space_ids,
+                    portal_id, portal_elem, "",
+                    "topologicpy_portal_graph",
+                    ifc_path.name,
+                )
 
         except Exception as exc:
             self.log.warning(
@@ -750,7 +983,9 @@ class Ingester(_Base):
 
     def _link_all_doors_to_spaces(
         self,
-        models: List[Tuple[Path, ifcopenshell.file]],
+        portal_models: List[Tuple[Path, ifcopenshell.file]],
+        space_models: List[Tuple[Path, ifcopenshell.file]],
+        space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
         space_points: Dict[str, Tuple[float, float, float]],
         space_sources: Dict[str, str],
         space_names: Dict[str, str],
@@ -758,75 +993,287 @@ class Ingester(_Base):
         storey_elevations: Dict[str, float],
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
+        methods_used: Set[str],
     ) -> Tuple[int, int]:
-        """Link each door to the two nearest spaces on the same storey (space-to-space)."""
+        """Link each door to the two spaces it separates on the same storey.
+
+        Resolution order per door:
+          1. Authoring-tool links (IfcRelSpaceBoundary / wall-hosted portal map)
+          2. Plan-view point containment on both sides of the door
+          3. Centroid proximity fallback (legacy)
+        """
         portals_used = 0
         added = 0
-        max_dist = max(float(self.door_link_distance), 0.5)
-        if len(self.ifc_files) > 1:
-            max_dist = max(max_dist, 6.0)
+        portal_maps: Dict[int, Dict[str, Set[str]]] = {}
+        for ifc_path, ifc in portal_models:
+            portal_maps[id(ifc)] = self._collect_portal_spaces(ifc)
 
-        for ifc_path, ifc in models:
+        for ifc_path, ifc in portal_models:
+            portal_to_spaces = portal_maps[id(ifc)]
             for door in _safe_by_type(ifc, "IfcDoor"):
-                door_pt = _element_centroid(door)
-                if door_pt is None:
-                    continue
-
-                ranked = sorted(
-                    space_points.items(),
-                    key=lambda item: _planar_dist(door_pt[0], door_pt[1], item[1][0], item[1][1]),
+                pair, method = _resolve_door_space_pair(
+                    door,
+                    portal_to_spaces.get(door.GlobalId, set()),
+                    space_bboxes,
+                    space_points,
+                    space_names,
+                    element_storey,
+                    storey_elevations,
+                    self.same_storey_only,
+                    self.storey_z_tolerance,
+                    self.door_side_offset,
+                    self.door_plan_tolerance,
+                    self.door_link_distance,
                 )
-                by_storey: Dict[str, List[Tuple[str, Tuple[float, float, float], float]]] = defaultdict(list)
-                for sid, pt in ranked:
-                    dist = _planar_dist(door_pt[0], door_pt[1], pt[0], pt[1])
-                    if dist > max_dist:
-                        break
-                    storey_key = _storey_group_key(
-                        sid, pt, space_names.get(sid, ""),
-                        element_storey, storey_elevations, self.storey_z_tolerance,
-                    )
-                    if self.same_storey_only and not storey_key:
-                        continue
-                    group_key = storey_key if self.same_storey_only else "_all"
-                    by_storey[group_key].append((sid, pt, dist))
-
-                best_pair: Optional[Tuple[str, Tuple[float, float, float], str, Tuple[float, float, float], str]] = None
-                best_lead_dist = float("inf")
-                for _storey_key, group in by_storey.items():
-                    if len(group) < 2:
-                        continue
-                    group.sort(key=lambda item: item[2])
-                    lead_dist = group[0][2]
-                    if lead_dist < best_lead_dist:
-                        best_lead_dist = lead_dist
-                        s1, pt1, _ = group[0]
-                        s2, pt2, _ = group[1]
-                        best_pair = (s1, pt1, s2, pt2, _storey_key)
-
-                if best_pair is None:
+                if not pair:
                     continue
-                s1, _pt1, s2, _pt2, storey_key = best_pair
+
+                s1, s2 = pair
+                door_pt = _element_centroid(door) or space_points.get(s1)
+                storey_key = _storey_group_key(
+                    door.GlobalId,
+                    door_pt,
+                    getattr(door, "Name", None) or "",
+                    element_storey,
+                    storey_elevations,
+                    self.storey_z_tolerance,
+                )
 
                 portals_used += 1
                 portal_elements[door.GlobalId] = door.is_a()
+                methods_used.add(method)
                 evidence_source = ifc_path.name
                 if len(self.ifc_files) > 1:
                     evidence_source = (
                         f"{ifc_path.name}|spaces="
                         f"{space_sources.get(s1, '?')},{space_sources.get(s2, '?')}"
                     )
-                if _append_edge(
-                    self._relationships, seen_edges,
-                    s1, s2,
+                added += self._append_portal_link(
+                    seen_edges,
+                    {s1, s2},
                     door.GlobalId, door.is_a(),
                     getattr(door, "Name", None) or door.GlobalId,
-                    "door_space_proximity",
+                    method,
                     evidence_source,
                     extra_evidence={"storey_key": storey_key} if storey_key else None,
+                )
+
+        self.log.info(
+            "EgressCirculation: door linking resolved %d/%d doors (%s)",
+            portals_used,
+            sum(len(_safe_by_type(ifc, "IfcDoor")) for _, ifc in portal_models),
+            "+".join(sorted(methods_used)) or "none",
+        )
+        return added, portals_used
+
+    def _link_vertical_connectors(
+        self,
+        space_models: List[Tuple[Path, ifcopenshell.file]],
+        space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+        space_points: Dict[str, Tuple[float, float, float]],
+        space_names: Dict[str, str],
+        element_storey: Dict[str, str],
+        storey_elevations: Dict[str, float],
+        seen_edges: Set[Tuple[str, str]],
+    ) -> int:
+        """Connect stair/lift/shaft spaces across consecutive storeys (Z travel).
+
+        Uses name keywords first, then stacked footprints (same XY size, different floor).
+        """
+        spaces_meta: Dict[str, dict] = {}
+        long_names: Dict[str, str] = {}
+        for ifc_path, ifc in space_models:
+            for space in _safe_by_type(ifc, "IfcSpace"):
+                gid = space.GlobalId
+                bbox = space_bboxes.get(gid)
+                pt = space_points.get(gid)
+                if not bbox or not pt:
+                    continue
+                long_name = getattr(space, "LongName", None) or ""
+                long_names[gid] = long_name
+                storey_key = _storey_group_key(
+                    gid, pt, space_names.get(gid, ""), element_storey, storey_elevations,
+                    self.storey_z_tolerance,
+                )
+                if not storey_key:
+                    continue
+                spaces_meta[gid] = {
+                    "gid": gid,
+                    "name": space_names.get(gid, gid),
+                    "long_name": long_name,
+                    "source": ifc_path.name,
+                    "storey_key": storey_key,
+                    "storey_z": _storey_sort_key(storey_key, pt[2], storey_elevations),
+                    "bbox": bbox,
+                    "is_named_vc": _is_vertical_connector(long_name, self.vertical_keywords),
+                    "footprint": _footprint_signature(bbox),
+                }
+
+        added = 0
+        added += self._link_named_vertical_pairs(spaces_meta, seen_edges)
+        added += self._link_stacked_footprint_pairs(spaces_meta, long_names, seen_edges)
+        if added:
+            self.log.info("EgressCirculation: %d vertical connector edges", added)
+        return added
+
+    def _link_named_vertical_pairs(
+        self,
+        spaces_meta: Dict[str, dict],
+        seen_edges: Set[Tuple[str, str]],
+    ) -> int:
+        vc_by_name: Dict[str, List[dict]] = defaultdict(list)
+        for sp in spaces_meta.values():
+            if sp["is_named_vc"]:
+                vc_by_name[_normalise_vc_name(sp["long_name"])].append(sp)
+
+        added = 0
+        for instances in vc_by_name.values():
+            if len(instances) < 2:
+                continue
+            instances_sorted = sorted(instances, key=lambda sp: sp["storey_z"])
+            for idx in range(len(instances_sorted) - 1):
+                sp1, sp2 = instances_sorted[idx], instances_sorted[idx + 1]
+                if _append_edge(
+                    self._relationships,
+                    seen_edges,
+                    sp1["gid"],
+                    sp2["gid"],
+                    "",
+                    "IfcVerticalConnector",
+                    sp1["long_name"] or sp1["name"],
+                    "named_stair_lift_match",
+                    sp1["source"],
+                    extra_evidence={
+                        "connector_name": _normalise_vc_name(sp1["long_name"]),
+                        "storey_from": sp1["storey_key"],
+                        "storey_to": sp2["storey_key"],
+                    },
                 ):
                     added += 1
+        return added
 
-        return added, portals_used
+    def _link_stacked_footprint_pairs(
+        self,
+        spaces_meta: Dict[str, dict],
+        long_names: Dict[str, str],
+        seen_edges: Set[Tuple[str, str]],
+    ) -> int:
+        """Match shaft-like spaces stacked in Z with similar plan footprints."""
+        by_print: Dict[Tuple[float, float, float, float], List[dict]] = defaultdict(list)
+        for sp in spaces_meta.values():
+            ln = (long_names.get(sp["gid"]) or "").upper()
+            area = _bbox_xy_area(sp["bbox"])
+            if sp["is_named_vc"]:
+                by_print[sp["footprint"]].append(sp)
+            elif area <= 25.0 and any(k in ln for k in ("SCHAKT", "SHAFT", "HISS", "TRAPP")):
+                by_print[sp["footprint"]].append(sp)
+
+        added = 0
+        for group in by_print.values():
+            if len(group) < 2:
+                continue
+            group_sorted = sorted(group, key=lambda sp: sp["storey_z"])
+            for idx in range(len(group_sorted) - 1):
+                sp1, sp2 = group_sorted[idx], group_sorted[idx + 1]
+                if sp1["storey_key"] == sp2["storey_key"]:
+                    continue
+                if _append_edge(
+                    self._relationships,
+                    seen_edges,
+                    sp1["gid"],
+                    sp2["gid"],
+                    "",
+                    "IfcVerticalConnector",
+                    sp1["name"],
+                    "stacked_footprint_match",
+                    sp1["source"],
+                    extra_evidence={
+                        "footprint": sp1["footprint"],
+                        "storey_from": sp1["storey_key"],
+                        "storey_to": sp2["storey_key"],
+                    },
+                ):
+                    added += 1
+        return added
+
+    def _link_apartment_room_clusters(
+        self,
+        models: List[Tuple[Path, ifcopenshell.file]],
+        space_points: Dict[str, Tuple[float, float, float]],
+        space_names: Dict[str, str],
+        element_storey: Dict[str, str],
+        storey_elevations: Dict[str, float],
+        seen_edges: Set[Tuple[str, str]],
+    ) -> int:
+        """Connect room-level spaces within the same BIP apartment on the same storey."""
+        import ifcopenshell.util.element as ifc_element_util
+
+        long_names: Dict[str, str] = {}
+        korridor_ids: Set[str] = set()
+        for _, ifc in models:
+            for space in _safe_by_type(ifc, "IfcSpace"):
+                gid = space.GlobalId
+                ln = getattr(space, "LongName", None) or ""
+                long_names[gid] = ln
+                if _is_korridor_space(space.Name or "", ln):
+                    korridor_ids.add(gid)
+
+        egress_adj = _build_space_adjacency(self._relationships)
+        clusters: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        for _, ifc in models:
+            for space in _safe_by_type(ifc, "IfcSpace"):
+                gid = space.GlobalId
+                name = space.Name or ""
+                if not _is_egress_room_space(name):
+                    continue
+                if gid not in space_points:
+                    continue
+                psets = ifc_element_util.get_psets(space, psets_only=True)
+                apt = (psets.get("BIP") or {}).get("Appartment") or (psets.get("BIP") or {}).get("Apartment")
+                if not apt:
+                    continue
+                pt = space_points[gid]
+                storey_key = _storey_group_key(
+                    gid, pt, name, element_storey, storey_elevations, self.storey_z_tolerance,
+                )
+                if not storey_key:
+                    continue
+                clusters[(str(apt).strip(), storey_key)].append(gid)
+
+        added = 0
+        for (apt_id, storey_key), members in clusters.items():
+            if len(members) < 2:
+                continue
+            hub, hub_reason = _pick_apartment_cluster_hub(
+                members, egress_adj, korridor_ids, long_names, space_names,
+            )
+
+            for gid in members:
+                if gid == hub:
+                    continue
+                if _append_edge(
+                    self._relationships,
+                    seen_edges,
+                    gid,
+                    hub,
+                    "",
+                    "IfcApartmentCluster",
+                    apt_id,
+                    "apartment_room_cluster",
+                    "BIP",
+                    extra_evidence={
+                        "apartment_id": apt_id,
+                        "storey_key": storey_key,
+                        "hub_space": space_names.get(hub, hub),
+                        "hub_reason": hub_reason,
+                    },
+                ):
+                    added += 1
+        if added:
+            self.log.info(
+                "EgressCirculation: %d apartment room cluster edges", added,
+            )
+        return added
 
     def _emit_ifc_portal_edges(
         self,
@@ -850,21 +1297,23 @@ class Ingester(_Base):
             portal_name = getattr(portal_elem, "Name", None) or portal_id
             portal_elements[portal_id] = portal_class
 
-            for s1, s2 in combinations(sorted(space_ids), 2):
-                if self.same_storey_only:
-                    pt1 = space_points.get(s1)
-                    pt2 = space_points.get(s2)
-                    k1 = _storey_group_key(
-                        s1, pt1, space_names.get(s1, ""), element_storey, storey_elevations, self.storey_z_tolerance,
+            # Group the portal's spaces by storey so a single portal only links
+            # rooms that share a level, then route each group through one proxy.
+            if self.same_storey_only:
+                groups: Dict[str, Set[str]] = defaultdict(set)
+                for sid in space_ids:
+                    key = _storey_group_key(
+                        sid, space_points.get(sid), space_names.get(sid, ""),
+                        element_storey, storey_elevations, self.storey_z_tolerance,
                     )
-                    k2 = _storey_group_key(
-                        s2, pt2, space_names.get(s2, ""), element_storey, storey_elevations, self.storey_z_tolerance,
-                    )
-                    if not k1 or not k2 or k1 != k2:
-                        continue
-                _append_edge(
-                    self._relationships, seen_edges,
-                    s1, s2,
+                    groups[key or "_unknown"].add(sid)
+            else:
+                groups = {"_all": set(space_ids)}
+
+            for grp in groups.values():
+                self._append_portal_link(
+                    seen_edges,
+                    grp,
                     portal_id, portal_class, portal_name,
                     "ifc_portal_boundary",
                     ifc_path.name,
@@ -1297,6 +1746,284 @@ def _is_portal_class(ifc_class: str) -> bool:
     return any(portal in ifc_class for portal in PORTAL_TYPES)
 
 
+def _collect_space_bboxes(
+    models: List[Tuple[Path, ifcopenshell.file]],
+) -> Dict[str, Tuple[float, float, float, float, float, float]]:
+    """World-coordinate axis-aligned bboxes for IfcSpace (metres, USE_WORLD_COORDS)."""
+    bboxes: Dict[str, Tuple[float, float, float, float, float, float]] = {}
+    settings = _geom_settings()
+    for _, ifc in models:
+        for space in _safe_by_type(ifc, "IfcSpace"):
+            gid = space.GlobalId
+            if gid in bboxes:
+                continue
+            try:
+                shape = ifcopenshell.geom.create_shape(settings, space)
+                verts = shape.geometry.verts
+                if not verts:
+                    continue
+                xs = verts[0::3]
+                ys = verts[1::3]
+                zs = verts[2::3]
+                bboxes[gid] = (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+            except Exception:
+                pt = _element_centroid(space)
+                if pt:
+                    bboxes[gid] = (pt[0] - 0.5, pt[1] - 0.5, pt[2] - 0.5, pt[0] + 0.5, pt[1] + 0.5, pt[2] + 0.5)
+    return bboxes
+
+
+def _bbox_xy_area(bbox: Tuple[float, float, float, float, float, float]) -> float:
+    return max(0.0, bbox[3] - bbox[0]) * max(0.0, bbox[4] - bbox[1])
+
+
+def _footprint_signature(
+    bbox: Tuple[float, float, float, float, float, float],
+    *,
+    centre_tol: float = 0.35,
+) -> Tuple[float, float, float, float]:
+    cx = (bbox[0] + bbox[3]) / 2
+    cy = (bbox[1] + bbox[4]) / 2
+    w = bbox[3] - bbox[0]
+    h = bbox[4] - bbox[1]
+    return (
+        round(cx / centre_tol) * centre_tol,
+        round(cy / centre_tol) * centre_tol,
+        round(w, 1),
+        round(h, 1),
+    )
+
+
+def _storey_sort_key(
+    storey_key: str,
+    fallback_z: float,
+    storey_elevations: Dict[str, float],
+) -> float:
+    if storey_key.startswith("elev:"):
+        try:
+            return float(storey_key[5:])
+        except ValueError:
+            pass
+    if storey_key.startswith("z:"):
+        try:
+            return float(storey_key[2:])
+        except ValueError:
+            pass
+    if storey_key.startswith("prefix:"):
+        try:
+            return float(storey_key[7:])
+        except ValueError:
+            pass
+    return fallback_z
+
+
+def _door_plan_side_points(
+    door,
+    offset_m: float,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    """Two plan-view sample points on opposite sides of a door opening."""
+    import ifcopenshell.util.placement as pu
+    import math
+
+    centre = _element_centroid(door)
+    if centre is None:
+        return None
+    try:
+        matrix = pu.get_local_placement(door.ObjectPlacement)
+    except Exception:
+        return None
+
+    dx, dy = matrix[0][1], matrix[1][1]
+    if math.hypot(dx, dy) < 0.5:
+        dx, dy = matrix[0][0], matrix[1][0]
+    norm = math.hypot(dx, dy) or 1.0
+    dx, dy = dx / norm, dy / norm
+    cx, cy = centre[0], centre[1]
+    return (
+        (cx + dx * offset_m, cy + dy * offset_m),
+        (cx - dx * offset_m, cy - dy * offset_m),
+    )
+
+
+def _pick_space_at_plan_point(
+    point_xy: Tuple[float, float],
+    door_storey_key: Optional[str],
+    space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+    space_names: Dict[str, str],
+    space_points: Dict[str, Tuple[float, float, float]],
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    *,
+    same_storey_only: bool,
+    z_tolerance: float,
+    plan_tolerance: float,
+) -> Optional[str]:
+    """Smallest XY footprint containing ``point_xy`` on the door's storey."""
+    px, py = point_xy
+    hits: List[str] = []
+    for gid, bbox in space_bboxes.items():
+        if not (
+            bbox[0] - plan_tolerance <= px <= bbox[3] + plan_tolerance
+            and bbox[1] - plan_tolerance <= py <= bbox[4] + plan_tolerance
+        ):
+            continue
+        pt = space_points.get(gid)
+        storey_key = _storey_group_key(
+            gid,
+            pt,
+            space_names.get(gid, ""),
+            element_storey,
+            storey_elevations,
+            z_tolerance,
+        )
+        if same_storey_only and door_storey_key and storey_key != door_storey_key:
+            continue
+        hits.append(gid)
+    if not hits:
+        return None
+    return min(hits, key=lambda gid: _bbox_xy_area(space_bboxes[gid]))
+
+
+def _filter_spaces_same_storey(
+    space_ids: Set[str],
+    door_storey_key: Optional[str],
+    space_points: Dict[str, Tuple[float, float, float]],
+    space_names: Dict[str, str],
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    z_tolerance: float,
+) -> List[str]:
+    kept: List[str] = []
+    for gid in space_ids:
+        pt = space_points.get(gid)
+        storey_key = _storey_group_key(
+            gid, pt, space_names.get(gid, ""), element_storey, storey_elevations, z_tolerance,
+        )
+        if door_storey_key and storey_key != door_storey_key:
+            continue
+        kept.append(gid)
+    return kept
+
+
+def _door_space_proximity_fallback(
+    door,
+    space_points: Dict[str, Tuple[float, float, float]],
+    space_names: Dict[str, str],
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    *,
+    same_storey_only: bool,
+    z_tolerance: float,
+    max_dist: float,
+) -> Optional[Tuple[str, str]]:
+    door_pt = _element_centroid(door)
+    if door_pt is None:
+        return None
+    door_storey = _storey_group_key(
+        door.GlobalId,
+        door_pt,
+        getattr(door, "Name", None) or "",
+        element_storey,
+        storey_elevations,
+        z_tolerance,
+    )
+    candidates: List[Tuple[str, float]] = []
+    for sid, pt in space_points.items():
+        if not _is_egress_room_space(space_names.get(sid, "")):
+            continue
+        dist = _planar_dist(door_pt[0], door_pt[1], pt[0], pt[1])
+        if dist > max_dist:
+            continue
+        storey_key = _storey_group_key(
+            sid, pt, space_names.get(sid, ""), element_storey, storey_elevations, z_tolerance,
+        )
+        if same_storey_only and (not door_storey or not storey_key or storey_key != door_storey):
+            continue
+        candidates.append((sid, dist))
+    if len(candidates) < 2:
+        return None
+    candidates.sort(key=lambda item: item[1])
+    return candidates[0][0], candidates[1][0]
+
+
+def _resolve_door_space_pair(
+    door,
+    portal_space_ids: Set[str],
+    space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+    space_points: Dict[str, Tuple[float, float, float]],
+    space_names: Dict[str, str],
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    same_storey_only: bool,
+    z_tolerance: float,
+    door_side_offset: float,
+    plan_tolerance: float,
+    link_distance: float,
+) -> Tuple[Optional[Tuple[str, str]], str]:
+    door_pt = _element_centroid(door)
+    door_storey = _storey_group_key(
+        door.GlobalId,
+        door_pt,
+        getattr(door, "Name", None) or "",
+        element_storey,
+        storey_elevations,
+        z_tolerance,
+    )
+
+    if portal_space_ids:
+        ifc_spaces = _filter_spaces_same_storey(
+            portal_space_ids, door_storey, space_points, space_names,
+            element_storey, storey_elevations, z_tolerance,
+        )
+        if len(ifc_spaces) >= 2:
+            side_pts = _door_plan_side_points(door, door_side_offset)
+            if side_pts and len(ifc_spaces) > 2:
+                allowed = set(ifc_spaces)
+                s1 = _pick_space_at_plan_point(
+                    side_pts[0], door_storey,
+                    {g: space_bboxes[g] for g in allowed if g in space_bboxes},
+                    space_names, space_points, element_storey, storey_elevations,
+                    same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+                    plan_tolerance=plan_tolerance,
+                )
+                s2 = _pick_space_at_plan_point(
+                    side_pts[1], door_storey,
+                    {g: space_bboxes[g] for g in allowed if g in space_bboxes},
+                    space_names, space_points, element_storey, storey_elevations,
+                    same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+                    plan_tolerance=plan_tolerance,
+                )
+                if s1 and s2 and s1 != s2:
+                    return tuple(sorted((s1, s2))), "ifc_portal_boundary"
+            return tuple(sorted((ifc_spaces[0], ifc_spaces[1]))), "ifc_portal_boundary"
+
+    side_pts = _door_plan_side_points(door, door_side_offset)
+    if side_pts:
+        s1 = _pick_space_at_plan_point(
+            side_pts[0], door_storey, space_bboxes, space_names, space_points,
+            element_storey, storey_elevations,
+            same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+            plan_tolerance=plan_tolerance,
+        )
+        s2 = _pick_space_at_plan_point(
+            side_pts[1], door_storey, space_bboxes, space_names, space_points,
+            element_storey, storey_elevations,
+            same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+            plan_tolerance=plan_tolerance,
+        )
+        if s1 and s2 and s1 != s2:
+            return tuple(sorted((s1, s2))), "door_side_containment"
+
+    max_dist = max(float(link_distance), 0.5)
+    fallback = _door_space_proximity_fallback(
+        door, space_points, space_names, element_storey, storey_elevations,
+        same_storey_only=same_storey_only, z_tolerance=z_tolerance, max_dist=max_dist,
+    )
+    if fallback:
+        return tuple(sorted(fallback)), "door_space_proximity_fallback"
+    return None, ""
+
+
 def _host_wall_global_id(door) -> Optional[str]:
     for rel in getattr(door, "FillsVoids", None) or []:
         opening = getattr(rel, "RelatedOpeningElement", None) or getattr(
@@ -1336,3 +2063,71 @@ def _element_centroid(element) -> Optional[Tuple[float, float, float]]:
             return (m[0][3], m[1][3], m[2][3])
         except Exception:
             return None
+
+
+def _is_egress_room_space(name: str) -> bool:
+    """True for room-level IfcSpace names; excludes apartment aggregate anchors."""
+    text = (name or "").strip()
+    if not text:
+        return True
+    return _APARTMENT_AGGREGATE_RE.match(text) is None
+
+
+def _is_korridor_space(name: str, long_name: str) -> bool:
+    haystack = f"{name} {long_name}".upper()
+    return "KORRIDOR" in haystack
+
+
+def _build_space_adjacency(
+    relationships: List,
+) -> Dict[str, Set[str]]:
+    """Undirected adjacency from existing egress_connects relationship dicts."""
+    adj: Dict[str, Set[str]] = defaultdict(set)
+    for rel in relationships:
+        payload = rel if isinstance(rel, dict) else rel.to_dict()
+        s1 = payload.get("subject_global_id")
+        s2 = payload.get("object_global_id")
+        if not s1 or not s2:
+            continue
+        adj[s1].add(s2)
+        adj[s2].add(s1)
+    return adj
+
+
+def _pick_apartment_cluster_hub(
+    members: List[str],
+    adj: Dict[str, Set[str]],
+    korridor_ids: Set[str],
+    long_names: Dict[str, str],
+    space_names: Dict[str, str],
+) -> Tuple[str, str]:
+    """Pick the flat's circulation hub — prefer the room that opens to korridor.
+
+    Priority:
+      1. Room door-linked to a korridor that already has ≥2 egress neighbours
+         (typical through-corridor segment).
+      2. Any room adjacent to korridor in the current egress graph.
+      3. LongName contains "hall".
+      4. Shortest space name.
+    """
+    for gid in members:
+        for neighbour in adj.get(gid, set()):
+            if neighbour not in korridor_ids:
+                continue
+            if len(adj.get(neighbour, set())) >= 2:
+                return gid, "korridor_entry"
+
+    for gid in members:
+        if any(nb in korridor_ids for nb in adj.get(gid, set())):
+            return gid, "korridor_adjacent"
+
+    for gid in members:
+        if "hall" in (long_names.get(gid) or "").lower():
+            return gid, "hall_name"
+
+    return min(members, key=lambda g: space_names.get(g, g)), "shortest_name"
+
+
+def _approx_ifc_entity_count(ifc) -> int:
+    """Approximate entity count without scanning the full schema."""
+    return ifc_thin_spaces.approx_entity_count(ifc)
