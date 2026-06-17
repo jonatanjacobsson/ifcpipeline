@@ -37,6 +37,8 @@ class Ingester(_Base):
         element_query: str = "IfcElement",
         space_query: str = "IfcSpace",
         tolerance: float = 0.01,
+        use_topologic: bool = True,
+        force_ifc_native: bool = False,
     ):
         """Extract element-to-space spatial containment relationships.
 
@@ -47,15 +49,23 @@ class Ingester(_Base):
         :param element_query: IfcOpenShell selector query for target elements to classify.
         :param space_query: IfcOpenShell selector query for candidate space elements.
         :param tolerance: Containment tolerance in model units for TopologicPy graph construction.
+        :param use_topologic: When False, skip Graph.ByIFCFile and use IFC native rels only.
+        :param force_ifc_native: Internal retry flag after SIGSEGV (same as use_topologic=False).
         """
         super().__init__(ifc_files, log)
         self.element_query = element_query
         self.space_query = space_query
         self.tolerance = tolerance
+        self.use_topologic = bool(use_topologic) and not bool(force_ifc_native)
 
     def extract(self) -> None:
-        if not HAS_TOPOLOGICPY:
-            self.log.warning("spatial: TopologicPy not available, falling back to IFC rel parsing")
+        if not HAS_TOPOLOGICPY or not self.use_topologic:
+            if not self.use_topologic:
+                self.log.warning(
+                    "spatial: use_topologic=False, using IFC rel parsing (SIGSEGV fallback or API flag)"
+                )
+            else:
+                self.log.warning("spatial: TopologicPy not available, falling back to IFC rel parsing")
             self._extract_from_ifc_rels()
             return
 
@@ -135,8 +145,14 @@ class Ingester(_Base):
 
     def _extract_from_ifc_rels(self) -> None:
         """Fallback: parse native IFC spatial relationships."""
+        t0 = time.time()
         for ifc_path in self.ifc_files:
             self._extract_from_ifc_rels_file(ifc_path)
+        self._summary = {
+            "matched_containment": len(self._relationships),
+            "method": "ifc_native_rel",
+            "elapsed_seconds": round(time.time() - t0, 2),
+        }
 
     def _extract_from_ifc_rels_file(self, ifc_path: Path) -> None:
         """Parse IfcRelContainedInSpatialStructure from a single file."""

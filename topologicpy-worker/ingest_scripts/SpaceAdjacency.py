@@ -38,6 +38,8 @@ class Ingester(_Base):
         include_external: bool = False,
         min_shared_area: float = 0.0,
         tolerance: float = 0.01,
+        use_topologic: bool = True,
+        force_ifc_native: bool = False,
     ):
         """Build a space adjacency graph from IFC topology.
 
@@ -48,15 +50,24 @@ class Ingester(_Base):
         :param include_external: Whether to include adjacency to external/unbounded space.
         :param min_shared_area: Minimum shared boundary area (m2) to register an adjacency edge.
         :param tolerance: Graph construction tolerance in model units (same as SpatialContainment).
+        :param use_topologic: When False, skip Graph.ByIFCFile and use IFC boundary rels only.
+        :param force_ifc_native: Internal retry flag after SIGSEGV (same as use_topologic=False).
         """
         super().__init__(ifc_files, log)
         self.include_external = include_external
         self.min_shared_area = min_shared_area
         self.tolerance = tolerance
+        self.use_topologic = bool(use_topologic) and not bool(force_ifc_native)
 
     def extract(self) -> None:
-        if not HAS_TOPOLOGICPY:
-            self.log.warning("SpaceAdjacency: TopologicPy not available, using IFC rel fallback")
+        if not HAS_TOPOLOGICPY or not self.use_topologic:
+            if not self.use_topologic:
+                self.log.warning(
+                    "SpaceAdjacency: use_topologic=False, using IFC rel fallback "
+                    "(SIGSEGV fallback or API flag)"
+                )
+            else:
+                self.log.warning("SpaceAdjacency: TopologicPy not available, using IFC rel fallback")
             self._extract_from_ifc_rels()
             return
 
@@ -143,8 +154,14 @@ class Ingester(_Base):
         }
 
     def _extract_from_ifc_rels(self) -> None:
+        t0 = time.time()
         for ifc_path in self.ifc_files:
             self._extract_from_ifc_rels_file(ifc_path)
+        self._summary = {
+            "adjacency_edges": len(self._relationships),
+            "method": "ifc_rel_space_boundary",
+            "elapsed_seconds": round(time.time() - t0, 2),
+        }
 
     def _extract_from_ifc_rels_file(self, ifc_path: Path) -> None:
         """Fallback: infer adjacency from IfcRelSpaceBoundary shared elements."""
