@@ -161,9 +161,9 @@ def test_append_portal_link_dedups_repeat_pair():
     ing = _new_ingester()
     seen: set = set()
     ing._append_portal_link(seen, {"S1", "S2"}, "DOOR1", "IfcDoor", "D1", "m", "x.ifc")
-    # a second door over the same room pair is suppressed
+    # a second real door between the same rooms is a valid double-door — must be recorded
     again = ing._append_portal_link(seen, {"S1", "S2"}, "DOOR2", "IfcDoor", "D2", "m", "x.ifc")
-    assert again == 0
+    assert again == 2
 
 
 def test_append_portal_link_requires_a_portal_node():
@@ -264,14 +264,28 @@ def test_resolve_opening_space_pair_drops_exterior_opening(monkeypatch):
     assert method == ""
 
 
-def test_opening_over_door_pair_is_suppressed():
-    # The opening pass runs after doors: a pair already in seen_edges yields 0, so the
-    # pass records no opening portal node for it.
+def test_multiple_portals_between_same_pair_all_recorded():
+    # Each real portal (door or opening) has its own portal_id → distinct relationship_ref
+    # → both are saved. dedup_pairs only applies to heuristic passes.
     ing = _new_ingester()
     seen: set = set()
-    ing._append_portal_link(seen, {"S1", "S2"}, "DOOR1", "IfcDoor", "D1", "m", "x.ifc")
-    new = ing._append_portal_link(
+    first = ing._append_portal_link(seen, {"S1", "S2"}, "DOOR1", "IfcDoor", "D1", "m", "x.ifc")
+    second = ing._append_portal_link(
         seen, {"S1", "S2"}, "OPENING1", "IfcOpeningElement", "O1",
         "opening_side_containment", "x.ifc",
     )
-    assert new == 0
+    assert first == 2
+    assert second == 2  # opening between same rooms as a door is still recorded
+
+def test_dedup_pairs_suppresses_heuristic_pass():
+    # dedup_pairs=True: a heuristic pass (apartment cluster, vertical connector) is skipped
+    # when a real portal already covers the pair.
+    ing = _new_ingester()
+    seen: set = set()
+    ing._append_portal_link(seen, {"S1", "S2"}, "DOOR1", "IfcDoor", "D1", "m", "x.ifc")
+    heuristic = ing._append_portal_link(
+        seen, {"S1", "S2"}, "SYNTH1", "IfcApartmentCluster", "hub",
+        "apartment_room_cluster", "x.ifc",
+        dedup_pairs=True,
+    )
+    assert heuristic == 0
