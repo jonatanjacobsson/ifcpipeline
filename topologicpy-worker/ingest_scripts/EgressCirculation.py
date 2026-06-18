@@ -138,6 +138,10 @@ class Ingester(_Base):
         door_plan_tolerance: float = 0.25,
         same_storey_only: bool = True,
         storey_z_tolerance: float = 2.5,
+        # --- door-less opening pass (opt-in) ---
+        link_doorless_openings: bool = False,
+        min_opening_width: float = 0.6,
+        max_sill_height: float = 0.3,
         # --- space_adjacency options ---
         face_tolerance: float = 0.15,
         min_shared_face: float = 0.30,
@@ -158,6 +162,14 @@ class Ingester(_Base):
         :param same_storey_only: (door_portal) Only link two spaces that share the same
             storey (IFC containment, room-number prefix, or elevation — not door Z proximity).
         :param storey_z_tolerance: (door_portal) Z fallback tolerance in model units.
+        :param link_doorless_openings: (door_portal) Opt-in: also link door-less wall
+            openings (open doorways) to the two spaces they separate, the same way doors
+            are linked. Off by default — see ``_link_openings_to_spaces``.
+        :param min_opening_width: (door_portal) Passable-width guard (m) for door-less
+            openings; voids whose plan extent / height are below this are ignored.
+        :param max_sill_height: (door_portal) Floor-reaching threshold (m) for door-less
+            openings; an opening whose bottom is more than this above its storey elevation
+            is treated as a window/high vent (not egress) and skipped.
         :param face_tolerance: (space_adjacency) Max bbox gap (metres) to count as touching.
         :param min_shared_face: (space_adjacency) Min shared edge (metres) for adjacency.
         :param vertical_keywords: (space_adjacency) Override stair/lift keyword list.
@@ -182,6 +194,10 @@ class Ingester(_Base):
         self.door_plan_tolerance = door_plan_tolerance
         self.same_storey_only = same_storey_only
         self.storey_z_tolerance = storey_z_tolerance
+        # door-less opening pass params
+        self.link_doorless_openings = bool(link_doorless_openings)
+        self.min_opening_width = min_opening_width
+        self.max_sill_height = max_sill_height
         # space_adjacency params
         self.face_tolerance = face_tolerance
         self.min_shared_face = min_shared_face
@@ -615,6 +631,7 @@ class Ingester(_Base):
         portal_elements: Dict[str, str] = {}
         methods: Set[str] = set()
         self._portal_space_pairs = []
+        doorless_openings_linked = 0
 
         try:
             space_models, portal_models = self._prepare_space_and_portal_models()
@@ -658,6 +675,25 @@ class Ingester(_Base):
                     door_methods,
                 )
                 methods.update(door_methods)
+
+                # Door-less openings (open doorways) get the SAME geometric treatment as
+                # doors, *after* the door pass so a pair already bridged by a door sits in
+                # seen_edges and the opening is suppressed (no double-count).
+                if self.link_doorless_openings:
+                    opening_methods: Set[str] = set()
+                    _op_added, doorless_openings_linked = self._link_openings_to_spaces(
+                        portal_models,
+                        space_bboxes,
+                        space_points,
+                        space_sources,
+                        space_names,
+                        element_storey,
+                        storey_elevations,
+                        seen_edges,
+                        portal_elements,
+                        opening_methods,
+                    )
+                    methods.update(opening_methods)
 
                 apt_added = self._link_apartment_room_clusters(
                     space_models,
@@ -757,6 +793,7 @@ class Ingester(_Base):
         )
         self._summary = {
             "portals_used": portal_count,
+            "doorless_openings_linked": doorless_openings_linked,
             "method": method_label,
             "strategy": "door_portal",
             "input_files": [p.name for p in self.ifc_files],
@@ -1066,6 +1103,103 @@ class Ingester(_Base):
         )
         return added, portals_used
 
+    def _link_openings_to_spaces(
+        self,
+        portal_models: List[Tuple[Path, ifcopenshell.file]],
+        space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+        space_points: Dict[str, Tuple[float, float, float]],
+        space_sources: Dict[str, str],
+        space_names: Dict[str, str],
+        element_storey: Dict[str, str],
+        storey_elevations: Dict[str, float],
+        seen_edges: Set[Tuple[str, str]],
+        portal_elements: Dict[str, str],
+        methods_used: Set[str],
+    ) -> Tuple[int, int]:
+        """Link each DOOR-LESS, floor-reaching wall opening to the two spaces it separates.
+
+        Mirrors :meth:`_link_all_doors_to_spaces` but for IfcOpeningElement/StandardCase that
+        are genuine walkable passages: no door/window fill, bottom at the floor, passable
+        width. Must run AFTER the door pass so a space pair already bridged by a door is in
+        ``seen_edges`` and skipped; the opening node is emitted only when it actually creates
+        a new edge (so door-bridged pairs don't spawn a redundant opening portal).
+        """
+        opening_method = "opening_side_containment"
+        openings_seen = 0
+        openings_used = 0
+        added = 0
+
+        for ifc_path, ifc in portal_models:
+            openings = (
+                _safe_by_type(ifc, "IfcOpeningElement")
+                + _safe_by_type(ifc, "IfcOpeningStandardCase")
+            )
+            for opening in openings:
+                if not self._opening_is_doorless_passage(opening):
+                    continue
+                if not _opening_reaches_floor(
+                    opening, storey_elevations, self.storey_z_tolerance, self.max_sill_height
+                ):
+                    continue
+                if not _opening_passable_size(opening, self.min_opening_width):
+                    continue
+                openings_seen += 1
+
+                pair, method = _resolve_opening_space_pair(
+                    opening,
+                    space_bboxes,
+                    space_points,
+                    space_names,
+                    element_storey,
+                    storey_elevations,
+                    self.same_storey_only,
+                    self.storey_z_tolerance,
+                    self.door_side_offset,
+                    self.door_plan_tolerance,
+                )
+                if not pair:
+                    continue
+
+                s1, s2 = pair
+                op_pt = _element_centroid(opening) or space_points.get(s1)
+                storey_key = _storey_group_key(
+                    opening.GlobalId,
+                    op_pt,
+                    getattr(opening, "Name", None) or "",
+                    element_storey,
+                    storey_elevations,
+                    self.storey_z_tolerance,
+                )
+                evidence_source = ifc_path.name
+                if len(self.ifc_files) > 1:
+                    evidence_source = (
+                        f"{ifc_path.name}|spaces="
+                        f"{space_sources.get(s1, '?')},{space_sources.get(s2, '?')}"
+                    )
+
+                new = self._append_portal_link(
+                    seen_edges,
+                    {s1, s2},
+                    opening.GlobalId,
+                    opening.is_a(),
+                    getattr(opening, "Name", None) or opening.GlobalId,
+                    method,
+                    evidence_source,
+                    extra_evidence={"storey_key": storey_key} if storey_key else None,
+                )
+                if new:
+                    portal_elements[opening.GlobalId] = opening.is_a()
+                    methods_used.add(opening_method)
+                    openings_used += 1
+                added += new
+
+        self.log.info(
+            "EgressCirculation: door-less opening linking — %d candidate passages, "
+            "%d linked → %d edges",
+            openings_seen, openings_used, added,
+        )
+        return added, openings_used
+
     def _link_vertical_connectors(
         self,
         space_models: List[Tuple[Path, ifcopenshell.file]],
@@ -1373,6 +1507,24 @@ class Ingester(_Base):
             if fill and fill.is_a() in {"IfcDoor", "IfcDoorStandardCase"}:
                 return True
         return False
+
+    @staticmethod
+    def _opening_has_window(opening) -> bool:
+        for rel in getattr(opening, "HasFillings", None) or []:
+            fill = rel.RelatedBuildingElement
+            if fill and fill.is_a() in {"IfcWindow", "IfcWindowStandardCase"}:
+                return True
+        return False
+
+    @classmethod
+    def _opening_is_doorless_passage(cls, opening) -> bool:
+        """True for a wall void that is neither door- nor window-filled.
+
+        Door-filled voids are already represented by the door pass; window-filled voids
+        aren't egress. Geometry (floor-reaching + passable size, checked separately) catches
+        the rest, including windows not linked to their opening via IfcRelFillsElement.
+        """
+        return not cls._opening_has_door(opening) and not cls._opening_has_window(opening)
 
     def _augment_portals_from_doors_on_walls(
         self,
@@ -1845,6 +1997,70 @@ def _door_plan_side_points(
     )
 
 
+def _minor_axis_2d(
+    a: float, b: float, c: float
+) -> Tuple[Optional[float], Optional[float]]:
+    """Unit eigenvector of the *smaller* eigenvalue of [[a, b], [b, c]].
+
+    For an opening's horizontal footprint covariance this is the thin (through-wall)
+    direction. Returns ``(None, None)`` when the footprint is too isotropic to define a
+    thin axis (square-ish void), so the caller can fall back.
+    """
+    import math
+
+    tr = a + c
+    disc = math.sqrt(((a - c) / 2.0) ** 2 + b * b)
+    lmin = tr / 2.0 - disc
+    lmax = tr / 2.0 + disc
+    if lmax <= 1e-9 or (lmax - lmin) <= 1e-3 * lmax:
+        return None, None  # not elongated -> no reliable through-direction
+    if abs(b) > 1e-12:
+        vx, vy = b, (lmin - a)
+    elif a <= c:
+        vx, vy = 1.0, 0.0  # smaller variance along x -> thin axis is x
+    else:
+        vx, vy = 0.0, 1.0
+    norm = math.hypot(vx, vy) or 1.0
+    return vx / norm, vy / norm
+
+
+def _opening_plan_side_points(
+    opening,
+    offset_m: float,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    """Two plan points on opposite sides of a door-less opening.
+
+    An opening is a thin slab through a wall, so the through-wall (egress) direction is its
+    *minor* horizontal footprint axis — derived from geometry via PCA, independent of the
+    placement-axis convention that :func:`_door_plan_side_points` assumes. Returns ``None``
+    when geometry is unavailable or the footprint is too isotropic to orient.
+    """
+    try:
+        shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
+        verts = shape.geometry.verts
+        if not verts:
+            return None
+        xs = list(verts[0::3])
+        ys = list(verts[1::3])
+    except Exception:
+        return None
+    n = len(xs)
+    if n < 3:
+        return None
+    cx = sum(xs) / n
+    cy = sum(ys) / n
+    sxx = sum((x - cx) ** 2 for x in xs) / n
+    syy = sum((y - cy) ** 2 for y in ys) / n
+    sxy = sum((xs[i] - cx) * (ys[i] - cy) for i in range(n)) / n
+    nx, ny = _minor_axis_2d(sxx, sxy, syy)
+    if nx is None:
+        return None
+    return (
+        (cx + nx * offset_m, cy + ny * offset_m),
+        (cx - nx * offset_m, cy - ny * offset_m),
+    )
+
+
 def _pick_space_at_plan_point(
     point_xy: Tuple[float, float],
     door_storey_key: Optional[str],
@@ -2022,6 +2238,116 @@ def _resolve_door_space_pair(
     if fallback:
         return tuple(sorted(fallback)), "door_space_proximity_fallback"
     return None, ""
+
+
+def _resolve_opening_space_pair(
+    opening,
+    space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+    space_points: Dict[str, Tuple[float, float, float]],
+    space_names: Dict[str, str],
+    element_storey: Dict[str, str],
+    storey_elevations: Dict[str, float],
+    same_storey_only: bool,
+    z_tolerance: float,
+    side_offset: float,
+    plan_tolerance: float,
+) -> Tuple[Optional[Tuple[str, str]], str]:
+    """Door-less opening → the two spaces it separates, via plan-view side points only.
+
+    Mirrors the side-point branch of :func:`_resolve_door_space_pair` but deliberately omits
+    the IfcRelSpaceBoundary branch and the centroid-proximity fallback — openings are far more
+    numerous/noisier than doors, so a pair is accepted only when both points (offset across
+    the opening) land inside real space footprints. Exterior openings (one side outdoors)
+    find no second space and drop out.
+    """
+    op_pt = _element_centroid(opening)
+    op_storey = _storey_group_key(
+        opening.GlobalId,
+        op_pt,
+        getattr(opening, "Name", None) or "",
+        element_storey,
+        storey_elevations,
+        z_tolerance,
+    )
+    # Through-direction from the opening's own geometry (minor footprint axis); fall back
+    # to the placement-axis heuristic only if the footprint can't be oriented.
+    side_pts = _opening_plan_side_points(opening, side_offset) or _door_plan_side_points(
+        opening, side_offset
+    )
+    if not side_pts:
+        return None, ""
+    s1 = _pick_space_at_plan_point(
+        side_pts[0], op_storey, space_bboxes, space_names, space_points,
+        element_storey, storey_elevations,
+        same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+        plan_tolerance=plan_tolerance,
+    )
+    s2 = _pick_space_at_plan_point(
+        side_pts[1], op_storey, space_bboxes, space_names, space_points,
+        element_storey, storey_elevations,
+        same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+        plan_tolerance=plan_tolerance,
+    )
+    if s1 and s2 and s1 != s2:
+        return tuple(sorted((s1, s2))), "opening_side_containment"
+    return None, ""
+
+
+def _reaches_floor(
+    min_z: Optional[float],
+    storey_elevations: Dict[str, float],
+    z_tolerance: float,
+    max_sill_height: float,
+) -> bool:
+    """Pure floor-reaching test: opening bottom is within ``max_sill_height`` of its storey.
+
+    The opening's storey is the nearest elevation to its bottom. A door/passage bottom sits at
+    the floor (≈0 above); a window's raised sill (~0.9 m) exceeds ``max_sill_height``. Fails
+    *open* (True) when the bottom or storey set is unknown so a real passage is never dropped
+    on a geometry/storey error. ``z_tolerance`` is accepted for signature stability.
+    """
+    _ = z_tolerance
+    if min_z is None or not storey_elevations:
+        return True
+    nearest = min(storey_elevations.values(), key=lambda e: abs(min_z - e))
+    return (min_z - nearest) <= max_sill_height
+
+
+def _opening_reaches_floor(
+    opening,
+    storey_elevations: Dict[str, float],
+    z_tolerance: float,
+    max_sill_height: float,
+) -> bool:
+    """Geometry wrapper around :func:`_reaches_floor` for an opening element."""
+    try:
+        shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
+        verts = shape.geometry.verts
+        if not verts:
+            return True
+        min_z = min(verts[2::3])
+    except Exception:
+        return True
+    return _reaches_floor(min_z, storey_elevations, z_tolerance, max_sill_height)
+
+
+def _opening_passable_size(opening, min_width_m: float) -> bool:
+    """True when a door-less opening is big enough to walk through.
+
+    World-bbox plan extent and height must both be ≥ ``min_width_m``. Fails *open* (True) on
+    missing/failed geometry so a real opening is never dropped on a geometry error.
+    """
+    try:
+        shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
+        verts = shape.geometry.verts
+        if not verts:
+            return True
+        xs, ys, zs = verts[0::3], verts[1::3], verts[2::3]
+        plan_extent = max(max(xs) - min(xs), max(ys) - min(ys))
+        height = max(zs) - min(zs)
+        return plan_extent >= min_width_m and height >= min_width_m
+    except Exception:
+        return True
 
 
 def _host_wall_global_id(door) -> Optional[str]:
