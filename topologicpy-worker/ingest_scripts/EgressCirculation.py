@@ -139,9 +139,10 @@ class Ingester(_Base):
         same_storey_only: bool = True,
         storey_z_tolerance: float = 2.5,
         # --- door-less opening pass (opt-in) ---
-        link_doorless_openings: bool = False,
+        link_doorless_openings: bool = True,
         min_opening_width: float = 0.6,
         max_sill_height: float = 0.3,
+        diagnose_space: Optional[str] = None,
         # --- space_adjacency options ---
         face_tolerance: float = 0.15,
         min_shared_face: float = 0.30,
@@ -162,9 +163,9 @@ class Ingester(_Base):
         :param same_storey_only: (door_portal) Only link two spaces that share the same
             storey (IFC containment, room-number prefix, or elevation — not door Z proximity).
         :param storey_z_tolerance: (door_portal) Z fallback tolerance in model units.
-        :param link_doorless_openings: (door_portal) Opt-in: also link door-less wall
-            openings (open doorways) to the two spaces they separate, the same way doors
-            are linked. Off by default — see ``_link_openings_to_spaces``.
+        :param link_doorless_openings: (door_portal) Also link door-less wall openings
+            (open doorways) to the two spaces they separate, the same way doors are linked.
+            On by default — see ``_link_openings_to_spaces``.
         :param min_opening_width: (door_portal) Passable-width guard (m) for door-less
             openings; voids whose plan extent / height are below this are ignored.
         :param max_sill_height: (door_portal) Floor-reaching threshold (m) for door-less
@@ -198,6 +199,7 @@ class Ingester(_Base):
         self.link_doorless_openings = bool(link_doorless_openings)
         self.min_opening_width = min_opening_width
         self.max_sill_height = max_sill_height
+        self.diagnose_space = diagnose_space
         # space_adjacency params
         self.face_tolerance = face_tolerance
         self.min_shared_face = min_shared_face
@@ -1129,12 +1131,28 @@ class Ingester(_Base):
         openings_used = 0
         added = 0
 
+        target_bbox = None
+        if self.diagnose_space:
+            for gid, nm in space_names.items():
+                if nm == self.diagnose_space and gid in space_bboxes:
+                    target_bbox = space_bboxes[gid]
+                    break
+            self.log.info(
+                "EgressCirculation[diagnose]: target space %r bbox=%s",
+                self.diagnose_space, target_bbox,
+            )
+
         for ifc_path, ifc in portal_models:
             openings = (
                 _safe_by_type(ifc, "IfcOpeningElement")
                 + _safe_by_type(ifc, "IfcOpeningStandardCase")
             )
             for opening in openings:
+                if target_bbox is not None and _opening_near_bbox(opening, target_bbox):
+                    self._diagnose_opening(
+                        opening, space_bboxes, space_points, space_names,
+                        element_storey, storey_elevations,
+                    )
                 if not self._opening_is_doorless_passage(opening):
                     continue
                 if not _opening_reaches_floor(
@@ -1199,6 +1217,75 @@ class Ingester(_Base):
             openings_seen, openings_used, added,
         )
         return added, openings_used
+
+    def _diagnose_opening(
+        self, opening, space_bboxes, space_points, space_names,
+        element_storey, storey_elevations,
+    ) -> None:
+        """Verbose per-opening trace for ``diagnose_space``; never affects edges."""
+        try:
+            gid = opening.GlobalId
+            has_door = self._opening_has_door(opening)
+            has_window = self._opening_has_window(opening)
+            ctr = _element_centroid(opening)
+            dims = None
+            min_z = None
+            try:
+                shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
+                v = shape.geometry.verts
+                if v:
+                    xs, ys, zs = v[0::3], v[1::3], v[2::3]
+                    dims = (
+                        round(max(xs) - min(xs), 3),
+                        round(max(ys) - min(ys), 3),
+                        round(max(zs) - min(zs), 3),
+                    )
+                    min_z = min(zs)
+            except Exception:
+                pass
+            reaches = _reaches_floor(
+                min_z, storey_elevations, self.storey_z_tolerance, self.max_sill_height
+            )
+            passable = _opening_passable_size(opening, self.min_opening_width)
+            axis_pairs = _opening_axis_pairs(opening, self.door_side_offset)
+            plc_pts = _door_plan_side_points(opening, self.door_side_offset)
+            # Pick first available candidate for diagnostic display (minor axis, else placement)
+            used_pts = axis_pairs[0] if axis_pairs else plc_pts
+            geo_pts = bool(axis_pairs)
+            picks = None
+            if used_pts:
+                op_storey = _storey_group_key(
+                    gid, ctr, getattr(opening, "Name", None) or "",
+                    element_storey, storey_elevations, self.storey_z_tolerance,
+                )
+                picks = []
+                for pt in used_pts:
+                    s = _pick_space_at_plan_point(
+                        pt, op_storey, space_bboxes, space_names, space_points,
+                        element_storey, storey_elevations,
+                        same_storey_only=self.same_storey_only,
+                        z_tolerance=self.storey_z_tolerance,
+                        plan_tolerance=self.door_plan_tolerance,
+                    )
+                    picks.append((round(pt[0], 2), round(pt[1], 2), space_names.get(s) if s else None))
+            pair, _method = _resolve_opening_space_pair(
+                opening, space_bboxes, space_points, space_names, element_storey,
+                storey_elevations, self.same_storey_only, self.storey_z_tolerance,
+                self.door_side_offset, self.door_plan_tolerance,
+            )
+            self.log.info(
+                "EgressCirculation[diagnose] opening=%s ctr=%s dims=%s door=%s window=%s "
+                "reaches_floor=%s(min_z=%s) passable=%s axis=%s picks=%s -> pair=%s",
+                gid,
+                tuple(round(c, 2) for c in ctr) if ctr else None,
+                dims, has_door, has_window, reaches,
+                round(min_z, 3) if min_z is not None else None,
+                passable,
+                "geom" if geo_pts else ("placement" if plc_pts else "none"),
+                picks, pair,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning("EgressCirculation[diagnose] failed for an opening: %s", exc)
 
     def _link_vertical_connectors(
         self,
@@ -2024,29 +2111,30 @@ def _minor_axis_2d(
     return vx / norm, vy / norm
 
 
-def _opening_plan_side_points(
+def _opening_axis_pairs(
     opening,
     offset_m: float,
-) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
-    """Two plan points on opposite sides of a door-less opening.
+) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    """Side-point pairs across the opening's two horizontal footprint axes, minor first.
 
-    An opening is a thin slab through a wall, so the through-wall (egress) direction is its
-    *minor* horizontal footprint axis — derived from geometry via PCA, independent of the
-    placement-axis convention that :func:`_door_plan_side_points` assumes. Returns ``None``
+    The through-wall (egress) direction is *not* always the thin axis: a skinny doorway is
+    thin across the wall (minor axis), but a void modelled deep across the room boundary is
+    long across it (major axis). So return both candidate pairs — minor (thin) first, then
+    major (perpendicular) — and let the caller accept whichever straddles two rooms. Empty
     when geometry is unavailable or the footprint is too isotropic to orient.
     """
     try:
         shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
         verts = shape.geometry.verts
         if not verts:
-            return None
+            return []
         xs = list(verts[0::3])
         ys = list(verts[1::3])
     except Exception:
-        return None
+        return []
     n = len(xs)
     if n < 3:
-        return None
+        return []
     cx = sum(xs) / n
     cy = sum(ys) / n
     sxx = sum((x - cx) ** 2 for x in xs) / n
@@ -2054,11 +2142,16 @@ def _opening_plan_side_points(
     sxy = sum((xs[i] - cx) * (ys[i] - cy) for i in range(n)) / n
     nx, ny = _minor_axis_2d(sxx, sxy, syy)
     if nx is None:
-        return None
-    return (
-        (cx + nx * offset_m, cy + ny * offset_m),
-        (cx - nx * offset_m, cy - ny * offset_m),
-    )
+        return []
+    pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
+    for ax, ay in ((nx, ny), (-ny, nx)):  # minor (thin) axis first, then major (perpendicular)
+        pairs.append(
+            (
+                (cx + ax * offset_m, cy + ay * offset_m),
+                (cx - ax * offset_m, cy - ay * offset_m),
+            )
+        )
+    return pairs
 
 
 def _pick_space_at_plan_point(
@@ -2269,27 +2362,28 @@ def _resolve_opening_space_pair(
         storey_elevations,
         z_tolerance,
     )
-    # Through-direction from the opening's own geometry (minor footprint axis); fall back
-    # to the placement-axis heuristic only if the footprint can't be oriented.
-    side_pts = _opening_plan_side_points(opening, side_offset) or _door_plan_side_points(
-        opening, side_offset
-    )
-    if not side_pts:
-        return None, ""
-    s1 = _pick_space_at_plan_point(
-        side_pts[0], op_storey, space_bboxes, space_names, space_points,
-        element_storey, storey_elevations,
-        same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-        plan_tolerance=plan_tolerance,
-    )
-    s2 = _pick_space_at_plan_point(
-        side_pts[1], op_storey, space_bboxes, space_names, space_points,
-        element_storey, storey_elevations,
-        same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-        plan_tolerance=plan_tolerance,
-    )
-    if s1 and s2 and s1 != s2:
-        return tuple(sorted((s1, s2))), "opening_side_containment"
+    # Try footprint axes (minor first, then major) and placement-axis fallback.
+    # Both PCA axes are tried because the through-direction for a wide opening may be the major
+    # axis (e.g. a 0.91×3.05 m void where X is the wall thickness, Y the opening width).
+    candidates = _opening_axis_pairs(opening, side_offset)
+    placement = _door_plan_side_points(opening, side_offset)
+    if placement:
+        candidates.append(placement)
+    for side_pts in candidates:
+        s1 = _pick_space_at_plan_point(
+            side_pts[0], op_storey, space_bboxes, space_names, space_points,
+            element_storey, storey_elevations,
+            same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+            plan_tolerance=plan_tolerance,
+        )
+        s2 = _pick_space_at_plan_point(
+            side_pts[1], op_storey, space_bboxes, space_names, space_points,
+            element_storey, storey_elevations,
+            same_storey_only=same_storey_only, z_tolerance=z_tolerance,
+            plan_tolerance=plan_tolerance,
+        )
+        if s1 and s2 and s1 != s2:
+            return tuple(sorted((s1, s2))), "opening_side_containment"
     return None, ""
 
 
@@ -2348,6 +2442,15 @@ def _opening_passable_size(opening, min_width_m: float) -> bool:
         return plan_extent >= min_width_m and height >= min_width_m
     except Exception:
         return True
+
+
+def _opening_near_bbox(opening, bbox, margin: float = 0.8) -> bool:
+    """True when the opening's centroid XY falls within ``bbox`` expanded by ``margin`` (m)."""
+    ctr = _element_centroid(opening)
+    if ctr is None:
+        return False
+    x, y = ctr[0], ctr[1]
+    return (bbox[0] - margin <= x <= bbox[3] + margin) and (bbox[1] - margin <= y <= bbox[4] + margin)
 
 
 def _host_wall_global_id(door) -> Optional[str]:

@@ -225,7 +225,7 @@ def test_resolve_opening_space_pair_links_two_spaces(monkeypatch):
     space_names = {"A": "room a", "B": "room b"}
     space_points = {"A": (1.0, 1.0, 1.5), "B": (3.0, 1.0, 1.5)}
     # geometry-derived side points: one inside A, one inside B
-    monkeypatch.setattr(ec, "_opening_plan_side_points", lambda el, off: ((1.0, 1.0), (3.0, 1.0)))
+    monkeypatch.setattr(ec, "_opening_axis_pairs", lambda el, off: [((1.0, 1.0), (3.0, 1.0))])
     pair, method = _resolve_opening_space_pair(
         _FakeOpening(), bboxes, space_points, space_names, {}, {},
         same_storey_only=False, z_tolerance=2.5, side_offset=0.6, plan_tolerance=0.25,
@@ -239,7 +239,7 @@ def test_resolve_opening_space_pair_falls_back_to_placement_axis(monkeypatch):
     space_names = {"A": "room a", "B": "room b"}
     space_points = {"A": (1.0, 1.0, 1.5), "B": (3.0, 1.0, 1.5)}
     # geometry can't orient the opening -> fall back to the placement-axis side points
-    monkeypatch.setattr(ec, "_opening_plan_side_points", lambda el, off: None)
+    monkeypatch.setattr(ec, "_opening_axis_pairs", lambda el, off: [])
     monkeypatch.setattr(ec, "_door_plan_side_points", lambda el, off: ((1.0, 1.0), (3.0, 1.0)))
     pair, method = _resolve_opening_space_pair(
         _FakeOpening(), bboxes, space_points, space_names, {}, {},
@@ -254,7 +254,8 @@ def test_resolve_opening_space_pair_drops_exterior_opening(monkeypatch):
     space_names = {"A": "room a"}
     space_points = {"A": (1.0, 1.0, 1.5)}
     # one point inside the only space, the other outdoors (no space there)
-    monkeypatch.setattr(ec, "_opening_plan_side_points", lambda el, off: ((1.0, 1.0), (99.0, 99.0)))
+    monkeypatch.setattr(ec, "_opening_axis_pairs", lambda el, off: [((1.0, 1.0), (99.0, 99.0))])
+    monkeypatch.setattr(ec, "_door_plan_side_points", lambda el, off: None)
     pair, method = _resolve_opening_space_pair(
         _FakeOpening(), bboxes, space_points, space_names, {}, {},
         same_storey_only=False, z_tolerance=2.5, side_offset=0.6, plan_tolerance=0.25,
