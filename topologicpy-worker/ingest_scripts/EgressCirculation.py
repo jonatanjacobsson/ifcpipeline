@@ -917,6 +917,8 @@ class Ingester(_Base):
         method: str,
         source_file: str,
         extra_evidence: Optional[Dict[str, str]] = None,
+        *,
+        dedup_pairs: bool = False,
     ) -> int:
         """Connect spaces through their shared door/opening: space -> door -> space.
 
@@ -928,13 +930,19 @@ class Ingester(_Base):
         Returns the number of ``egress_through`` edges added. The connected space
         *pairs* are recorded in ``seen_edges`` so later heuristic passes (vertical
         connectors, apartment clusters) don't also link the same pair.
+
+        ``dedup_pairs=True`` makes the call a no-op when all space pairs are already
+        covered — used by heuristic passes (apartment cluster, vertical connector) so
+        they don't duplicate what a real portal already established. Door and opening
+        passes leave this False so multiple doors between the same rooms are each
+        represented.
         """
         spaces = sorted({s for s in space_ids if s})
         if len(spaces) < 2 or not portal_id:
             return 0
 
         pairs = [tuple(sorted(p)) for p in combinations(spaces, 2)]
-        if all(p in seen_edges for p in pairs):
+        if dedup_pairs and all(p in seen_edges for p in pairs):
             return 0
         for p in pairs:
             seen_edges.add(p)
