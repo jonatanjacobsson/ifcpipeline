@@ -46,7 +46,7 @@ import time
 from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -143,6 +143,15 @@ class Ingester(_Base):
         min_opening_width: float = 0.6,
         max_sill_height: float = 0.3,
         diagnose_space: Optional[str] = None,
+        # --- navmesh clearance pass (opt-in) ---
+        link_navmesh_passages: bool = False,
+        human_width: float = 0.6,
+        human_height: float = 1.8,
+        navmesh_margin: float = 0.6,
+        navmesh_compute_path: bool = False,
+        # --- stair/elevator element vertical pass ---
+        link_stair_elements: bool = True,
+        min_stair_rise: float = 1.0,
         # --- space_adjacency options ---
         face_tolerance: float = 0.15,
         min_shared_face: float = 0.30,
@@ -171,6 +180,30 @@ class Ingester(_Base):
         :param max_sill_height: (door_portal) Floor-reaching threshold (m) for door-less
             openings; an opening whose bottom is more than this above its storey elevation
             is treated as a window/high vent (not egress) and skipped.
+        :param link_navmesh_passages: (door_portal) Detect walkable connections between
+            adjacent rooms even where *no* door or opening element is modelled, by testing
+            whether a human-sized box fits through the gap between walls (clearance
+            pathfinding). Off by default. See ``_link_navmesh_passages``.
+        :param human_width: (navmesh) Body width (m) that must fit between walls; the wall
+            clearance gate is half this value on each side. Default 0.6.
+        :param human_height: (navmesh) Body height (m); recorded on the passage for a later
+            3D headroom check. Not enforced in the 2D plan pass. Default 1.8.
+        :param navmesh_margin: (navmesh) Local working margin (m) around the two room
+            footprints — large enough to bridge a wall/door reveal, small enough to keep
+            the search local (no routing around far walls). Default 0.6.
+        :param navmesh_compute_path: (navmesh) When True, run TopologicPy NavigationGraph +
+            A* on the walkable region to record the egress travel distance of each passage.
+            Off by default — it builds a visibility graph per passage (slower); the
+            shapely clearance gate alone already answers "does the box fit".
+        :param link_stair_elements: (door_portal) Use IfcStair/IfcStairFlight geometry (and
+            IfcTransportElement lifts) as the *measure* for vertical circulation: a stair
+            spans two storeys, so the spaces its base and top footprints land in are linked
+            two-hop through the stair element node. On by default; runs before the
+            name/footprint connector heuristics, which then only fill connectors with no
+            usable element. See ``_link_stair_element_connectors``.
+        :param min_stair_rise: (door_portal) Minimum vertical span (m) for a stair/flight
+            bbox to count as crossing a storey; flatter elements (and half-flights that stay
+            on one level) are skipped. Default 1.0.
         :param face_tolerance: (space_adjacency) Max bbox gap (metres) to count as touching.
         :param min_shared_face: (space_adjacency) Min shared edge (metres) for adjacency.
         :param vertical_keywords: (space_adjacency) Override stair/lift keyword list.
@@ -200,6 +233,15 @@ class Ingester(_Base):
         self.min_opening_width = min_opening_width
         self.max_sill_height = max_sill_height
         self.diagnose_space = diagnose_space
+        # navmesh clearance pass params
+        self.link_navmesh_passages = bool(link_navmesh_passages)
+        self.human_width = float(human_width)
+        self.human_height = float(human_height)
+        self.navmesh_margin = float(navmesh_margin)
+        self.navmesh_compute_path = bool(navmesh_compute_path)
+        # stair/elevator element vertical pass params
+        self.link_stair_elements = bool(link_stair_elements)
+        self.min_stair_rise = float(min_stair_rise)
         # space_adjacency params
         self.face_tolerance = face_tolerance
         self.min_shared_face = min_shared_face
@@ -634,6 +676,7 @@ class Ingester(_Base):
         methods: Set[str] = set()
         self._portal_space_pairs = []
         doorless_openings_linked = 0
+        navmesh_passages_linked = 0
 
         try:
             space_models, portal_models = self._prepare_space_and_portal_models()
@@ -662,6 +705,9 @@ class Ingester(_Base):
 
             if len(space_points) >= 2:
                 space_bboxes = _collect_space_bboxes(space_models)
+                # Tight footprints disambiguate bbox overlaps in door/opening side-point
+                # resolution (a neighbour room's bbox can overhang a corridor-side point).
+                self._space_polys = _collect_space_footprints(space_models)
                 door_methods: Set[str] = set()
                 added, portals = self._link_all_doors_to_spaces(
                     portal_models,
@@ -697,6 +743,24 @@ class Ingester(_Base):
                     )
                     methods.update(opening_methods)
 
+                # Clearance pathfinding: catch human-passable gaps between rooms that
+                # have NO door/opening element. Runs after the element passes so a real
+                # portal's pair is already in seen_edges (drives the new-vs-coincide split).
+                if self.link_navmesh_passages:
+                    navmesh_methods: Set[str] = set()
+                    _nav_added, navmesh_passages_linked = self._link_navmesh_passages(
+                        portal_models,
+                        space_models,
+                        space_bboxes,
+                        space_points,
+                        space_names,
+                        element_storey,
+                        storey_elevations,
+                        seen_edges,
+                        navmesh_methods,
+                    )
+                    methods.update(navmesh_methods)
+
                 apt_added = self._link_apartment_room_clusters(
                     space_models,
                     space_points,
@@ -709,6 +773,7 @@ class Ingester(_Base):
                     methods.add("apartment_room_cluster")
 
                 vert_added = self._link_vertical_connectors(
+                    portal_models,
                     space_models,
                     space_bboxes,
                     space_points,
@@ -716,9 +781,10 @@ class Ingester(_Base):
                     element_storey,
                     storey_elevations,
                     seen_edges,
+                    portal_elements,
+                    vertical_methods := set(),
                 )
-                if vert_added:
-                    methods.add("vertical_connector")
+                methods.update(vertical_methods)
 
             for ifc_path, ifc in space_models:
                 space_count = len(_safe_by_type(ifc, "IfcSpace"))
@@ -793,9 +859,18 @@ class Ingester(_Base):
         cross_storey = self._count_cross_storey_door_edges(
             space_points, space_names, element_storey, storey_elevations,
         )
+        stair_element_edges = sum(
+            1
+            for rel in self._relationships
+            if rel.evidence.get("method") in (
+                "stair_element", "transport_element", "transport_element_namefallback"
+            )
+        )
         self._summary = {
             "portals_used": portal_count,
             "doorless_openings_linked": doorless_openings_linked,
+            "navmesh_passages_linked": navmesh_passages_linked,
+            "stair_element_connectors": stair_element_edges,
             "method": method_label,
             "strategy": "door_portal",
             "input_files": [p.name for p in self.ifc_files],
@@ -1071,6 +1146,7 @@ class Ingester(_Base):
                     self.door_side_offset,
                     self.door_plan_tolerance,
                     self.door_link_distance,
+                    space_polys=getattr(self, "_space_polys", None),
                 )
                 if not pair:
                     continue
@@ -1182,6 +1258,7 @@ class Ingester(_Base):
                     self.storey_z_tolerance,
                     self.door_side_offset,
                     self.door_plan_tolerance,
+                    space_polys=getattr(self, "_space_polys", None),
                 )
                 if not pair:
                     continue
@@ -1274,12 +1351,14 @@ class Ingester(_Base):
                         same_storey_only=self.same_storey_only,
                         z_tolerance=self.storey_z_tolerance,
                         plan_tolerance=self.door_plan_tolerance,
+                        space_polys=getattr(self, "_space_polys", None),
                     )
                     picks.append((round(pt[0], 2), round(pt[1], 2), space_names.get(s) if s else None))
             pair, _method = _resolve_opening_space_pair(
                 opening, space_bboxes, space_points, space_names, element_storey,
                 storey_elevations, self.same_storey_only, self.storey_z_tolerance,
                 self.door_side_offset, self.door_plan_tolerance,
+                space_polys=getattr(self, "_space_polys", None),
             )
             self.log.info(
                 "EgressCirculation[diagnose] opening=%s ctr=%s dims=%s door=%s window=%s "
@@ -1295,8 +1374,39 @@ class Ingester(_Base):
         except Exception as exc:  # noqa: BLE001
             self.log.warning("EgressCirculation[diagnose] failed for an opening: %s", exc)
 
-    def _link_vertical_connectors(
+    # ------------------------------------------------------------------
+    # navmesh clearance pass
+    # ------------------------------------------------------------------
+
+    def _storey_z_band(
         self,
+        storey_key: Optional[str],
+        storey_elevations: Dict[str, float],
+        default_height: float = 3.5,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        """Z range [floor, ceiling) for a storey, used to clip a wall to its level.
+
+        Returns (None, None) when the storey elevation can't be resolved, so the
+        footprint is taken from the full element height (fail-open).
+        """
+        if not storey_key:
+            return (None, None)
+        elev = storey_elevations.get(storey_key)
+        if elev is None and isinstance(storey_key, str) and storey_key.startswith("elev:"):
+            try:
+                elev = float(storey_key.split(":", 1)[1])
+            except ValueError:
+                elev = None
+        if elev is None:
+            return (None, None)
+        # next storey up bounds the ceiling; else default floor-to-floor
+        higher = sorted(e for e in storey_elevations.values() if e > elev + 0.1)
+        top = higher[0] if higher else elev + default_height
+        return (elev - 0.2, top - 0.1)
+
+    def _link_navmesh_passages(
+        self,
+        portal_models: List[Tuple[Path, ifcopenshell.file]],
         space_models: List[Tuple[Path, ifcopenshell.file]],
         space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
         space_points: Dict[str, Tuple[float, float, float]],
@@ -1304,11 +1414,177 @@ class Ingester(_Base):
         element_storey: Dict[str, str],
         storey_elevations: Dict[str, float],
         seen_edges: Set[Tuple[str, str]],
-    ) -> int:
-        """Connect stair/lift/shaft spaces across consecutive storeys (Z travel).
+        methods_out: Set[str],
+    ) -> Tuple[int, int]:
+        """Link adjacent rooms wherever a human-sized box fits through the wall gap.
 
-        Uses name keywords first, then stacked footprints (same XY size, different floor).
+        For each adjacent same-storey space pair, build a local 2D walkable region
+        (the two room footprints, buffered by ``navmesh_margin``, minus the nearby
+        walls inflated by half the human width). If the two rooms land in the same
+        connected piece, a ``human_width``-wide body fits between the walls — an
+        egress passage that exists even with no IfcDoor/IfcOpeningElement modelled.
+        Emits a direct ``egress_connects`` space↔space edge (method
+        ``navmesh_clearance``, ``portal_class=IfcVirtualElement`` in evidence) for
+        each pair no real portal already covers; optionally records the A* travel
+        distance (TopologicPy ``NavigationGraph`` + ``ShortestPath``). A pair a
+        door/opening already bridges is logged as a cross-check, not re-emitted.
+
+        Returns ``(edges_added, passages_found)``.
         """
+        if not _HAS_SHAPELY:
+            self.log.warning(
+                "EgressCirculation: shapely unavailable — skipping navmesh passages"
+            )
+            return 0, 0
+
+        settings = _geom_settings()
+        human_half = self.human_width / 2.0
+
+        # 1. Space footprints + storey grouping (footprint cached per gid).
+        space_fp: Dict[str, "Polygon"] = {}
+        space_storey: Dict[str, str] = {}
+        for _, ifc in space_models:
+            for sp in _safe_by_type(ifc, "IfcSpace"):
+                gid = sp.GlobalId
+                if gid in space_fp or gid not in space_points:
+                    continue
+                fp = _element_footprint_xy(sp, settings)
+                if fp is None:
+                    continue
+                sk = _storey_group_key(
+                    gid, space_points.get(gid), space_names.get(gid, ""),
+                    element_storey, storey_elevations, self.storey_z_tolerance,
+                )
+                if not sk:
+                    continue
+                space_fp[gid] = fp
+                space_storey[gid] = sk
+
+        # 2. Wall/column footprints grouped by storey; per-storey STRtree for lookup.
+        walls_by_storey: Dict[str, List["Polygon"]] = defaultdict(list)
+        wall_classes = ("IfcWall", "IfcWallStandardCase", "IfcWallElementedCase", "IfcColumn")
+        seen_walls: Set[str] = set()
+        for _, ifc in portal_models:
+            elems: List = []
+            for cls in wall_classes:
+                elems.extend(_safe_by_type(ifc, cls))
+            for w in elems:
+                wgid = w.GlobalId
+                if wgid in seen_walls:
+                    continue
+                seen_walls.add(wgid)
+                ctr = _element_centroid(w)
+                sk = _storey_group_key(
+                    wgid, ctr, getattr(w, "Name", None) or "",
+                    element_storey, storey_elevations, self.storey_z_tolerance,
+                )
+                z_lo, z_hi = self._storey_z_band(sk, storey_elevations)
+                fp = _element_footprint_xy(w, settings, z_lo, z_hi)
+                if fp is not None:
+                    walls_by_storey[sk].append(fp)
+        trees: Dict[str, "STRtree"] = {
+            sk: STRtree(polys) for sk, polys in walls_by_storey.items() if polys
+        }
+
+        # 3. Candidate adjacent pairs, per storey (bbox-near gate keeps pairs local).
+        by_storey: Dict[str, List[str]] = defaultdict(list)
+        for gid, sk in space_storey.items():
+            by_storey[sk].append(gid)
+
+        evidence_source = portal_models[0][0].name if portal_models else "navmesh"
+        added = 0
+        passages = 0
+        coincide = 0
+        for sk, members in by_storey.items():
+            tree = trees.get(sk)
+            walls = walls_by_storey.get(sk, [])
+            members.sort()
+            for i in range(len(members)):
+                a = members[i]
+                bbox_a = space_bboxes.get(a)
+                for j in range(i + 1, len(members)):
+                    b = members[j]
+                    if not _bbox_xy_near(bbox_a, space_bboxes.get(b), self.navmesh_margin):
+                        continue
+                    exists, gap_pt, path_len = _navmesh_passage_exists(
+                        space_fp[a], space_fp[b],
+                        space_points[a], space_points[b],
+                        tree, walls, human_half, self.navmesh_margin,
+                        compute_path=self.navmesh_compute_path,
+                    )
+                    if not exists:
+                        continue
+                    passages += 1
+                    pair = tuple(sorted((a, b)))
+                    # A door/opening (or earlier pass) already represents this pair —
+                    # count it as an independent cross-check confirmation and skip the
+                    # duplicate adjacency edge.
+                    if pair in seen_edges:
+                        coincide += 1
+                        continue
+                    extra: Dict[str, str] = {
+                        "portal_class": "IfcVirtualElement",
+                        "clearance_width_m": f"{self.human_width:.2f}",
+                        "headroom_m": f"{self.human_height:.2f}",
+                        "storey_key": sk,
+                    }
+                    if gap_pt is not None:
+                        extra["gap_xy"] = f"{gap_pt[0]:.3f},{gap_pt[1]:.3f}"
+                    if path_len is not None:
+                        extra["path_length_m"] = f"{path_len:.3f}"
+                    # Direct space<->space egress_connects edge (no synthetic portal node:
+                    # the CDE projection only persists relationships between real IFC
+                    # elements — same reason the apartment/vertical heuristics are direct).
+                    if _append_edge(
+                        self._relationships, seen_edges, a, b,
+                        "", "IfcVirtualElement",
+                        f"navmesh {space_names.get(a, a)}<->{space_names.get(b, b)}",
+                        "navmesh_clearance", evidence_source,
+                        extra_evidence=extra,
+                    ):
+                        added += 1
+        if added:
+            methods_out.add("navmesh_clearance")
+        self.log.info(
+            "EgressCirculation: navmesh passages — %d passable gaps "
+            "(%d new egress_connects edges, %d coincide with a door/opening)",
+            passages, added, coincide,
+        )
+        return added, passages
+
+    def _link_vertical_connectors(
+        self,
+        portal_models: List[Tuple[Path, ifcopenshell.file]],
+        space_models: List[Tuple[Path, ifcopenshell.file]],
+        space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+        space_points: Dict[str, Tuple[float, float, float]],
+        space_names: Dict[str, str],
+        element_storey: Dict[str, str],
+        storey_elevations: Dict[str, float],
+        seen_edges: Set[Tuple[str, str]],
+        portal_elements: Dict[str, str],
+        methods_out: Set[str],
+    ) -> int:
+        """Connect spaces across storeys for vertical circulation.
+
+        Order of evidence (strongest first; later passes only fill what earlier ones miss
+        via ``seen_edges``):
+          1. Stair/elevator ELEMENTS — IfcStair/IfcStairFlight (and IfcTransportElement)
+             geometry is the measure: the element spans two storeys, so the spaces its
+             base/top footprints land in are linked two-hop through the real element node.
+          2. Named stair/lift SPACES matched across consecutive storeys.
+          3. Stacked shaft-like footprints (same XY size, different floor).
+        """
+        added = 0
+        if self.link_stair_elements:
+            elem_added = self._link_stair_element_connectors(
+                portal_models, space_bboxes, space_points, space_names,
+                element_storey, storey_elevations, seen_edges, portal_elements,
+            )
+            added += elem_added
+            if elem_added:
+                methods_out.add("stair_element")
+
         spaces_meta: Dict[str, dict] = {}
         long_names: Dict[str, str] = {}
         for ifc_path, ifc in space_models:
@@ -1338,11 +1614,167 @@ class Ingester(_Base):
                     "footprint": _footprint_signature(bbox),
                 }
 
-        added = 0
-        added += self._link_named_vertical_pairs(spaces_meta, seen_edges)
-        added += self._link_stacked_footprint_pairs(spaces_meta, long_names, seen_edges)
+        heuristic_added = 0
+        heuristic_added += self._link_named_vertical_pairs(spaces_meta, seen_edges)
+        heuristic_added += self._link_stacked_footprint_pairs(spaces_meta, long_names, seen_edges)
+        if heuristic_added:
+            methods_out.add("vertical_connector")
+        added += heuristic_added
         if added:
             self.log.info("EgressCirculation: %d vertical connector edges", added)
+        return added
+
+    def _link_stair_element_connectors(
+        self,
+        portal_models: List[Tuple[Path, ifcopenshell.file]],
+        space_bboxes: Dict[str, Tuple[float, float, float, float, float, float]],
+        space_points: Dict[str, Tuple[float, float, float]],
+        space_names: Dict[str, str],
+        element_storey: Dict[str, str],
+        storey_elevations: Dict[str, float],
+        seen_edges: Set[Tuple[str, str]],
+        portal_elements: Dict[str, str],
+    ) -> int:
+        """Vertical links measured from stair/elevator ELEMENT geometry.
+
+        A stair element spans two storeys; the spaces its base and top footprints land in
+        (and the spaces enclosing it on each storey) are connected two-hop through the
+        stair node (``space -> IfcStair -> space``). The stair/lift is a real IFC element,
+        so the node persists and is selectable like a door. Elevators
+        (``IfcTransportElement``) use the same model across every storey they span; when a
+        lift lacks usable swept geometry its placement point + the full storey range are
+        used instead (``transport_element_namefallback``).
+        """
+        if not storey_elevations or not space_bboxes:
+            return 0
+        settings = _geom_settings()
+        evidence_source = portal_models[0][0].name if portal_models else "stair_element"
+        z_tol = self.storey_z_tolerance
+        plan_tol = self.door_plan_tolerance
+        # Model coordinate envelope (from spaces) + margin. Stair/lift assembly shapes can
+        # carry junk verts (origin (0,0,0), 1e+62 blow-ups from broken child reps); anything
+        # outside this envelope is discarded so it can't corrupt the bbox/footprint.
+        bx = [b for b in space_bboxes.values()]
+        m = 5.0
+        env = (
+            min(b[0] for b in bx) - m, min(b[1] for b in bx) - m, min(b[2] for b in bx) - m,
+            max(b[3] for b in bx) + m, max(b[4] for b in bx) + m, max(b[5] for b in bx) + m,
+        )
+
+        def verts_of(elem):
+            return [
+                v for v in _assembly_world_verts(elem, settings)
+                if env[0] <= v[0] <= env[3] and env[1] <= v[1] <= env[4] and env[2] <= v[2] <= env[5]
+            ]
+
+        added = 0
+        stairs_linked = 0
+        lifts_linked = 0
+        seen_elems: Set[str] = set()
+
+        def pick(xy, storey_key):
+            if xy is None or storey_key is None:
+                return None
+            return _pick_space_at_plan_point(
+                xy, storey_key, space_bboxes, space_names, space_points,
+                element_storey, storey_elevations,
+                same_storey_only=True, z_tolerance=z_tol, plan_tolerance=plan_tol,
+            )
+
+        def emit(space_set, elem, method, extra):
+            spaces = sorted({s for s in space_set if s})
+            if len(spaces) < 2:
+                return 0
+            n = self._append_portal_link(
+                seen_edges, set(spaces), elem.GlobalId, elem.is_a(),
+                getattr(elem, "Name", None) or elem.GlobalId,
+                method, evidence_source, extra_evidence=extra,
+            )
+            if n:
+                portal_elements[elem.GlobalId] = elem.is_a()
+            return n
+
+        for _, ifc in portal_models:
+            # --- stairs: IfcStair (and standalone IfcStairFlight not under an IfcStair) ---
+            stair_elems = list(_safe_by_type(ifc, "IfcStair"))
+            for flight in _safe_by_type(ifc, "IfcStairFlight"):
+                if not _has_stair_parent(flight):
+                    stair_elems.append(flight)
+            for stair in stair_elems:
+                if stair.GlobalId in seen_elems:
+                    continue
+                seen_elems.add(stair.GlobalId)
+                verts = verts_of(stair)
+                bbox = _verts_bbox(verts)
+                if bbox is None:
+                    continue
+                zmin, zmax = bbox[2], bbox[5]
+                if zmax - zmin < self.min_stair_rise:
+                    continue  # too flat / a half-flight that stays on one level
+                lower_key = _storey_key_for_z(zmin, storey_elevations, z_tol)
+                upper_key = _storey_key_for_z(zmax, storey_elevations, z_tol)
+                if not lower_key or not upper_key or lower_key == upper_key:
+                    continue
+                band = max(0.5, 0.2 * (zmax - zmin))
+                base_xy = _verts_zband_centroid(verts, zmin, zmin + band)
+                top_xy = _verts_zband_centroid(verts, zmax - band, zmax)
+                ctr_xy = ((bbox[0] + bbox[3]) / 2.0, (bbox[1] + bbox[4]) / 2.0)
+                # landing spaces (where you step off) + enclosing stairwell spaces
+                space_set = {
+                    pick(base_xy, lower_key), pick(top_xy, upper_key),
+                    pick(ctr_xy, lower_key), pick(ctr_xy, upper_key),
+                }
+                n = emit(
+                    space_set, stair, "stair_element",
+                    {"stair_global_id": stair.GlobalId, "storey_from": lower_key,
+                     "storey_to": upper_key, "rise_m": f"{zmax - zmin:.2f}"},
+                )
+                if n:
+                    added += n
+                    stairs_linked += 1
+
+            # --- elevators: IfcTransportElement across every storey they span ---
+            for lift in _safe_by_type(ifc, "IfcTransportElement"):
+                if lift.GlobalId in seen_elems:
+                    continue
+                seen_elems.add(lift.GlobalId)
+                bbox = _verts_bbox(verts_of(lift))
+                ctr = _element_centroid(lift)
+                if bbox is not None:
+                    xy = ((bbox[0] + bbox[3]) / 2.0, (bbox[1] + bbox[4]) / 2.0)
+                else:
+                    xy = (ctr[0], ctr[1]) if ctr else None
+                if xy is None:
+                    continue
+                if bbox is not None and (bbox[5] - bbox[2]) >= self.min_stair_rise:
+                    z_lo, z_hi = bbox[2], bbox[5]
+                    method = "transport_element"
+                else:
+                    # no usable swept shaft — assume it serves the whole stack at this XY
+                    z_lo, z_hi = min(storey_elevations.values()), max(storey_elevations.values())
+                    method = "transport_element_namefallback"
+                served_keys = [
+                    f"elev:{round(elev, 2)}"
+                    for _, elev in sorted(storey_elevations.items(), key=lambda kv: kv[1])
+                    if z_lo - z_tol <= elev <= z_hi + z_tol
+                ]
+                space_set = {pick(xy, key) for key in served_keys}
+                n = emit(
+                    space_set, lift, method,
+                    {"transport_global_id": lift.GlobalId,
+                     "predefined_type": getattr(lift, "PredefinedType", None) or "",
+                     "served_storeys": str(len(served_keys))},
+                )
+                if n:
+                    added += n
+                    lifts_linked += 1
+
+        if added:
+            self.log.info(
+                "EgressCirculation: stair/elevator element connectors — "
+                "%d stairs, %d elevators → %d edges",
+                stairs_linked, lifts_linked, added,
+            )
         return added
 
     def _link_named_vertical_pairs(
@@ -1922,6 +2354,20 @@ def _infer_storey_from_z(
     return None
 
 
+def _storey_key_for_z(
+    z: float,
+    storey_elevations: Dict[str, float],
+    tolerance: float,
+) -> Optional[str]:
+    """``elev:X`` storey key for the floor nearest ``z`` — matches the keys spaces get
+    from :func:`_storey_group_key` (IFC containment → ``elev:<elevation>``), so a stair's
+    base/top Z can be resolved to the same storey grouping the spaces use."""
+    sid = _infer_storey_from_z(z, storey_elevations, tolerance)
+    if sid is None:
+        return None
+    return f"elev:{round(storey_elevations[sid], 2)}"
+
+
 def _resolve_element_storey(
     global_id: str,
     point: Optional[Tuple[float, float, float]],
@@ -2174,8 +2620,16 @@ def _pick_space_at_plan_point(
     same_storey_only: bool,
     z_tolerance: float,
     plan_tolerance: float,
+    space_polys: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Smallest XY footprint containing ``point_xy`` on the door's storey."""
+    """Space whose footprint contains ``point_xy`` on the door's storey.
+
+    Candidates are gathered by axis-aligned bbox first. When ``space_polys`` (tight
+    footprints) is supplied, the candidates are narrowed to those whose *real* footprint
+    contains the point — so a neighbour room whose bbox merely overhangs the point (an
+    L-shaped/offset room straddling a corridor edge) no longer wins. Smallest footprint
+    breaks any remaining tie (picks the specific room over an enclosing aggregate).
+    """
     px, py = point_xy
     hits: List[str] = []
     for gid, bbox in space_bboxes.items():
@@ -2198,6 +2652,15 @@ def _pick_space_at_plan_point(
         hits.append(gid)
     if not hits:
         return None
+    if space_polys and _HAS_SHAPELY:
+        point = Point(px, py)
+        poly_hits = [
+            gid for gid in hits
+            if space_polys.get(gid) is not None
+            and space_polys[gid].buffer(plan_tolerance).contains(point)
+        ]
+        if poly_hits:
+            hits = poly_hits
     return min(hits, key=lambda gid: _bbox_xy_area(space_bboxes[gid]))
 
 
@@ -2276,6 +2739,7 @@ def _resolve_door_space_pair(
     door_side_offset: float,
     plan_tolerance: float,
     link_distance: float,
+    space_polys: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[Tuple[str, str]], str]:
     door_pt = _element_centroid(door)
     door_storey = _storey_group_key(
@@ -2301,14 +2765,14 @@ def _resolve_door_space_pair(
                     {g: space_bboxes[g] for g in allowed if g in space_bboxes},
                     space_names, space_points, element_storey, storey_elevations,
                     same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-                    plan_tolerance=plan_tolerance,
+                    plan_tolerance=plan_tolerance, space_polys=space_polys,
                 )
                 s2 = _pick_space_at_plan_point(
                     side_pts[1], door_storey,
                     {g: space_bboxes[g] for g in allowed if g in space_bboxes},
                     space_names, space_points, element_storey, storey_elevations,
                     same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-                    plan_tolerance=plan_tolerance,
+                    plan_tolerance=plan_tolerance, space_polys=space_polys,
                 )
                 if s1 and s2 and s1 != s2:
                     return tuple(sorted((s1, s2))), "ifc_portal_boundary"
@@ -2320,13 +2784,13 @@ def _resolve_door_space_pair(
             side_pts[0], door_storey, space_bboxes, space_names, space_points,
             element_storey, storey_elevations,
             same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-            plan_tolerance=plan_tolerance,
+            plan_tolerance=plan_tolerance, space_polys=space_polys,
         )
         s2 = _pick_space_at_plan_point(
             side_pts[1], door_storey, space_bboxes, space_names, space_points,
             element_storey, storey_elevations,
             same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-            plan_tolerance=plan_tolerance,
+            plan_tolerance=plan_tolerance, space_polys=space_polys,
         )
         if s1 and s2 and s1 != s2:
             return tuple(sorted((s1, s2))), "door_side_containment"
@@ -2352,6 +2816,7 @@ def _resolve_opening_space_pair(
     z_tolerance: float,
     side_offset: float,
     plan_tolerance: float,
+    space_polys: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[Tuple[str, str]], str]:
     """Door-less opening → the two spaces it separates, via plan-view side points only.
 
@@ -2382,13 +2847,13 @@ def _resolve_opening_space_pair(
             side_pts[0], op_storey, space_bboxes, space_names, space_points,
             element_storey, storey_elevations,
             same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-            plan_tolerance=plan_tolerance,
+            plan_tolerance=plan_tolerance, space_polys=space_polys,
         )
         s2 = _pick_space_at_plan_point(
             side_pts[1], op_storey, space_bboxes, space_names, space_points,
             element_storey, storey_elevations,
             same_storey_only=same_storey_only, z_tolerance=z_tolerance,
-            plan_tolerance=plan_tolerance,
+            plan_tolerance=plan_tolerance, space_polys=space_polys,
         )
         if s1 and s2 and s1 != s2:
             return tuple(sorted((s1, s2))), "opening_side_containment"
@@ -2568,3 +3033,290 @@ def _pick_apartment_cluster_hub(
 def _approx_ifc_entity_count(ifc) -> int:
     """Approximate entity count without scanning the full schema."""
     return ifc_thin_spaces.approx_entity_count(ifc)
+
+
+# ---------------------------------------------------------------------------
+# Navmesh / clearance pathfinding helpers (link_navmesh_passages)
+# ---------------------------------------------------------------------------
+
+try:
+    from shapely.geometry import MultiPoint, Point, Polygon  # noqa: F401
+    from shapely.ops import nearest_points, unary_union
+    from shapely.strtree import STRtree
+
+    _HAS_SHAPELY = True
+except ImportError:  # pragma: no cover - shapely ships in the worker image
+    _HAS_SHAPELY = False
+
+
+def _element_footprint_xy(element, settings, z_lo=None, z_hi=None):
+    """Convex-hull 2D plan footprint (shapely ``Polygon``) of a world-coord shape.
+
+    Only verts within ``[z_lo, z_hi]`` are used when given (the storey band), so a
+    full-height wall yields its footprint at that level rather than a column smear.
+    Convex hull is conservative — it slightly over-covers concave/L-shaped walls,
+    which narrows apparent gaps and therefore biases toward *not* inventing a
+    passage through a solid wall (the safe failure for egress). Returns ``None`` on
+    missing/degenerate geometry.
+    """
+    try:
+        shape = ifcopenshell.geom.create_shape(settings, element)
+        verts = shape.geometry.verts
+        if not verts:
+            return None
+        pts = []
+        for i in range(0, len(verts), 3):
+            z = verts[i + 2]
+            if z_lo is not None and z < z_lo:
+                continue
+            if z_hi is not None and z > z_hi:
+                continue
+            pts.append((verts[i], verts[i + 1]))
+        if len(pts) < 3:
+            return None
+        poly = MultiPoint(pts).convex_hull
+        if poly.geom_type != "Polygon" or poly.area < 1e-6:
+            return None
+        return poly
+    except Exception:
+        return None
+
+
+def _assembly_world_verts(element, settings) -> List[Tuple[float, float, float]]:
+    """World-coord verts of an element *and its decomposition children*.
+
+    An ``IfcStair`` (and often ``IfcTransportElement``) is an assembly whose own shape is
+    empty — the geometry lives in aggregated ``IfcStairFlight``/``IfcSlab`` (landing) parts.
+    Gathering the children's verts gives the full floor-to-floor extent.
+    """
+    out: List[Tuple[float, float, float]] = []
+
+    def add(el):
+        try:
+            verts = ifcopenshell.geom.create_shape(settings, el).geometry.verts
+        except Exception:
+            return
+        for i in range(0, len(verts), 3):
+            out.append((verts[i], verts[i + 1], verts[i + 2]))
+
+    add(element)
+    for rel in getattr(element, "IsDecomposedBy", None) or []:
+        for child in getattr(rel, "RelatedObjects", None) or []:
+            add(child)
+    return out
+
+
+def _verts_bbox(verts):
+    """``(xmin,ymin,zmin,xmax,ymax,zmax)`` of a vert list, or None when empty."""
+    if not verts:
+        return None
+    xs = [v[0] for v in verts]
+    ys = [v[1] for v in verts]
+    zs = [v[2] for v in verts]
+    return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+
+
+def _verts_zband_centroid(verts, z_lo: float, z_hi: float):
+    """Mean XY of verts within ``[z_lo, z_hi]`` — e.g. a stair's base or top landing.
+    Returns ``(x, y)`` or None."""
+    xs_, ys_ = [], []
+    for x, y, z in verts:
+        if z_lo <= z <= z_hi:
+            xs_.append(x)
+            ys_.append(y)
+    if not xs_:
+        return None
+    return (sum(xs_) / len(xs_), sum(ys_) / len(ys_))
+
+
+def _has_stair_parent(flight) -> bool:
+    """True when an IfcStairFlight is aggregated under an IfcStair (so the parent stair's
+    full-rise geometry handles the storey crossing and the flight should be skipped)."""
+    for rel in getattr(flight, "Decomposes", None) or []:
+        parent = getattr(rel, "RelatingObject", None)
+        if parent is not None and parent.is_a("IfcStair"):
+            return True
+    return False
+
+
+def _collect_space_footprints(models):
+    """gid → tight 2D footprint polygon (shapely), for point-in-polygon space resolution.
+
+    Union of the space's mesh triangles projected to XY — tighter than the axis-aligned
+    bbox, so a point sitting in a neighbour room's bbox *overhang* (but outside its real,
+    possibly L-shaped, footprint) is correctly excluded. Used to disambiguate which space a
+    door/opening side-point really falls in. Empty dict when shapely is unavailable.
+    """
+    if not _HAS_SHAPELY:
+        return {}
+    polys: Dict[str, "Polygon"] = {}
+    settings = _geom_settings()
+    for _, ifc in models:
+        for sp in _safe_by_type(ifc, "IfcSpace"):
+            gid = sp.GlobalId
+            if gid in polys:
+                continue
+            try:
+                shape = ifcopenshell.geom.create_shape(settings, sp)
+                verts = shape.geometry.verts
+                faces = shape.geometry.faces
+                if not verts or not faces:
+                    continue
+                tris = []
+                for i in range(0, len(faces), 3):
+                    ia, ib, ic = faces[i] * 3, faces[i + 1] * 3, faces[i + 2] * 3
+                    tri = Polygon([
+                        (verts[ia], verts[ia + 1]),
+                        (verts[ib], verts[ib + 1]),
+                        (verts[ic], verts[ic + 1]),
+                    ])
+                    if tri.area > 1e-9:
+                        tris.append(tri)
+                if not tris:
+                    continue
+                fp = unary_union(tris).buffer(0)
+                if fp.is_empty or fp.area < 1e-6:
+                    continue
+                polys[gid] = fp
+            except Exception:
+                continue
+    return polys
+
+
+def _bbox_xy_near(a, b, margin: float) -> bool:
+    """True when two XY bboxes are within ``margin`` of each other (or overlap)."""
+    if not a or not b:
+        return False
+    return not (
+        a[3] + margin < b[0]
+        or b[3] + margin < a[0]
+        or a[4] + margin < b[1]
+        or b[4] + margin < a[1]
+    )
+
+
+def _navmesh_passage_exists(
+    fp_a,
+    fp_b,
+    seed_a,
+    seed_b,
+    wall_tree,
+    wall_polys,
+    human_half: float,
+    margin: float,
+    *,
+    compute_path: bool = False,
+):
+    """Does a body of width ``2*human_half`` fit between the walls from A to B?
+
+    Builds a local walkable region = (fp_a ∪ fp_b) buffered by ``margin``, minus the
+    nearby walls inflated by ``human_half``. Routing a *point* through walls grown by
+    ``human_half`` is equivalent to routing the full body through the real walls, so a
+    connected walkable region ⇔ the box fits. Returns
+    ``(exists, gap_xy | None, path_length_m | None)``.
+    """
+    if fp_a is None or fp_b is None:
+        return False, None, None
+    # Working region = convex hull of the two footprints (spans the threshold/wall
+    # zone between them) clipped to within ``margin`` of the rooms. The hull does NOT
+    # overrun the rooms' extent, so the path can't wrap around the *ends* of the
+    # dividing wall — a crossing must pass through an actual gap in it.
+    union = unary_union([fp_a, fp_b])
+    region = union.convex_hull.intersection(union.buffer(margin, join_style=2))
+    if region.is_empty:
+        return False, None, None
+
+    local_walls = []
+    if wall_tree is not None and wall_polys:
+        for k in wall_tree.query(region):
+            poly = wall_polys[int(k)]
+            if poly.intersects(region):
+                local_walls.append(poly)
+
+    if local_walls:
+        inflated = unary_union(local_walls).buffer(human_half, join_style=2)
+        walkable = region.difference(inflated)
+    else:
+        walkable = region  # nothing between them → open passage
+
+    if walkable.is_empty:
+        return False, None, None
+    comps = list(walkable.geoms) if walkable.geom_type == "MultiPolygon" else [walkable]
+    pa = Point(seed_a[0], seed_a[1])
+    pb = Point(seed_b[0], seed_b[1])
+    comp_a = None
+    for c in comps:
+        if c.distance(pa) <= margin:
+            comp_a = c
+            break
+    if comp_a is None or comp_a.distance(pb) > margin:
+        return False, None, None
+
+    # passage location: where the two rooms are closest (≈ the doorway centre)
+    npa, npb = nearest_points(fp_a, fp_b)
+    gap_xy = ((npa.x + npb.x) / 2.0, (npa.y + npb.y) / 2.0)
+
+    path_len = None
+    if compute_path:
+        path_len = _navmesh_astar_length(comp_a, seed_a, seed_b)
+    return True, gap_xy, path_len
+
+
+def _ring_to_wire(coords):
+    """Topologic ``Wire`` from a shapely ring's coordinate list (closed, z=0)."""
+    from topologicpy.Vertex import Vertex
+    from topologicpy.Wire import Wire
+
+    verts = [Vertex.ByCoordinates(float(x), float(y), 0.0) for x, y in coords[:-1]]
+    if len(verts) < 3:
+        return None
+    return Wire.ByVertices(verts, close=True)
+
+
+def _navmesh_astar_length(walkable_poly, seed_a, seed_b):
+    """A* travel distance through ``walkable_poly`` via TopologicPy NavigationGraph.
+
+    The walkable region is fed as the navigable face (its exterior is the boundary,
+    interior rings are island obstacles such as columns) — partition walls are
+    already subtracted, avoiding the boundary-touching-hole pitfall. Returns the
+    path length in metres, or ``None`` if TopologicPy is unavailable / no route.
+    """
+    if not HAS_TOPOLOGICPY:
+        return None
+    import contextlib
+    import io
+
+    try:
+        from topologicpy.Vertex import Vertex
+        from topologicpy.Wire import Wire
+        from topologicpy.Face import Face
+        from topologicpy.Graph import Graph
+
+        # TopologicPy prints warnings/errors straight to stdout; mute them — a failed
+        # A* just yields no distance and is not worth flooding the ingest log.
+        with contextlib.redirect_stdout(io.StringIO()):
+            outer = _ring_to_wire(list(walkable_poly.exterior.coords))
+            if outer is None:
+                return None
+            holes = []
+            for ring in walkable_poly.interiors:
+                hw = _ring_to_wire(list(ring.coords))
+                if hw is not None:
+                    holes.append(hw)
+            face = Face.ByWires(outer, holes)
+            va = Vertex.ByCoordinates(seed_a[0], seed_a[1], 0.0)
+            vb = Vertex.ByCoordinates(seed_b[0], seed_b[1], 0.0)
+            graph = Graph.NavigationGraph(
+                face, sources=[va], destinations=[vb], tolerance=0.001
+            )
+            gverts = Graph.Vertices(graph)
+            if not gverts:
+                return None
+            na = min(gverts, key=lambda u: Vertex.Distance(u, va))
+            nb = min(gverts, key=lambda u: Vertex.Distance(u, vb))
+            path = Graph.ShortestPath(graph, na, nb, useAStar=True)
+            if path is None:
+                return None
+            return round(Wire.Length(path), 3)
+    except Exception:
+        return None

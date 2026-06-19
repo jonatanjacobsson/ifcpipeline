@@ -13,10 +13,13 @@ import ingest_scripts.EgressCirculation as ec
 from ingest_scripts.EgressCirculation import (
     Ingester,
     _bbox_xy_area,
+    _bbox_xy_near,
     _door_plan_side_points,
     _footprint_signature,
     _minor_axis_2d,
+    _navmesh_passage_exists,
     _opening_passable_size,
+    _storey_key_for_z,
     _pick_apartment_cluster_hub,
     _pick_space_at_plan_point,
     _reaches_floor,
@@ -276,6 +279,114 @@ def test_multiple_portals_between_same_pair_all_recorded():
     )
     assert first == 2
     assert second == 2  # opening between same rooms as a door is still recorded
+
+# --- navmesh clearance pass -------------------------------------------------
+
+import pytest
+
+shapely = pytest.importorskip("shapely")
+from shapely.geometry import box  # noqa: E402
+
+
+def test_bbox_xy_near_overlap_and_gap():
+    a = (0.0, 0.0, 0.0, 2.0, 2.0, 3.0)
+    b = (2.3, 0.0, 0.0, 4.0, 2.0, 3.0)
+    assert _bbox_xy_near(a, b, margin=0.6) is True   # 0.3 gap < 0.6 margin
+    assert _bbox_xy_near(a, b, margin=0.1) is False  # 0.3 gap > 0.1 margin
+    assert _bbox_xy_near(a, None, margin=0.6) is False
+
+
+def _two_rooms_with_wall(gap):
+    """Rooms [0,2]x[0,3] and [2.2,4]x[0,3]; dividing wall x[2,2.2] with a centred GAP."""
+    fp_a = box(0.0, 0.0, 2.0, 3.0)
+    fp_b = box(2.2, 0.0, 4.0, 3.0)
+    gy0, gy1 = 1.5 - gap / 2.0, 1.5 + gap / 2.0
+    walls = [box(2.0, 0.0, 2.2, gy0), box(2.0, gy1, 2.2, 3.0)]
+    from shapely.strtree import STRtree
+    return fp_a, fp_b, STRtree(walls), walls
+
+
+def test_navmesh_passage_open_when_gap_fits_human():
+    # 0.9 m doorway, human 0.6 m (half 0.3) -> 0.3 m residual neck -> passable
+    fp_a, fp_b, tree, walls = _two_rooms_with_wall(0.9)
+    exists, gap_xy, _ = _navmesh_passage_exists(
+        fp_a, fp_b, (1.0, 1.5, 0.0), (3.1, 1.5, 0.0),
+        tree, walls, human_half=0.30, margin=0.6, compute_path=False,
+    )
+    assert exists is True
+    assert abs(gap_xy[0] - 2.1) < 0.2  # gap sits at the wall centreline
+
+
+def test_navmesh_passage_blocked_when_gap_too_narrow():
+    # 0.4 m gap < 0.6 m body -> inflated walls close the neck -> not passable
+    fp_a, fp_b, tree, walls = _two_rooms_with_wall(0.4)
+    exists, _, _ = _navmesh_passage_exists(
+        fp_a, fp_b, (1.0, 1.5, 0.0), (3.1, 1.5, 0.0),
+        tree, walls, human_half=0.30, margin=0.6, compute_path=False,
+    )
+    assert exists is False
+
+
+def test_navmesh_passage_blocked_by_solid_wall():
+    # solid dividing wall, no gap -> never passable regardless of margin
+    fp_a = box(0.0, 0.0, 2.0, 3.0)
+    fp_b = box(2.2, 0.0, 4.0, 3.0)
+    from shapely.strtree import STRtree
+    walls = [box(2.0, 0.0, 2.2, 3.0)]
+    exists, _, _ = _navmesh_passage_exists(
+        fp_a, fp_b, (1.0, 1.5, 0.0), (3.1, 1.5, 0.0),
+        STRtree(walls), walls, human_half=0.30, margin=0.6, compute_path=False,
+    )
+    assert exists is False
+
+
+def test_navmesh_passage_reports_astar_travel_distance():
+    # passable doorway, compute_path=True -> TopologicPy A* returns a sane distance
+    # (rooms' seeds are 2.1 m apart in X; route through the centred gap ≈ that).
+    fp_a, fp_b, tree, walls = _two_rooms_with_wall(0.9)
+    exists, _, path_len = _navmesh_passage_exists(
+        fp_a, fp_b, (1.0, 1.5, 0.0), (3.1, 1.5, 0.0),
+        tree, walls, human_half=0.30, margin=0.6, compute_path=True,
+    )
+    assert exists is True
+    if path_len is not None:  # None only if TopologicPy is absent
+        assert 2.0 <= path_len <= 4.0
+
+
+def test_navmesh_passage_open_with_no_walls_between():
+    # two near rooms, nothing modelled between them -> open passage
+    fp_a = box(0.0, 0.0, 2.0, 3.0)
+    fp_b = box(2.2, 0.0, 4.0, 3.0)
+    from shapely.strtree import STRtree
+    exists, _, _ = _navmesh_passage_exists(
+        fp_a, fp_b, (1.0, 1.5, 0.0), (3.1, 1.5, 0.0),
+        STRtree([]), [], human_half=0.30, margin=0.6, compute_path=False,
+    )
+    assert exists is True
+
+
+# --- stair/elevator element vertical pass ----------------------------------
+
+
+def test_storey_key_for_z_picks_nearest_floor():
+    elevs = {"L": 0.0, "M": 3.0, "U": 6.0}
+    # stair base ~ floor 0, top ~ floor 3 -> distinct elev keys matching space grouping
+    assert _storey_key_for_z(0.1, elevs, 2.5) == "elev:0.0"
+    assert _storey_key_for_z(2.9, elevs, 2.5) == "elev:3.0"
+    assert _storey_key_for_z(6.0, elevs, 2.5) == "elev:6.0"
+    # far above any floor (beyond tolerance) -> unresolved
+    assert _storey_key_for_z(20.0, elevs, 2.5) is None
+    assert _storey_key_for_z(1.0, {}, 2.5) is None
+
+
+def test_stair_element_resolves_distinct_storeys():
+    # base at floor 0, top at floor 3 must resolve to different storey keys so a stair
+    # spanning them is recognised as crossing a level (not a flat/half-flight).
+    elevs = {"L": 0.0, "U": 3.0}
+    lower = _storey_key_for_z(0.0, elevs, 2.5)
+    upper = _storey_key_for_z(3.0, elevs, 2.5)
+    assert lower and upper and lower != upper
+
 
 def test_dedup_pairs_suppresses_heuristic_pass():
     # dedup_pairs=True: a heuristic pass (apartment cluster, vertical connector) is skipped
