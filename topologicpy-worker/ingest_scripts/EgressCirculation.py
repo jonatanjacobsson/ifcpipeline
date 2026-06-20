@@ -57,9 +57,12 @@ from ingest_scripts import Element, Ingester as _Base, Relationship
 from ingest_scripts import ifc_thin_spaces
 
 try:
-    from topologicpy.Topology import Topology
+    # The IFC topology graph goes through the shared TGraph adapter (topograph).
+    # Legacy `Graph` is kept ONLY for the geometry navmesh below
+    # (NavigationGraph + ShortestPath(useAStar) over a walkable Face) — that has
+    # no TGraph equivalent and is unchanged in 0.9.50.
+    from ingest_scripts import topograph
     from topologicpy.Graph import Graph
-    from topologicpy.Dictionary import Dictionary
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -1061,22 +1064,21 @@ class Ingester(_Base):
         added = 0
         portals_used = 0
         try:
-            graph = Graph.ByIFCFile(str(ifc_path), tolerance=self.tolerance)
+            graph = topograph.build_graph(ifc_path, tolerance=self.tolerance)
             if graph is None:
                 return 0, 0
 
             portal_to_spaces: Dict[str, Set[str]] = defaultdict(set)
-            for vertex in Graph.Vertices(graph):
-                meta = _vertex_meta(vertex)
+            for node in topograph.vertices(graph):
+                meta = _vertex_meta(node)
                 if not meta:
                     continue
                 gid, ifc_class = meta
                 if not _is_portal_class(ifc_class):
                     continue
 
-                adjacent = Graph.AdjacentVertices(graph, vertex) or []
                 space_ids: Set[str] = set()
-                for adj in adjacent:
+                for adj in topograph.adjacent(graph, node):
                     adj_meta = _vertex_meta(adj)
                     if adj_meta and SPACE_MARKER in adj_meta[1]:
                         space_ids.add(adj_meta[0])
@@ -2422,15 +2424,12 @@ def _collect_spaces_centroids(
     return space_points, space_sources, space_names
 
 
-def _vertex_meta(vertex) -> Optional[Tuple[str, str]]:
-    d = Topology.Dictionary(vertex)
-    if not d:
-        return None
-    gid = Dictionary.ValueAtKey(d, "IFC_global_id") or Dictionary.ValueAtKey(d, "GlobalId") or ""
-    ifc_class = Dictionary.ValueAtKey(d, "IFC_type") or Dictionary.ValueAtKey(d, "IfcClass") or ""
+def _vertex_meta(node) -> Optional[Tuple[str, str]]:
+    """Extract (gid, ifc_class) from a topograph.Node (normalized accessors)."""
+    gid = node.gid
     if not gid:
         return None
-    return gid, ifc_class
+    return gid, (node.ifc_type or "")
 
 
 def _is_portal_class(ifc_class: str) -> bool:

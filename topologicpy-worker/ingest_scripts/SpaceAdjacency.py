@@ -19,9 +19,7 @@ import ifcopenshell
 from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
 try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    from topologicpy.Dictionary import Dictionary
+    from ingest_scripts import topograph
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -43,14 +41,14 @@ class Ingester(_Base):
     ):
         """Build a space adjacency graph from IFC topology.
 
-        Uses TopologicPy's Graph.ByIFCFile to create a topological model,
+        Uses TopologicPy's the TGraph topograph adapter to create a topological model,
         then extracts adjacency relationships between IfcSpace cells sharing
         a boundary face. Falls back to IfcRelSpaceBoundary parsing.
 
         :param include_external: Whether to include adjacency to external/unbounded space.
         :param min_shared_area: Minimum shared boundary area (m2) to register an adjacency edge.
         :param tolerance: Graph construction tolerance in model units (same as SpatialContainment).
-        :param use_topologic: When False, skip Graph.ByIFCFile and use IFC boundary rels only.
+        :param use_topologic: When False, skip the TGraph topograph adapter and use IFC boundary rels only.
         :param force_ifc_native: Internal retry flag after SIGSEGV (same as use_topologic=False).
         """
         super().__init__(ifc_files, log)
@@ -78,46 +76,35 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("SpaceAdjacency: building topological graph from %s", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), tolerance=self.tolerance)
+                graph = topograph.build_graph(ifc_path, tolerance=self.tolerance)
                 if graph is None:
-                    self.log.warning("SpaceAdjacency: Graph.ByIFCFile returned None")
+                    self.log.warning("SpaceAdjacency: build_graph returned None")
                     self._extract_from_ifc_rels_file(ifc_path)
                     continue
 
-                vertices = Graph.Vertices(graph)
-                self.log.info("SpaceAdjacency: graph has %d vertices", len(vertices))
+                nodes = topograph.vertices(graph)
+                self.log.info("SpaceAdjacency: graph has %d vertices", len(nodes))
 
-                for vertex in vertices:
-                    d = Topology.Dictionary(vertex)
-                    if not d:
-                        continue
-                    v_class = Dictionary.ValueAtKey(d, "IFC_type") or ""
-                    if "IfcSpace" not in v_class:
+                for node in nodes:
+                    if "IfcSpace" not in node.ifc_type:
                         continue
 
-                    v_id = Dictionary.ValueAtKey(d, "IFC_global_id") or ""
-                    v_name = Dictionary.ValueAtKey(d, "IFC_name") or ""
+                    v_id = node.gid
                     if not v_id:
                         continue
 
                     self._elements.append(Element(
                         global_id=v_id,
                         ifc_class="IfcSpace",
-                        name=v_name,
+                        name=node.ifc_name,
                         extra={"source_file": ifc_path.name},
                     ))
 
-                    adjacent = Graph.AdjacentVertices(graph, vertex)
-                    for adj_vertex in (adjacent or []):
-                        adj_d = Topology.Dictionary(adj_vertex)
-                        if not adj_d:
-                            continue
-                        adj_class = Dictionary.ValueAtKey(adj_d, "IFC_type") or ""
-                        adj_id = Dictionary.ValueAtKey(adj_d, "IFC_global_id") or ""
-
+                    for adj in topograph.adjacent(graph, node):
+                        adj_id = adj.gid
                         if not adj_id:
                             continue
-                        if "IfcSpace" not in adj_class and not self.include_external:
+                        if "IfcSpace" not in adj.ifc_type and not self.include_external:
                             continue
 
                         edge_key = tuple(sorted([v_id, adj_id]))

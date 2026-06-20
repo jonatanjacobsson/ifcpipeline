@@ -19,9 +19,7 @@ import ifcopenshell
 from ingest_scripts import Element, Ingester as _Base, Relationship
 
 try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    from topologicpy.Dictionary import Dictionary
+    from ingest_scripts import topograph
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -62,51 +60,32 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("ZonePartition: building graph from %s", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), transferDictionaries=True)
+                graph = topograph.build_graph(ifc_path)
                 if graph is None:
                     continue
 
                 self.log.info("ZonePartition: applying %s partitioning", self.method)
-
-                if self.method == "community":
-                    partitioned = Graph.CommunityDetection(graph, key="partition")
-                elif self.method == "edge_betweenness":
-                    partitioned = Graph.EdgeBetweennessPartition(
-                        graph,
-                        numPartitions=self.num_partitions if self.num_partitions > 0 else None,
-                        key="partition",
-                    )
-                elif self.method == "fiedler":
-                    partitioned = Graph.FiedlerPartition(graph, key="partition")
-                else:
-                    self.log.warning("ZonePartition: unknown method %s, using community", self.method)
-                    partitioned = Graph.CommunityDetection(graph, key="partition")
-
-                if partitioned is None:
-                    self.log.warning("ZonePartition: partitioning returned None")
+                # community/edge_betweenness/fiedler -> {gid: partition_label}
+                labels = topograph.community(
+                    graph, method=self.method, num_partitions=self.num_partitions
+                )
+                if not labels:
+                    self.log.warning("ZonePartition: partitioning returned no labels")
                     continue
 
-                vertices = Graph.Vertices(partitioned)
                 partition_groups: dict = {}
 
-                for vertex in vertices:
-                    d = Topology.Dictionary(vertex)
-                    if not d:
-                        continue
-                    v_id = Dictionary.ValueAtKey(d, "IFC_global_id") or ""
-                    v_class = Dictionary.ValueAtKey(d, "IFC_type") or ""
-                    v_name = Dictionary.ValueAtKey(d, "IFC_name") or ""
-                    partition_id = Dictionary.ValueAtKey(d, "partition")
-
+                for node in topograph.vertices(graph):
+                    v_id = node.gid
                     if not v_id:
                         continue
-
+                    partition_id = labels.get(v_id)
                     zone_label = f"zone_{partition_id}" if partition_id is not None else "unassigned"
 
                     self._elements.append(Element(
                         global_id=v_id,
-                        ifc_class=v_class,
-                        name=v_name,
+                        ifc_class=node.ifc_type,
+                        name=node.ifc_name,
                         extra={
                             "partition": partition_id,
                             "zone_label": zone_label,

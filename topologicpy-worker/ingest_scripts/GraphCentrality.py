@@ -4,6 +4,8 @@ Calculates betweenness centrality, closeness centrality, and degree for
 each space/node in the building topology. Identifies circulation bottlenecks,
 high-connectivity hubs, and isolated areas.
 
+Built on the shared ``topograph`` TGraph adapter (supersedes legacy ``Graph``).
+
 Reference: https://github.com/wassimj/topologicpy/blob/main/notebooks/Betweenness_Centrality.ipynb
 Reference: https://github.com/wassimj/topologicpy/blob/main/notebooks/pagerank.ipynb
 """
@@ -20,9 +22,7 @@ import ifcopenshell
 from ingest_scripts import Element, Ingester as _Base, Relationship
 
 try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    from topologicpy.Dictionary import Dictionary
+    from ingest_scripts import topograph
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -41,9 +41,13 @@ class Ingester(_Base):
     ):
         """Compute centrality metrics on the IFC spatial topology graph.
 
-        Builds a TopologicPy graph from the IFC file, then computes the
-        selected centrality metric for each vertex (space/element). Results
-        are attached as element metadata for visualization in Graph Studio.
+        Builds a TGraph from the IFC file, then computes the selected centrality
+        metric for each vertex (space/element). Results are attached as element
+        metadata for visualization in Graph Studio.
+
+        Note: betweenness is O(V*E); on MEP/architecture models TGraph builds a
+        much larger (decomposed) graph, so prefer ``closeness`` or ``degree``
+        there, or pre-prune the graph.
 
         :param metric: Centrality metric to compute: betweenness, closeness, degree, or all.
         :param normalized: Whether to normalize centrality values to [0, 1] range.
@@ -62,54 +66,50 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("GraphCentrality: building graph from %s", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), transferDictionaries=True)
+                graph = topograph.build_graph(ifc_path)
                 if graph is None:
-                    self.log.warning("GraphCentrality: Graph.ByIFCFile returned None")
+                    self.log.warning("GraphCentrality: build_graph returned None")
                     continue
 
-                vertices = Graph.Vertices(graph)
-                self.log.info("GraphCentrality: computing %s centrality for %d vertices", self.metric, len(vertices))
+                nodes = topograph.vertices(graph)
+                self.log.info(
+                    "GraphCentrality: computing %s centrality for %d vertices", self.metric, len(nodes)
+                )
 
-                metrics = self._compute_metrics(graph, vertices)
+                degrees = topograph.degree_map(graph)
+                bc = topograph.betweenness(graph, normalize=self.normalized) \
+                    if self.metric in ("betweenness", "all") else {}
+                cc = topograph.closeness(graph, normalize=self.normalized) \
+                    if self.metric in ("closeness", "all") else {}
 
-                for vertex, vertex_metrics in zip(vertices, metrics):
-                    d = Topology.Dictionary(vertex)
-                    if not d:
+                for node in nodes:
+                    if not node.gid:
                         continue
-                    v_id = Dictionary.ValueAtKey(d, "IFC_global_id") or ""
-                    v_class = Dictionary.ValueAtKey(d, "IFC_type") or ""
-                    v_name = Dictionary.ValueAtKey(d, "IFC_name") or ""
-                    if not v_id:
-                        continue
+                    m = {"degree": degrees.get(node.gid, 0)}
+                    if self.metric in ("betweenness", "all"):
+                        m["betweenness_centrality"] = bc.get(node.gid, 0)
+                    if self.metric in ("closeness", "all"):
+                        m["closeness_centrality"] = cc.get(node.gid, 0)
+                    if self.metric == "degree" and self.normalized and len(nodes) > 1:
+                        m["degree_normalized"] = m["degree"] / (len(nodes) - 1)
 
                     self._elements.append(Element(
-                        global_id=v_id,
-                        ifc_class=v_class,
-                        name=v_name,
-                        extra={
-                            "source_file": ifc_path.name,
-                            **vertex_metrics,
-                        },
+                        global_id=node.gid,
+                        ifc_class=node.ifc_type,
+                        name=node.ifc_name,
+                        extra={"source_file": ifc_path.name, **m},
                     ))
 
-                edges = Graph.Edges(graph)
-                for edge in edges:
-                    sv = Graph.StartVertex(graph, edge)
-                    ev = Graph.EndVertex(graph, edge)
-                    s_d = Topology.Dictionary(sv)
-                    e_d = Topology.Dictionary(ev)
-                    s_id = Dictionary.ValueAtKey(s_d, "IFC_global_id") if s_d else ""
-                    e_id = Dictionary.ValueAtKey(e_d, "IFC_global_id") if e_d else ""
-                    if s_id and e_id:
-                        self._relationships.append(Relationship(
-                            subject_global_id=s_id,
-                            object_global_id=e_id,
-                            relationship_family="spatial",
-                            relationship_type="topological_edge",
-                            confidence=1.0,
-                            source_kind="topologic_ingest_GraphCentrality",
-                            evidence={"source_file": ifc_path.name},
-                        ))
+                for s_id, e_id in topograph.edges(graph):
+                    self._relationships.append(Relationship(
+                        subject_global_id=s_id,
+                        object_global_id=e_id,
+                        relationship_family="spatial",
+                        relationship_type="topological_edge",
+                        confidence=1.0,
+                        source_kind="topologic_ingest_GraphCentrality",
+                        evidence={"source_file": ifc_path.name},
+                    ))
 
             except Exception as exc:
                 self.log.error("GraphCentrality: failed for %s: %s", ifc_path.name, exc)
@@ -120,38 +120,3 @@ class Ingester(_Base):
             "normalized": self.normalized,
             "elapsed_seconds": round(elapsed, 2),
         }
-
-    def _compute_metrics(self, graph, vertices) -> list:
-        """Compute centrality for each vertex."""
-        results = []
-        num_vertices = len(vertices)
-
-        if self.metric in ("betweenness", "all"):
-            bc_graph = Graph.BetweennessCentrality(graph, key="bc")
-            bc_vertices = Graph.Vertices(bc_graph)
-        if self.metric in ("closeness", "all"):
-            cc_graph = Graph.ClosenessCentrality(graph, key="cc")
-            cc_vertices = Graph.Vertices(cc_graph)
-
-        for i, vertex in enumerate(vertices):
-            m = {}
-            degree = Graph.VertexDegree(graph, vertex)
-            m["degree"] = degree
-
-            if self.metric in ("betweenness", "all"):
-                d = Topology.Dictionary(bc_vertices[i]) if i < len(bc_vertices) else None
-                bc = Dictionary.ValueAtKey(d, "bc") if d else 0
-                m["betweenness_centrality"] = bc
-
-            if self.metric in ("closeness", "all"):
-                d = Topology.Dictionary(cc_vertices[i]) if i < len(cc_vertices) else None
-                cc = Dictionary.ValueAtKey(d, "cc") if d else 0
-                m["closeness_centrality"] = cc
-
-            if self.metric == "degree":
-                if self.normalized and num_vertices > 1:
-                    m["degree_normalized"] = degree / (num_vertices - 1)
-
-            results.append(m)
-
-        return results

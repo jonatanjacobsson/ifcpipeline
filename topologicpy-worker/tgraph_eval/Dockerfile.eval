@@ -1,0 +1,50 @@
+# Isolated evaluation image for topologicpy 0.9.50 / TGraph.
+#
+# Mirrors the production topologicpy-worker image (same base, same patch_vertex
+# step, same ifcopenshell pin) but adds the eval harness + NetworkX/igraph and
+# runs the benchmark CLI instead of an RQ worker. It is NOT part of any compose
+# stack: build it standalone and run it as a one-off `docker run` (see README).
+#
+# Build context = the ifcpipeline repo root:
+#   docker build -f topologicpy-worker/tgraph_eval/Dockerfile.eval \
+#                -t topologicpy-tgraph-eval:0.9.50 .
+
+FROM python:3.11-slim AS base
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --upgrade pip
+
+# Worker runtime deps (this branch pins topologicpy>=0.9.50).
+COPY topologicpy-worker/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Eval-only extras (NetworkX oracle, igraph louvain backend).
+COPY topologicpy-worker/tgraph_eval/requirements.eval.txt /app/requirements.eval.txt
+RUN pip install --no-cache-dir -r /app/requirements.eval.txt
+
+# Same upstream None-guard patch the worker applies (no-op if already fixed in 0.9.50).
+COPY topologicpy-worker/patch_vertex.py /tmp/patch_vertex.py
+RUN python /tmp/patch_vertex.py
+
+# Harness + the real ingest scripts (for end-to-end fidelity).
+COPY topologicpy-worker/ingest_scripts /app/ingest_scripts
+COPY topologicpy-worker/tgraph_eval /app/tgraph_eval
+
+RUN mkdir -p /results /uploads /models_extra /models_xl
+
+# Match the worker's uid so files written to the mounted /results are owned by
+# the host user (uid 1000) rather than root.
+RUN useradd -m -u 1000 evaluser && chown -R evaluser /app /results
+USER evaluser
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Default to the safe smoke run; override the args at `docker run` time.
+ENTRYPOINT ["python", "-m", "tgraph_eval.run_eval"]
+CMD ["--smoke"]
