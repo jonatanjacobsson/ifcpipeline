@@ -11,12 +11,12 @@ the harness in this directory; reproduce with the commands in [README.md](README
    60 s). The only place TGraph runs slower is heavy O(V·E) ops on **MEP** models — and
    that's purely because TGraph builds a 4–6× larger graph there (fidelity confound, #2),
    not a slow algorithm.
-2. **Fidelity is DISCIPLINE-DEPENDENT.** For **Structural (S2)** the two `ByIFCFile`
-   implementations build the *identical* graph (vtx/edge Jaccard **1.0**) — TGraph is a
-   true drop-in, 23× faster for free. For **Electrical (E1)** TGraph builds ~4× the
-   vertices (Jaccard **0.25**) — MEP/distribution models carry nested elements TGraph
-   decomposes differently. So migration risk is per-discipline, not a blanket "no". The
-   full-matrix fidelity table is the map of which disciplines are drop-in.
+2. **Fidelity is DISCIPLINE-DEPENDENT — Structural is the only drop-in.** Structural
+   (S2): the two `ByIFCFile` implementations build the *identical* graph (Jaccard **1.0**)
+   — TGraph is a true drop-in, 23× faster for free. **Every other discipline decomposes**:
+   Electrical 4× (Jaccard 0.25), Mechanical 6× (0.17), **Architecture 9× (0.11)** — voids,
+   space boundaries and nested assemblies become extra TGraph nodes. So migration risk is
+   per-discipline; the full-matrix table maps it.
 3. **0.9.50 is a breaking release for the legacy `Graph` API itself** — independent
    of TGraph. The worker's ingest scripts **do not run on 0.9.50 unchanged.**
 4. **Accuracy (where comparable) is good.** Degree correlates r = 0.98 vs the legacy
@@ -71,16 +71,21 @@ fidelity gap is **not uniform** — it depends entirely on the model's content:
 | E1 | Electrical | 6 724 / **26 832** | 11 003 / 18 106 | **0.25** | 0.52 |
 | S2 | Structural | 6 723 / **6 723** | 10 886 / 10 886 | **1.00** | **1.00** |
 | M1 | Mechanical | 7 107 / **42 378** | 38 101 / 81 678 | **0.17** | 0.39 |
-| _… A1 / P1 / AX from the full-matrix run …_ | | | | | |
+| A1 | Architecture | 10 000 / **89 756** | 25 714 / 57 564 | **0.11** | 0.37 |
+| _… P1 / AX from the full-matrix run …_ | | | | | |
 
-Pattern emerging: **MEP disciplines (Electrical, Mechanical) decompose** — TGraph
-builds 4–6× the vertices (Jaccard 0.17–0.25), because distribution elements carry
-nested ports/sub-parts. **Structural is identical** (Jaccard 1.0). The split is
-MEP-vs-non-MEP, not random.
+**Pattern (corrected after 4 disciplines): Structural is the *unique* drop-in
+(Jaccard 1.0); every other discipline decomposes** — TGraph builds 4–9× the vertices,
+worsening with geometric/spatial complexity: Electrical 4× → Mechanical 6× →
+**Architecture 9×** (Jaccard 0.11). (A first hypothesis of "MEP-vs-non-MEP" was
+*refuted* by Architecture, which is not MEP yet decomposes the most — openings/voids,
+space boundaries and nested assemblies all become extra TGraph nodes.) Structural
+elements are single solids with no voids/ports/space-boundaries, so they map 1:1.
 
 Construction times underline the speed case independently of fidelity — legacy
-`Graph.ByIFCFile` took **569 s (9.5 min)** on the 29 MB mechanical model vs TGraph's
-19.5 s (**29×**). The current ingest is painfully slow on MEP models; TGraph fixes that.
+`Graph.ByIFCFile` took **569 s (9.5 min)** on the 29 MB mechanical and **444 s** on the
+50 MB architecture model, vs TGraph's 19.5 s / 26 s (**29× / 17×**). The current ingest
+is painfully slow on every non-trivial model; TGraph fixes that.
 
 **This is the single most important migration insight.** For **structural** the two
 `ByIFCFile` implementations build the *identical* graph (Jaccard 1.0) — TGraph is a true

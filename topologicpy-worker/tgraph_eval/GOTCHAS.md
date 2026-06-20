@@ -26,11 +26,13 @@ appended. Newest insights also feed [FINDINGS.md](FINDINGS.md).
 
 ## Fidelity / semantics
 
-7. **The TGraph-vs-Graph fidelity gap is DISCIPLINE-DEPENDENT** — do not generalize from
-   one model. E1 (Electrical): TGraph builds 4× the vertices (Jaccard 0.25). S2
-   (Structural): **identical** graphs (Jaccard 1.0). So TGraph is a true drop-in for some
-   disciplines and a re-baseline for others (MEP/electrical with nested elements). Always
-   check fidelity per discipline before assuming equivalence.
+7. **The TGraph-vs-Graph fidelity gap is DISCIPLINE-DEPENDENT — and Structural is the
+   ONLY drop-in.** Measured: Structural Jaccard 1.0 (identical); Electrical 0.25 (4×),
+   Mechanical 0.17 (6×), Architecture 0.11 (9×). A tempting "MEP-vs-non-MEP" rule (true
+   after 3 models) was **refuted by Architecture** (not MEP, yet decomposes most). The
+   real driver is element decomposition (voids/openings, space boundaries, ports, nested
+   assemblies) — structural single-solids have none, so they map 1:1. Lesson: never
+   generalize the fidelity pattern from a subset of disciplines; check each.
 8. **The 4× larger graph makes O(V·E) algorithms slower on TGraph**, not faster:
    betweenness — legacy 116 s vs TGraph **timeout >600 s**. (But closeness was ~parity:
    legacy 31.6 s vs TGraph 32.2 s — TGraph's closeness is ~4× more efficient per node,
