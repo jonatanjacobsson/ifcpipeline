@@ -240,6 +240,8 @@ def main(argv=None) -> int:
     p.add_argument("--ops", default="", help="comma list of ops (default: all)")
     p.add_argument("--repeats", type=int, default=1, help="repeats per op (median reported)")
     p.add_argument("--timeout", type=float, default=600.0, help="per-op timeout seconds (0 = none)")
+    p.add_argument("--build-timeout", type=float, default=1800.0,
+                   help="ByIFCFile construction timeout seconds (separate from per-op)")
     p.add_argument("--out", default="/results", help="output directory")
     args = p.parse_args(argv)
 
@@ -259,11 +261,16 @@ def main(argv=None) -> int:
     reports = []
     for m in selected:
         _print(f"===== {m.label} =====")
-        rep = bench_core.run_model(m, ops, repeats=args.repeats, timeout=args.timeout, log=_print)
+        rep = bench_core.run_model(m, ops, repeats=args.repeats, timeout=args.timeout,
+                                   build_timeout=args.build_timeout, log=_print)
         reports.append(rep)
-        _print(f"  done: {len(rep.get('errors', []))} error(s), peak RSS {rep.get('rss_mb')} MB\n")
+        # Continuously save findings: persist this model's JSON and rewrite the
+        # rolling summary after EVERY model, so a long matrix run never loses
+        # completed results if a later (heavy) model hangs or is killed.
+        write_reports(reports, args.out)
+        _print(f"  done: {len(rep.get('errors', []))} error(s), peak RSS {rep.get('rss_mb')} MB "
+               f"-> saved {m.key}.json + rolling summary\n")
 
-    write_reports(reports, args.out)
     print("\n" + _render_md(reports))
     return 0
 
