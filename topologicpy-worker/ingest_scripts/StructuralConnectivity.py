@@ -15,12 +15,9 @@ import ifcopenshell
 
 from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
-try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    HAS_TOPOLOGICPY = True
-except ImportError:
-    HAS_TOPOLOGICPY = False
+# NOTE: StructuralConnectivity extracts structural relationships from native IFC
+# (IfcRelConnects*); it does not use a topologic graph. The vestigial topologicpy
+# import was removed during the TGraph migration.
 
 
 class Ingester(_Base):

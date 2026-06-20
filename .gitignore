@@ -28,6 +28,10 @@ parity-reports/
 
 reports/
 
+# TGraph evaluation outputs (regenerable; keep the dir placeholder)
+topologicpy-worker/tgraph_eval/results/*
+!topologicpy-worker/tgraph_eval/results/.gitkeep
+
 # --- Live n8n instance (use example n8n workflows/ for exports) -----
 n8n-workflows/*
 
