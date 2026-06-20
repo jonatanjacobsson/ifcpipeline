@@ -3,7 +3,9 @@ ifcopenshell==0.8.4
 
 # Topology feasibility dependency. Lower bounds match the latest versions
 # verified during this worker spike.
-topologicpy>=0.9.43
+# NOTE (eval/tgraph-0.9.50 branch): bumped to >=0.9.50 to bring in the new
+# Python-native TGraph data structure. See topologicpy-worker/tgraph_eval/.
+topologicpy>=0.9.50
 tqdm>=4.68.1
 
 # Queue and data validation
