@@ -72,6 +72,28 @@ appended. Newest insights also feed [FINDINGS.md](FINDINGS.md).
     legacy Graph (OCCT/Topologic C++ shape wrappers), but builds 4–6× more nodes on MEP,
     so absolute footprint is discipline-dependent — measure, don't assume._
 
+## Scalability limits found on large graphs
+
+19. **TGraph `Bridges` / `CutVertices` error on large graphs** (A1 Architecture,
+    89 756 nodes → `tgraph error`, almost certainly `RecursionError`: both use a recursive
+    DFS, Python's default limit is ~1000). They worked on E1 (26 832 nodes). So TGraph's
+    articulation/bridge finders are **not safe on big decomposed graphs** without raising
+    the recursion limit or an iterative rewrite. Confirm the exact exception in the
+    model's JSON `errors[]`.
+20. **Legacy ops overrun the per-op SIGALRM timeout** when stuck in native/C calls:
+    A1 legacy `cut_vertices` ran **255 s** and `community` **395 s** despite a 180 s cap.
+    The wall-clock budget is best-effort, not a hard kill (see #11). For a hard cap you'd
+    need a subprocess-per-op (too costly here — each build is minutes).
+
+## Resource / stewardship
+
+21. **The full heavy matrix is expensive on a shared host.** Legacy `ByIFCFile` is the
+    long pole (E1 18 MB → 125 s; M1 29 MB → 569 s; A1 50 MB → 444 s — roughly superlinear),
+    and each heavy op adds a 180 s timeout. On a 12-core box shared with the live stacks,
+    a 4-CPU run pushes load to ~100%. The 4 light/medium disciplines already establish the
+    full fidelity+speed pattern; the 125/142 MB models mostly *confirm* it. Weigh the ~2 h
+    of saturated host time against the marginal insight.
+
 ## Environment
 
 15. **Host has `python3`, not `python`** (the eval *container* has `python`). Use
