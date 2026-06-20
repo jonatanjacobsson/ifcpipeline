@@ -68,7 +68,17 @@ fidelity gap is **not uniform** — it depends entirely on the model's content:
 |---|---|---|---|---|---|
 | E1 | Electrical | 6 724 / **26 832** | 11 003 / 18 106 | **0.25** | 0.52 |
 | S2 | Structural | 6 723 / **6 723** | 10 886 / 10 886 | **1.00** | **1.00** |
-| _… more from the full-matrix run …_ | | | | | |
+| M1 | Mechanical | 7 107 / **42 378** | 38 101 / 81 678 | **0.17** | 0.39 |
+| _… A1 / P1 / AX from the full-matrix run …_ | | | | | |
+
+Pattern emerging: **MEP disciplines (Electrical, Mechanical) decompose** — TGraph
+builds 4–6× the vertices (Jaccard 0.17–0.25), because distribution elements carry
+nested ports/sub-parts. **Structural is identical** (Jaccard 1.0). The split is
+MEP-vs-non-MEP, not random.
+
+Construction times underline the speed case independently of fidelity — legacy
+`Graph.ByIFCFile` took **569 s (9.5 min)** on the 29 MB mechanical model vs TGraph's
+19.5 s (**29×**). The current ingest is painfully slow on MEP models; TGraph fixes that.
 
 **This is the single most important migration insight.** For **structural** the two
 `ByIFCFile` implementations build the *identical* graph (Jaccard 1.0) — TGraph is a true
