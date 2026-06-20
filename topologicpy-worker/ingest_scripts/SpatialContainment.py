@@ -1,6 +1,6 @@
 """Extract element-to-space spatial containment relationships.
 
-Uses TopologicPy's Graph.ByIFCFile() to build a topology graph and
+Uses TopologicPy's the TGraph topograph adapter to build a topology graph and
 extract which building elements are contained in which spaces.
 Operates on architecture IFC (spaces source) + target IFC(s) (elements).
 """
@@ -18,9 +18,7 @@ import ifcopenshell.geom
 from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
 
 try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    from topologicpy.Vertex import Vertex
+    from ingest_scripts import topograph
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -42,7 +40,7 @@ class Ingester(_Base):
     ):
         """Extract element-to-space spatial containment relationships.
 
-        Uses TopologicPy's Graph.ByIFCFile() to build a topology graph and
+        Uses TopologicPy's the TGraph topograph adapter to build a topology graph and
         extract which building elements are contained in which spaces.
         Falls back to native IFC relationship parsing if TopologicPy is unavailable.
 
@@ -76,26 +74,19 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("spatial: processing %s with TopologicPy", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), tolerance=self.tolerance)
+                graph = topograph.build_graph(ifc_path, tolerance=self.tolerance)
                 if graph is None:
-                    self.log.warning("spatial: Graph.ByIFCFile returned None for %s", ifc_path.name)
+                    self.log.warning("spatial: build_graph returned None for %s", ifc_path.name)
                     continue
 
-                vertices = Graph.Vertices(graph)
-                edges = Graph.Edges(graph)
+                pairs = topograph.edge_nodes(graph)
+                self.log.info(
+                    "spatial: graph has %d vertices, %d edges", topograph.order(graph), len(pairs)
+                )
 
-                self.log.info("spatial: graph has %d vertices, %d edges", len(vertices), len(edges))
-
-                for edge in edges:
-                    sv = Graph.StartVertex(graph, edge)
-                    ev = Graph.EndVertex(graph, edge)
-                    s_dict = Topology.Dictionary(sv)
-                    e_dict = Topology.Dictionary(ev)
-
-                    s_id = s_dict.get("GlobalId", "") if s_dict else ""
-                    e_id = e_dict.get("GlobalId", "") if e_dict else ""
-                    s_class = s_dict.get("IfcClass", "") if s_dict else ""
-                    e_class = e_dict.get("IfcClass", "") if e_dict else ""
+                for sv, ev in pairs:
+                    s_id, e_id = sv.gid, ev.gid
+                    s_class, e_class = sv.ifc_type, ev.ifc_type
 
                     if not s_id or not e_id:
                         continue

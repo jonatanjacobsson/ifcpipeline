@@ -20,9 +20,7 @@ import ifcopenshell
 from ingest_scripts import Element, Ingester as _Base, Relationship
 
 try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    from topologicpy.Dictionary import Dictionary
+    from ingest_scripts import topograph
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -64,62 +62,38 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("BridgesAndCuts: building graph from %s", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), transferDictionaries=True)
+                graph = topograph.build_graph(ifc_path)
                 if graph is None:
                     continue
 
-                vertices = Graph.Vertices(graph)
-
                 if self.include_bridges:
-                    bridge_graph = Graph.Bridges(graph, key="bridge")
-                    bridge_edges = Graph.Edges(bridge_graph)
-                    for edge in bridge_edges:
-                        sv = Graph.StartVertex(bridge_graph, edge)
-                        ev = Graph.EndVertex(bridge_graph, edge)
-                        s_d = Topology.Dictionary(sv)
-                        e_d = Topology.Dictionary(ev)
-                        s_id = Dictionary.ValueAtKey(s_d, "IFC_global_id") if s_d else ""
-                        e_id = Dictionary.ValueAtKey(e_d, "IFC_global_id") if e_d else ""
-
-                        edge_d = Topology.Dictionary(edge)
-                        is_bridge = Dictionary.ValueAtKey(edge_d, "bridge") if edge_d else False
-
-                        if s_id and e_id and is_bridge:
-                            self._relationships.append(Relationship(
-                                subject_global_id=s_id,
-                                object_global_id=e_id,
-                                relationship_family="safety",
-                                relationship_type="bridge_connection",
-                                confidence=1.0,
-                                source_kind="topologic_ingest_BridgesAndCuts",
-                                evidence={"method": "graph_bridge_detection", "source_file": ifc_path.name},
-                            ))
-                            bridge_count += 1
+                    for s_id, e_id in topograph.bridges(graph):
+                        self._relationships.append(Relationship(
+                            subject_global_id=s_id,
+                            object_global_id=e_id,
+                            relationship_family="safety",
+                            relationship_type="bridge_connection",
+                            confidence=1.0,
+                            source_kind="topologic_ingest_BridgesAndCuts",
+                            evidence={"method": "graph_bridge_detection", "source_file": ifc_path.name},
+                        ))
+                        bridge_count += 1
 
                 if self.include_cut_vertices:
-                    cut_graph = Graph.CutVertices(graph, key="cut_vertex")
-                    cut_vertices = Graph.Vertices(cut_graph)
-                    for vertex in cut_vertices:
-                        d = Topology.Dictionary(vertex)
-                        if not d:
+                    for node in topograph.cut_vertices(graph):
+                        if not node.gid:
                             continue
-                        is_cut = Dictionary.ValueAtKey(d, "cut_vertex")
-                        v_id = Dictionary.ValueAtKey(d, "IFC_global_id") or ""
-                        v_class = Dictionary.ValueAtKey(d, "IFC_type") or ""
-                        v_name = Dictionary.ValueAtKey(d, "IFC_name") or ""
-
-                        if v_id and is_cut:
-                            self._elements.append(Element(
-                                global_id=v_id,
-                                ifc_class=v_class,
-                                name=v_name,
-                                extra={
-                                    "is_cut_vertex": True,
-                                    "criticality": "high",
-                                    "source_file": ifc_path.name,
-                                },
-                            ))
-                            cut_count += 1
+                        self._elements.append(Element(
+                            global_id=node.gid,
+                            ifc_class=node.ifc_type,
+                            name=node.ifc_name,
+                            extra={
+                                "is_cut_vertex": True,
+                                "criticality": "high",
+                                "source_file": ifc_path.name,
+                            },
+                        ))
+                        cut_count += 1
 
             except Exception as exc:
                 self.log.error("BridgesAndCuts: failed for %s: %s", ifc_path.name, exc)
