@@ -19,9 +19,7 @@ import ifcopenshell
 from ingest_scripts import Element, Ingester as _Base, Relationship
 
 try:
-    from topologicpy.Topology import Topology
-    from topologicpy.Graph import Graph
-    from topologicpy.Dictionary import Dictionary
+    from ingest_scripts import topograph
     HAS_TOPOLOGICPY = True
 except ImportError:
     HAS_TOPOLOGICPY = False
@@ -65,54 +63,44 @@ class Ingester(_Base):
         for ifc_path in self.ifc_files:
             self.log.info("PathRouting: building graph from %s", ifc_path.name)
             try:
-                graph = Graph.ByIFCFile(str(ifc_path), transferDictionaries=True)
+                graph = topograph.build_graph(ifc_path)
                 if graph is None:
                     continue
 
-                vertices = Graph.Vertices(graph)
-                space_vertices = []
-                for v in vertices:
-                    d = Topology.Dictionary(v)
-                    if not d:
+                space_vertices = []  # (gid, ifc_type)
+                for node in topograph.vertices(graph):
+                    if "IfcSpace" not in node.ifc_type or not node.gid:
                         continue
-                    v_class = Dictionary.ValueAtKey(d, "IFC_type") or ""
-                    v_id = Dictionary.ValueAtKey(d, "IFC_global_id") or ""
-                    if not v_id:
-                        continue
-                    if "IfcSpace" in v_class:
-                        space_vertices.append((v, v_id, v_class))
-                        self._elements.append(Element(
-                            global_id=v_id,
-                            ifc_class=v_class,
-                            name=Dictionary.ValueAtKey(d, "IFC_name") or "",
-                            extra={"source_file": ifc_path.name},
-                        ))
+                    space_vertices.append((node.gid, node.ifc_type))
+                    self._elements.append(Element(
+                        global_id=node.gid,
+                        ifc_class=node.ifc_type,
+                        name=node.ifc_name,
+                        extra={"source_file": ifc_path.name},
+                    ))
 
                 self.log.info("PathRouting: %d space vertices, computing paths", len(space_vertices))
 
                 seen_path_edges: Set[tuple] = set()
                 paths_computed = 0
 
-                for i, (sv, s_id, s_class) in enumerate(space_vertices):
+                for i, (s_id, s_class) in enumerate(space_vertices):
                     if paths_computed >= self.max_paths:
                         break
-                    for j, (ev, e_id, e_class) in enumerate(space_vertices):
+                    for j, (e_id, e_class) in enumerate(space_vertices):
                         if i >= j:
                             continue
                         if paths_computed >= self.max_paths:
                             break
 
                         try:
-                            path = Graph.ShortestPath(graph, sv, ev)
-                            if path is None:
+                            path_gids = topograph.shortest_path(graph, s_id, e_id)
+                            if not path_gids:
                                 continue
-                            path_vertices = Graph.Vertices(path)
-                            path_length = len(path_vertices) - 1
+                            path_length = len(path_gids) - 1
 
                             prev_id = None
-                            for pv in path_vertices:
-                                pd = Topology.Dictionary(pv)
-                                p_id = Dictionary.ValueAtKey(pd, "IFC_global_id") if pd else ""
+                            for p_id in path_gids:
                                 if prev_id and p_id:
                                     edge_key = tuple(sorted([prev_id, p_id]))
                                     if edge_key not in seen_path_edges:
