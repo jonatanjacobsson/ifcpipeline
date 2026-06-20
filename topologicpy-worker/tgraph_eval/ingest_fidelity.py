@@ -58,7 +58,11 @@ def _value_deltas(legacy_el: List[dict], tgraph_el: List[dict], field: str) -> D
 
 
 def run_one(model, metric: str) -> Dict[str, Any]:
-    from ingest_scripts.GraphCentrality import Ingester as LegacyIngester
+    # NB: the *shipped* ingest_scripts/GraphCentrality.py does NOT run on 0.9.50
+    # (it calls Graph.ByIFCFile(transferDictionaries=True), removed in 0.9.50).
+    # GraphCentrality_Legacy is that same logic migrated to the 0.9.50 Graph API,
+    # so this is a fair engine-vs-engine diff with both sides on 0.9.50.
+    from tgraph_eval.GraphCentrality_Legacy import Ingester as LegacyIngester
     from tgraph_eval.GraphCentrality_TGraph import Ingester as TGraphIngester
 
     path = Path(model.path)
