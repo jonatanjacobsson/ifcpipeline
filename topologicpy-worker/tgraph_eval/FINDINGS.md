@@ -5,13 +5,12 @@ the harness in this directory; reproduce with the commands in [README.md](README
 
 ## TL;DR
 
-1. **Speed: TGraph wins big on construction and cheap ops, but loses on heavy
-   algorithms.** Building the graph from IFC is **15× faster** (123.5 s → 8.0 s) and
-   enumeration/traversal ops are **70–2000× faster**. **But** for O(V·E) algorithms
-   like betweenness centrality the result *reverses* — legacy finished in 116 s while
-   TGraph **timed out (>600 s)**, because TGraph builds a 4× larger graph (see #2).
-   The vendor's headline holds for cheap ops; it does not for centrality at this graph
-   size.
+1. **Speed: TGraph wins, decisively.** Building the graph from IFC is **15–29× faster**
+   (e.g. Mechanical 569 s → 19.5 s) and ops are **70–2000× faster**. On the **same-size**
+   structural graph TGraph beats legacy on *every* op including betweenness (42 s vs
+   60 s). The only place TGraph runs slower is heavy O(V·E) ops on **MEP** models — and
+   that's purely because TGraph builds a 4–6× larger graph there (fidelity confound, #2),
+   not a slow algorithm.
 2. **Fidelity is DISCIPLINE-DEPENDENT.** For **Structural (S2)** the two `ByIFCFile`
    implementations build the *identical* graph (vtx/edge Jaccard **1.0**) — TGraph is a
    true drop-in, 23× faster for free. For **Electrical (E1)** TGraph builds ~4× the
@@ -48,16 +47,19 @@ Peak RSS for the whole run: ~828 MB. Note the construction speedup (15×) is the
 that dominates the **ingest** wall-clock — the per-op speedups matter for interactive
 Graph-Studio queries.
 
-### Important counter-finding: TGraph is not faster for heavy O(V·E) algorithms
+### Nuance: heavy O(V·E) ops are gated by graph SIZE, not the engine
 
-The 70–2000× speedups are for **cheap enumeration/traversal** ops (vertices, edges,
-degree, shortest-path, bridges, cut-vertices). For an **O(V·E) algorithm like
-betweenness centrality, the result reverses**: legacy `Graph` finished in 116 s on its
-6 724-node graph, but `TGraph` **timed out (>600 s)** on the 26 832-node graph it builds
-from the same IFC. This is the fidelity gap biting back — TGraph's per-op efficiency
-cannot offset running a quadratic-ish algorithm on a graph 4× larger. For ingest scripts
-that compute centrality (`GraphCentrality`, `GraphCentrality`-derived), TGraph may be a
-**net regression** unless the graph is pruned first.
+TGraph's per-op algorithms are faster **even for betweenness** — proven on the
+**same-size** structural graph (S2, where both engines build the identical 6 723-node
+graph): **TGraph betweenness 42.1 s vs legacy 59.6 s** (1.4× faster). The apparent
+"regression" on Electrical (E1: legacy 116 s vs TGraph **timeout >600 s**) is **purely
+the fidelity confound** — TGraph ran betweenness on a 4× larger graph, and O(V·E)
+scales with size. So:
+
+- where fidelity = 1.0 (structural), TGraph is faster on **every** op including betweenness;
+- on MEP, TGraph's 4–6× larger graph makes O(V·E) ops (betweenness) slower in absolute
+  terms despite the faster per-node algorithm — prune/aggregate the MEP graph first, or
+  skip global betweenness on raw MEP graphs.
 
 ## Fidelity — DISCIPLINE-DEPENDENT (the key nuance)
 
