@@ -57,6 +57,19 @@ appended. Newest insights also feed [FINDINGS.md](FINDINGS.md).
     each model's JSON + rewrites the rolling summary after every model so nothing is
     lost if a later heavy model hangs / OOMs / is killed.
 
+## Memory measurement
+
+18. **The per-model `rss_mb` in a matrix run is NOT per-engine and NOT per-model.**
+    `resource.getrusage().ru_maxrss` is the **process** peak and monotonic, so in a
+    single-process multi-model run each model's value is the *cumulative* peak so far,
+    and within a model it includes **both graphs + the NetworkX copy + numpy/scipy
+    baseline**. It cannot separate TGraph from Graph RAM. To compare engine memory, use
+    `--mem-probe graph|tgraph` (build ONE engine in a fresh process; reports peak −
+    baseline = that graph's footprint, and approx bytes/vertex). Run one container per
+    engine. _Design expectation: TGraph (Python dict records) is lighter per node than
+    legacy Graph (OCCT/Topologic C++ shape wrappers), but builds 4–6× more nodes on MEP,
+    so absolute footprint is discipline-dependent — measure, don't assume._
+
 ## Environment
 
 15. **Host has `python3`, not `python`** (the eval *container* has `python`). Use
