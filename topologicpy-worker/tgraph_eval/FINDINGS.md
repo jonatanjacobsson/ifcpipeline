@@ -40,6 +40,8 @@ downstream Graph-Studio expectations against the new graph. Budget the migration
 | Bridges | > 90 s (timeout) | 0.131 s | > 690× |
 | Cut vertices | 54.57 s | 0.026 s | 2071× |
 | **Betweenness centrality** | **116.2 s** (6 724 nodes) | **> 600 s — timeout** (26 832 nodes) | **TGraph SLOWER** |
+| Closeness centrality | 31.6 s | 32.2 s | ~parity (TGraph ~4× more efficient per node) |
+| Community (louvain) | 76.7 s | 4.2 s | 18× |
 
 Peak RSS for the whole run: ~828 MB. Note the construction speedup (15×) is the one
 that dominates the **ingest** wall-clock — the per-op speedups matter for interactive
@@ -85,9 +87,11 @@ finding for a migration decision — the speed is free, the graph semantics are 
 |---|---|
 | Degree | Pearson r = **0.98** (Graph vs TGraph); max abs Δ = 517 on a hub node (expected — different connectivity) |
 | Shortest-path hops | NetworkX = 4, TGraph = 4 ✓ (legacy returned None — the connected endpoint pair chosen from the TGraph/NX graph isn't connected in the smaller legacy graph) |
-| Betweenness / closeness | _stage-2 run in progress; cross-checked against `nx.betweenness_centrality` / `nx.closeness_centrality`_ |
+| **Closeness** | **TGraph vs NetworkX r = 1.0** (numerically identical). Graph vs TGraph r = 0.27 — but that low number is the *fidelity gap* (different graphs), not an error: on the **same** graph TGraph matches the oracle exactly, so it is the more NetworkX-faithful engine; the legacy values are the outliers. |
+| Betweenness | not measurable — TGraph *and* NetworkX both timed out (>600 s) on the 26 832-node graph; only legacy (smaller graph) completed |
 
-TGraph's algorithms agree with the independent NetworkX oracle where they complete.
+TGraph's algorithms agree with the independent NetworkX oracle where they complete
+(closeness r = 1.0). **This is an accuracy point in TGraph's favour**, not just speed.
 Caveat: betweenness/closeness are O(V·E) in pure Python for *all three* engines, and on
 the 26 832-node TGraph they are slow — TGraph's per-op efficiency does not rescue an
 O(V·E) algorithm on a 4× larger graph.
