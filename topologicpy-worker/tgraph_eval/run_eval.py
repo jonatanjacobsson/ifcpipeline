@@ -81,6 +81,44 @@ def probe(path: str) -> int:
     return 0
 
 
+def mem_probe(path: str, engine: str) -> int:
+    """Build ONLY one engine's graph in this fresh process and report peak RSS.
+
+    Run in a dedicated container per engine to isolate per-engine memory cleanly:
+    the process holds exactly one graph (plus the interpreter + topologicpy/numpy
+    baseline), so peak_rss after - before is that engine's graph footprint. This
+    is the correct way to compare TGraph vs Graph RAM (the normal run holds both
+    graphs + NetworkX at once, so its process RSS cannot separate them).
+    """
+    from tgraph_eval.bench_core import LegacyAdapter, TGraphAdapter, peak_rss_mb
+    import time
+
+    base = peak_rss_mb()
+    _print(f"topologicpy {bench_core._tpy_version()} | engine={engine} | model={path}")
+    _print(f"baseline RSS (interpreter + libs): {base:.1f} MB")
+
+    t0 = time.perf_counter()
+    if engine in ("graph", "legacy"):
+        g = LegacyAdapter.build(path)
+        order, size = LegacyAdapter.order(g), LegacyAdapter.size(g)
+    elif engine in ("tgraph", "t"):
+        g = TGraphAdapter.build(path)
+        from topologicpy.TGraph import TGraph
+        order, size = TGraph.Order(g), TGraph.Size(g)
+    else:
+        _print(f"unknown engine '{engine}' (use graph|tgraph)")
+        return 2
+    build_s = time.perf_counter() - t0
+
+    peak = peak_rss_mb()
+    _print(f"built {engine}: |V|={order} |E|={size} in {build_s:.1f}s")
+    _print(f"peak RSS after build: {peak:.1f} MB")
+    _print(f"graph footprint (peak - baseline): {peak - base:.1f} MB")
+    _print(f"bytes/vertex (approx): {((peak - base) * 1024 * 1024 / order) if order else 0:.0f}")
+    _print("MEMPROBE_OK")
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # reporting
 # --------------------------------------------------------------------------- #
@@ -236,6 +274,8 @@ def main(argv=None) -> int:
     p.add_argument("--full", action="store_true", help="curated non-heavy matrix")
     p.add_argument("--heavy", action="store_true", help="include 125/142 MB models")
     p.add_argument("--probe", action="store_true", help="verify adapters on the smoke model and exit")
+    p.add_argument("--mem-probe", default="", choices=["", "graph", "tgraph"],
+                   help="build ONLY this engine's graph and report peak RSS (use --models for the model)")
     p.add_argument("--models", default="", help="comma list of model keys (overrides smoke/full/heavy)")
     p.add_argument("--ops", default="", help="comma list of ops (default: all)")
     p.add_argument("--repeats", type=int, default=1, help="repeats per op (median reported)")
@@ -247,6 +287,10 @@ def main(argv=None) -> int:
 
     if args.probe:
         return probe(models.by_key(models.SMOKE_KEY).path)
+
+    if args.mem_probe:
+        mkey = (args.models.split(",")[0].strip() or models.SMOKE_KEY)
+        return mem_probe(models.by_key(mkey).path, args.mem_probe)
 
     keys = [k.strip() for k in args.models.split(",") if k.strip()] or None
     ops = [o.strip() for o in args.ops.split(",") if o.strip()] or list(bench_core.DEFAULT_OPS)
