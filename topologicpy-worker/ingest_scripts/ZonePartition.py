@@ -35,6 +35,7 @@ class Ingester(_Base):
         log: logging.Logger,
         method: str = "community",
         num_partitions: int = 0,
+        max_zone_members: int = 100,
     ):
         """Partition the building graph into zones using community detection.
 
@@ -44,10 +45,15 @@ class Ingester(_Base):
 
         :param method: Partitioning algorithm: community (Louvain), edge_betweenness, or fiedler.
         :param num_partitions: Target number of partitions (0 = auto-detect optimal).
+        :param max_zone_members: Zones with more members than this emit a star to a
+            zone anchor (O(n) relationships) instead of all-pairs (O(n^2)). On the
+            larger TGraph (0.9.50) graphs a single big community could otherwise emit
+            hundreds of thousands of same_zone edges and overwhelm downstream ingest.
         """
         super().__init__(ifc_files, log)
         self.method = method
         self.num_partitions = num_partitions
+        self.max_zone_members = max_zone_members
 
     def extract(self) -> None:
         if not HAS_TOPOLOGICPY:
@@ -100,21 +106,33 @@ class Ingester(_Base):
                 self.log.info("ZonePartition: found %d partitions", total_partitions)
 
                 for zone_id, members in partition_groups.items():
-                    for i, m1 in enumerate(members):
-                        for m2 in members[i + 1:]:
-                            self._relationships.append(Relationship(
-                                subject_global_id=m1,
-                                object_global_id=m2,
-                                relationship_family="grouping",
-                                relationship_type="same_zone",
-                                confidence=0.8,
-                                source_kind="topologic_ingest_ZonePartition",
-                                evidence={
-                                    "zone_id": zone_id,
-                                    "method": self.method,
-                                    "source_file": ifc_path.name,
-                                },
-                            ))
+                    star = len(members) > self.max_zone_members
+                    if star:
+                        # Bound the O(n^2) explosion on large communities: link every
+                        # member to a single stable anchor instead of all-pairs.
+                        anchor = members[0]
+                        pairs = ((anchor, m) for m in members[1:])
+                    else:
+                        pairs = (
+                            (members[i], m2)
+                            for i in range(len(members))
+                            for m2 in members[i + 1:]
+                        )
+                    for m1, m2 in pairs:
+                        self._relationships.append(Relationship(
+                            subject_global_id=m1,
+                            object_global_id=m2,
+                            relationship_family="grouping",
+                            relationship_type="same_zone",
+                            confidence=0.8,
+                            source_kind="topologic_ingest_ZonePartition",
+                            evidence={
+                                "zone_id": zone_id,
+                                "method": self.method,
+                                "zone_topology": "star" if star else "clique",
+                                "source_file": ifc_path.name,
+                            },
+                        ))
 
             except Exception as exc:
                 self.log.error("ZonePartition: failed for %s: %s", ifc_path.name, exc)
