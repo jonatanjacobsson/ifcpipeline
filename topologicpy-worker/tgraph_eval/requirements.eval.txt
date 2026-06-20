@@ -1,0 +1,6 @@
+# Extra dependencies for the TGraph evaluation harness.
+# Installed on TOP of the worker's requirements.txt (which already pins
+# topologicpy>=0.9.50 and ifcopenshell==0.8.4 on this branch).
+
+networkx>=3.0          # independent oracle + TGraph.NetworkXGraph backend
+python-igraph>=0.11    # TGraph.CommunityPartition(algorithm="louvain") backend
