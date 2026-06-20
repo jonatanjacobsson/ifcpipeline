@@ -74,12 +74,13 @@ appended. Newest insights also feed [FINDINGS.md](FINDINGS.md).
 
 ## Scalability limits found on large graphs
 
-19. **TGraph `Bridges` / `CutVertices` error on large graphs** (A1 Architecture,
-    89 756 nodes → `tgraph error`, almost certainly `RecursionError`: both use a recursive
-    DFS, Python's default limit is ~1000). They worked on E1 (26 832 nodes). So TGraph's
-    articulation/bridge finders are **not safe on big decomposed graphs** without raising
-    the recursion limit or an iterative rewrite. Confirm the exact exception in the
-    model's JSON `errors[]`.
+19. **TGraph `Bridges` / `CutVertices` crash on large graphs — CONFIRMED
+    `RecursionError: maximum recursion depth exceeded`** (A1 Architecture, 89 756 nodes).
+    Both use a recursive DFS and Python's default limit is ~1000. They worked on E1
+    (26 832 nodes) — so it's graph-depth-dependent. TGraph's articulation/bridge finders
+    are **not safe on big decomposed graphs** without `sys.setrecursionlimit()` + a larger
+    thread stack, or an iterative rewrite. (The legacy `Graph` equivalents are slow but
+    don't crash.) Directly relevant to ingest scripts `BridgesAndCuts` on MEP/architecture.
 20. **Legacy ops overrun the per-op SIGALRM timeout** when stuck in native/C calls:
     A1 legacy `cut_vertices` ran **255 s** and `community` **395 s** despite a 180 s cap.
     The wall-clock budget is best-effort, not a hard kill (see #11). For a hard cap you'd
