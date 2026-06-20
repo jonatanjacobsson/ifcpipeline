@@ -12,11 +12,12 @@ the harness in this directory; reproduce with the commands in [README.md](README
    TGraph **timed out (>600 s)**, because TGraph builds a 4× larger graph (see #2).
    The vendor's headline holds for cheap ops; it does not for centrality at this graph
    size.
-2. **Fidelity: TGraph is NOT a drop-in.** With *identical* import parameters,
-   `TGraph.ByIFCFile` and `Graph.ByIFCFile` build **materially different graphs**
-   (6 724 vs 26 832 vertices; vertex Jaccard **0.25**, edge Jaccard **0.52** on IFC
-   GlobalId). Swapping the ingest engine will change *which* nodes/edges and derived
-   metrics (cut-vertices, betweenness) the pipeline produces.
+2. **Fidelity is DISCIPLINE-DEPENDENT.** For **Structural (S2)** the two `ByIFCFile`
+   implementations build the *identical* graph (vtx/edge Jaccard **1.0**) — TGraph is a
+   true drop-in, 23× faster for free. For **Electrical (E1)** TGraph builds ~4× the
+   vertices (Jaccard **0.25**) — MEP/distribution models carry nested elements TGraph
+   decomposes differently. So migration risk is per-discipline, not a blanket "no". The
+   full-matrix fidelity table is the map of which disciplines are drop-in.
 3. **0.9.50 is a breaking release for the legacy `Graph` API itself** — independent
    of TGraph. The worker's ingest scripts **do not run on 0.9.50 unchanged.**
 4. **Accuracy (where comparable) is good.** Degree correlates r = 0.98 vs the legacy
@@ -58,23 +59,24 @@ cannot offset running a quadratic-ish algorithm on a graph 4× larger. For inges
 that compute centrality (`GraphCentrality`, `GraphCentrality`-derived), TGraph may be a
 **net regression** unless the graph is pruned first.
 
-## Fidelity — the important caveat
+## Fidelity — DISCIPLINE-DEPENDENT (the key nuance)
 
-Same params (`importMode="topology"`, `dictionaryMode="basic"`) on both engines:
+Same params (`importMode="topology"`, `dictionaryMode="basic"`) on both engines. The
+fidelity gap is **not uniform** — it depends entirely on the model's content:
 
-| | legacy `Graph` | `TGraph` |
-|---|---|---|
-| vertices (\|V\|) | 6 724 | 26 832 |
-| edges (\|E\|) | 11 003 | 18 106 |
-| vertex set Jaccard (on IFC GlobalId) | — | **0.25** |
-| edge set Jaccard | — | **0.52** |
-| cut-vertices found | 257 | 2 132 (Jaccard 0.12) |
+| Model | Disc. | \|V\| Graph / TGraph | \|E\| Graph / TGraph | vtx Jaccard | edge Jaccard |
+|---|---|---|---|---|---|
+| E1 | Electrical | 6 724 / **26 832** | 11 003 / 18 106 | **0.25** | 0.52 |
+| S2 | Structural | 6 723 / **6 723** | 10 886 / 10 886 | **1.00** | **1.00** |
+| _… more from the full-matrix run …_ | | | | | |
 
-TGraph builds ~4× the vertices. The two `ByIFCFile` implementations interpret the IFC
-model differently (TGraph appears to decompose element topology into many more graph
-nodes). **Consequence:** the ingest output (elements + relationships, and any centrality
-attached to them) will not match the current pipeline. This is the single most important
-finding for a migration decision — the speed is free, the graph semantics are not.
+**This is the single most important migration insight.** For **structural** the two
+`ByIFCFile` implementations build the *identical* graph (Jaccard 1.0) — TGraph is a true
+drop-in there, 23× faster for free. For **electrical** TGraph builds ~4× the vertices
+(Jaccard 0.25) — almost certainly because MEP/distribution models carry nested elements
+(ports, sub-parts) that TGraph decomposes into graph nodes and the legacy `Graph` does
+not. So the migration risk is **per-discipline**: drop-in for some, a re-baseline for
+others. The full-matrix table above tells you which is which.
 
 > Open lever: `ByIFCFile` exposes `importMode` ("topology"/"geometry"/"triples"/
 > "semantic") and `dictionaryMode`. A follow-up should sweep these to see whether any

@@ -26,9 +26,11 @@ appended. Newest insights also feed [FINDINGS.md](FINDINGS.md).
 
 ## Fidelity / semantics
 
-7. **`TGraph.ByIFCFile` builds ~4× more vertices than `Graph.ByIFCFile`** on identical
-   params (E1: 6 724 vs 26 832). vtx Jaccard 0.25 / edge Jaccard 0.52 on GlobalId. The
-   two implementations interpret the IFC model differently — TGraph is NOT a drop-in.
+7. **The TGraph-vs-Graph fidelity gap is DISCIPLINE-DEPENDENT** — do not generalize from
+   one model. E1 (Electrical): TGraph builds 4× the vertices (Jaccard 0.25). S2
+   (Structural): **identical** graphs (Jaccard 1.0). So TGraph is a true drop-in for some
+   disciplines and a re-baseline for others (MEP/electrical with nested elements). Always
+   check fidelity per discipline before assuming equivalence.
 8. **The 4× larger graph makes O(V·E) algorithms slower on TGraph**, not faster:
    betweenness — legacy 116 s vs TGraph **timeout >600 s**. (But closeness was ~parity:
    legacy 31.6 s vs TGraph 32.2 s — TGraph's closeness is ~4× more efficient per node,
