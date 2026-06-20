@@ -81,6 +81,20 @@ class Ingester(_Base):
                 vertices = Graph.Vertices(graph)
                 self.log.info("GraphCentrality_Legacy: %d vertices", len(vertices))
 
+                # O(E) degree map (the shipped per-vertex Graph.VertexDegree is O(V*E)
+                # and hangs on large graphs; same degree value, computed once).
+                degrees = {}
+                for edge in Graph.Edges(graph):
+                    sv, ev = Edge.StartVertex(edge), Edge.EndVertex(edge)
+                    sd = Topology.Dictionary(sv) if sv else None
+                    ed = Topology.Dictionary(ev) if ev else None
+                    s = Dictionary.ValueAtKey(sd, GID_KEY) if sd else None
+                    t = Dictionary.ValueAtKey(ed, GID_KEY) if ed else None
+                    if s:
+                        degrees[s] = degrees.get(s, 0) + 1
+                    if t:
+                        degrees[t] = degrees.get(t, 0) + 1
+
                 for vertex in vertices:
                     d = Topology.Dictionary(vertex)
                     if not d:
@@ -89,7 +103,7 @@ class Ingester(_Base):
                     if not v_id:
                         continue
 
-                    m = {"degree": Graph.VertexDegree(graph, vertex)}
+                    m = {"degree": degrees.get(v_id, 0)}
                     if self.metric in ("betweenness", "all"):
                         m["betweenness_centrality"] = Dictionary.ValueAtKey(d, "betweenness_centrality") or 0
                     if self.metric in ("closeness", "all"):

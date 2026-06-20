@@ -86,23 +86,26 @@ class Ingester(_Base):
                     )
 
                 records = TGraph.Vertices(graph)
-                idx2gid = {}
+                idx2gid = {r.get("index"): (r.get("dictionary") or {}).get(GID_KEY) for r in records}
                 self.log.info("GraphCentrality_TGraph: %d vertices", len(records))
+
+                # O(E) edge-incidence degree (same definition as the legacy port).
+                degrees = {}
+                for e in _edge_records(graph):
+                    s = idx2gid.get(e.get("src"))
+                    t = idx2gid.get(e.get("dst"))
+                    if s:
+                        degrees[s] = degrees.get(s, 0) + 1
+                    if t:
+                        degrees[t] = degrees.get(t, 0) + 1
 
                 for r in records:
                     d = r.get("dictionary") or {}
-                    idx = r.get("index")
                     v_id = d.get(GID_KEY) or ""
-                    if idx is not None:
-                        idx2gid[idx] = v_id
                     if not v_id:
                         continue
 
-                    m = {}
-                    try:
-                        m["degree"] = TGraph.Degree(graph, idx, mode="all")
-                    except Exception:
-                        m["degree"] = TGraph.VertexDegree(graph, idx)
+                    m = {"degree": degrees.get(v_id, 0)}
                     if self.metric in ("betweenness", "all"):
                         m["betweenness_centrality"] = d.get("betweenness_centrality", 0)
                     if self.metric in ("closeness", "all"):
