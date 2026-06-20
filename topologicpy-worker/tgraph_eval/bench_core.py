@@ -529,8 +529,13 @@ def _speedup(legacy: Dict[str, Any], tgraph: Dict[str, Any]) -> Optional[float]:
 
 
 def run_model(model, ops: List[str], repeats: int = 1, timeout: Optional[float] = 600.0,
-              log=print) -> Dict[str, Any]:
-    """Build both graphs once, then benchmark each op. Returns a structured report."""
+              build_timeout: Optional[float] = 1800.0, log=print) -> Dict[str, Any]:
+    """Build both graphs once, then benchmark each op. Returns a structured report.
+
+    `build_timeout` bounds the (potentially very slow) ByIFCFile construction
+    separately from the per-op `timeout`, so a heavy model that takes >timeout to
+    build is not silently skipped.
+    """
     rep: Dict[str, Any] = {
         "model": {"key": model.key, "discipline": model.discipline,
                   "path": model.path, "size_mb": model.size_mb},
@@ -542,11 +547,11 @@ def run_model(model, ops: List[str], repeats: int = 1, timeout: Optional[float] 
         "rss_mb": None,
     }
 
-    # ---- construction ----
+    # ---- construction (bounded by build_timeout, not the per-op timeout) ----
     log(f"[{model.key}] building legacy Graph ...")
-    lt, g = measure(lambda: LegacyAdapter.build(model.path), repeats=1, timeout=timeout)
+    lt, g = measure(lambda: LegacyAdapter.build(model.path), repeats=1, timeout=build_timeout)
     log(f"[{model.key}] building TGraph ...")
-    tt, tg = measure(lambda: TGraphAdapter.build(model.path), repeats=1, timeout=timeout)
+    tt, tg = measure(lambda: TGraphAdapter.build(model.path), repeats=1, timeout=build_timeout)
     rep["construct"] = {
         "legacy": lt, "tgraph": tt, "speedup": _speedup(lt, tt),
     }

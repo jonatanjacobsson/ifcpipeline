@@ -5,10 +5,13 @@ the harness in this directory; reproduce with the commands in [README.md](README
 
 ## TL;DR
 
-1. **Speed: TGraph is a decisive win.** Building the graph from IFC is **15× faster**
-   (123.5 s → 8.0 s) and every graph operation is **70–2000× faster** than the
-   legacy `Graph`. This is the headline the vendor advertises, and it reproduces on
-   a real federated IFC model.
+1. **Speed: TGraph wins big on construction and cheap ops, but loses on heavy
+   algorithms.** Building the graph from IFC is **15× faster** (123.5 s → 8.0 s) and
+   enumeration/traversal ops are **70–2000× faster**. **But** for O(V·E) algorithms
+   like betweenness centrality the result *reverses* — legacy finished in 116 s while
+   TGraph **timed out (>600 s)**, because TGraph builds a 4× larger graph (see #2).
+   The vendor's headline holds for cheap ops; it does not for centrality at this graph
+   size.
 2. **Fidelity: TGraph is NOT a drop-in.** With *identical* import parameters,
    `TGraph.ByIFCFile` and `Graph.ByIFCFile` build **materially different graphs**
    (6 724 vs 26 832 vertices; vertex Jaccard **0.25**, edge Jaccard **0.52** on IFC
@@ -36,11 +39,22 @@ downstream Graph-Studio expectations against the new graph. Budget the migration
 | Shortest path | 24.43 s | 0.177 s | 138× |
 | Bridges | > 90 s (timeout) | 0.131 s | > 690× |
 | Cut vertices | 54.57 s | 0.026 s | 2071× |
-| Betweenness / closeness | _stage-2 run in progress_ | | |
+| **Betweenness centrality** | **116.2 s** (6 724 nodes) | **> 600 s — timeout** (26 832 nodes) | **TGraph SLOWER** |
 
 Peak RSS for the whole run: ~828 MB. Note the construction speedup (15×) is the one
 that dominates the **ingest** wall-clock — the per-op speedups matter for interactive
 Graph-Studio queries.
+
+### Important counter-finding: TGraph is not faster for heavy O(V·E) algorithms
+
+The 70–2000× speedups are for **cheap enumeration/traversal** ops (vertices, edges,
+degree, shortest-path, bridges, cut-vertices). For an **O(V·E) algorithm like
+betweenness centrality, the result reverses**: legacy `Graph` finished in 116 s on its
+6 724-node graph, but `TGraph` **timed out (>600 s)** on the 26 832-node graph it builds
+from the same IFC. This is the fidelity gap biting back — TGraph's per-op efficiency
+cannot offset running a quadratic-ish algorithm on a graph 4× larger. For ingest scripts
+that compute centrality (`GraphCentrality`, `GraphCentrality`-derived), TGraph may be a
+**net regression** unless the graph is pruned first.
 
 ## Fidelity — the important caveat
 
