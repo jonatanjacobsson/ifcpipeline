@@ -143,9 +143,24 @@ docker run $COMMON --entrypoint python topologicpy-tgraph-eval:0.9.50 \
 
 ## Files
 
+- **`FINDINGS.md`** — the written evaluation (read this first).
+- **`GOTCHAS.md`** — running log of 0.9.50 API breaks + harness pitfalls.
 - `bench_core.py` — adapters + measurement engine (timeout-guarded).
 - `models.py` — discipline×size matrix.
-- `run_eval.py` — CLI driver, `--probe`, report writers.
-- `GraphCentrality_TGraph.py` — TGraph port of `ingest_scripts/GraphCentrality.py`.
+- `run_eval.py` — CLI driver: `--probe`, `--smoke/--full/--heavy`,
+  `--mem-probe graph|tgraph` (per-engine RAM), report writers.
+- `GraphCentrality_TGraph.py` / `GraphCentrality_Legacy.py` — TGraph and
+  0.9.50-compatible legacy ports of `ingest_scripts/GraphCentrality.py`.
 - `ingest_fidelity.py` — end-to-end legacy-vs-TGraph ingest diff.
 - `Dockerfile.eval`, `requirements.eval.txt` — the isolated image.
+
+## Per-engine RAM probe
+
+The normal run's `rss_mb` is the process-cumulative peak (both graphs + NetworkX),
+so it can't separate the engines. For a clean comparison build ONE engine in a
+fresh process:
+
+```bash
+docker run $COMMON --mem-probe graph  --models S2   # legacy footprint
+docker run $COMMON --mem-probe tgraph --models S2   # TGraph footprint (same graph)
+```
