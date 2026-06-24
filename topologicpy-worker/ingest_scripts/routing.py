@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from pathlib import PurePath
 
 ARCHITECTURE_SCRIPTS = ["ExtractSpaces", "SpatialContainment", "SpaceAdjacency", "WallHosting"]
+# Federated cross-discipline geometric relations (penetrates/intersects/sits_in/mounted_on).
+# Run on federated bundles (multiple discipline models in one revision), not single files.
+FEDERATED_SCRIPTS = ["FederatedRelationships"]
 STRUCTURAL_SCRIPTS = ["StructuralConnectivity"]
 MEP_SCRIPTS = ["MepTopology"]
 
