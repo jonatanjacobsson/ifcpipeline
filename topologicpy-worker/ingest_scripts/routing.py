@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePath
 
-ARCHITECTURE_SCRIPTS = ["ExtractSpaces", "SpatialContainment", "SpaceAdjacency"]
+ARCHITECTURE_SCRIPTS = ["ExtractSpaces", "SpatialContainment", "SpaceAdjacency", "WallHosting"]
 STRUCTURAL_SCRIPTS = ["StructuralConnectivity"]
 MEP_SCRIPTS = ["MepTopology"]
 
