@@ -5,10 +5,15 @@ ifcopenshell==0.8.4
 # verified during this worker spike.
 # NOTE (eval/tgraph-0.9.50 branch): bumped to >=0.9.50 to bring in the new
 # Python-native TGraph data structure. See topologicpy-worker/tgraph_eval/.
-topologicpy>=0.9.50
+# NOTE (0.9.52): adds the KnowledgeGraph module (RDF/Turtle export, RDFS+BOT
+# reasoning, MergeGraphs federation) used by ingest_scripts/KnowledgeGraphExport.
+topologicpy>=0.9.52
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
 # (algorithm="louvain"), used by ZonePartition. topologicpy does not pull it in.
 python-igraph>=0.11
+# Optional dep enabled for KnowledgeGraphExport: rdflib is the RDF engine behind
+# KnowledgeGraph (TurtleString/Infer/Query). topologicpy does not pull it in.
+rdflib>=7,<8
 tqdm>=4.68.1
 
 # Queue and data validation
