@@ -41,13 +41,18 @@ WALL_TYPES = {"IfcWall", "IfcWallStandardCase", "IfcWallElementedCase"}
 HOSTED_BY_TYPE = "hosted_by"  # IfcDoor --> IfcWall (the wall that hosts the door)
 
 
-def host_wall_global_id(door) -> Optional[str]:
-    """Resolve the GlobalId of the wall a door is hosted in, or ``None``.
+def host_element_of(door) -> Optional[Tuple[str, str]]:
+    """Resolve ``(globalId, ifcClass)`` of the element whose opening the door fills, or None.
 
     Walks the explicit IFC chain ``door.FillsVoids → IfcOpeningElement →
-    (VoidsElements / HasOpenings) → RelatingBuildingElement`` and accepts only walls.
-    Schema-tolerant on the inverse-attribute names that differ across IFC2X3 / IFC4.
+    (VoidsElements / HasOpenings) → RelatingBuildingElement``. **Prefers a wall** when the
+    opening is voided into one; otherwise returns the actual host (e.g. an ``IfcCovering`` an
+    opening was cut into, a curtain wall, a slab). Every door with an explicit void host
+    therefore resolves — ``WALL_TYPES`` is only a *preference*, not a filter (a too-narrow
+    filter dropped doors hosted in non-wall elements). Schema-tolerant on inverse-attribute
+    names across IFC2X3 / IFC4. Returns None only when the door has no void host at all.
     """
+    fallback: Optional[Tuple[str, str]] = None
     for rel in getattr(door, "FillsVoids", None) or []:
         opening = getattr(rel, "RelatedOpeningElement", None) or getattr(
             rel, "RelatingOpeningElement", None
@@ -63,16 +68,26 @@ def host_wall_global_id(door) -> Optional[str]:
             host = getattr(vrel, "RelatingBuildingElement", None) or getattr(
                 vrel, "RelatedBuildingElement", None
             )
-            if host and host.is_a() in WALL_TYPES:
-                return host.GlobalId
-    return None
+            if not host:
+                continue
+            if host.is_a() in WALL_TYPES:
+                return host.GlobalId, host.is_a()
+            if fallback is None:
+                fallback = (host.GlobalId, host.is_a())
+    return fallback
+
+
+def host_wall_global_id(door) -> Optional[str]:
+    """Backward-compat: the host GlobalId only when it is a wall (else None)."""
+    res = host_element_of(door)
+    return res[0] if res and res[1] in WALL_TYPES else None
 
 
 class Ingester(_Base):
     SCRIPT_NAME = "WallHosting"
     DESCRIPTION = (
-        "Extract door→wall hosting edges (hosted_by) from "
-        "IfcRelFillsElement/IfcRelVoidsElement"
+        "Extract door→host hosting edges (hosted_by, prefers wall) from "
+        "IfcRelFillsElement/IfcRelVoidsElement; host class recorded in evidence"
     )
 
     def __init__(
@@ -97,6 +112,8 @@ class Ingester(_Base):
         seen: Set[Tuple[str, str]] = set()
         doors_total = 0
         hosted = 0
+        hosted_in_wall = 0
+        hosted_in_non_wall = 0
         unresolved = 0
 
         for ifc_path in self.ifc_files:
@@ -108,32 +125,40 @@ class Ingester(_Base):
                 if not door_id:
                     continue
                 doors_total += 1
-                wall_id = host_wall_global_id(door)
-                if not wall_id:
+                res = host_element_of(door)
+                if not res:
                     unresolved += 1
                     continue
-                pair = (door_id, wall_id)
+                host_id, host_class = res
+                pair = (door_id, host_id)
                 if pair in seen:
                     continue
                 seen.add(pair)
+                is_wall = host_class in WALL_TYPES
                 self._relationships.append(Relationship(
                     subject_global_id=door_id,
-                    object_global_id=wall_id,
+                    object_global_id=host_id,
                     relationship_family="spatial",
                     relationship_type=HOSTED_BY_TYPE,
                     confidence=1.0,
                     source_kind="topologic_ingest_WallHosting",
                     evidence={
-                        "rule": "ifc_fills_voids_host_wall",
+                        "rule": "ifc_fills_voids_host",
                         "doorClass": door.is_a(),
+                        "hostClass": host_class,
+                        "isWall": is_wall,
                         "ifc": ifc_path.name,
                     },
                 ))
                 hosted += 1
+                hosted_in_wall += int(is_wall)
+                hosted_in_non_wall += int(not is_wall)
 
         self._summary = {
             "doors_total": doors_total,
             "hosted_doors": hosted,
+            "hosted_in_wall": hosted_in_wall,
+            "hosted_in_non_wall": hosted_in_non_wall,
             "unresolved_doors": unresolved,
             "duration_ms": int((time.time() - t0) * 1000),
         }
