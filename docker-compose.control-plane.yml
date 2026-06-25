@@ -139,7 +139,10 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 3G
+          # Filer + S3 + volume server in one process; the needle-map index and
+          # filer store grow with object count. Was pegged at ~98% of 3G, so
+          # raised to 5G (host has ~6G available headroom of 33G total).
+          memory: 5G
 
   # One-shot: wait for SeaweedFS, create the bucket + enable versioning.
   seaweedfs-setup:
