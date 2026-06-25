@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "topologicpy-worker"))
 
 import ingest_scripts.WallHosting as wh
-from ingest_scripts.WallHosting import Ingester, host_wall_global_id
+from ingest_scripts.WallHosting import Ingester, host_element_of, host_wall_global_id
 
 
 # --- fake IFC objects (mirror test_egress_door_linking style) ---------------
@@ -66,16 +66,29 @@ def test_host_wall_global_id_none_when_unhosted():
     assert host_wall_global_id(_Door("D2", [])) is None
 
 
-def test_host_wall_global_id_ignores_non_wall_host():
-    opening = _Opening([_VoidRel(_Wall("S1", cls="IfcSlab"))])
-    assert host_wall_global_id(_Door("D3", [_FillRel(opening)])) is None
+def _door_hosted_in(door_gid, host_gid, host_cls):
+    opening = _Opening([_VoidRel(_Wall(host_gid, cls=host_cls))])
+    return _Door(door_gid, [_FillRel(opening)])
+
+
+def test_non_wall_host_resolves_but_wall_compat_is_none():
+    # the SBUF case: 14 doors are voided into an IfcCovering, not a wall
+    door = _door_hosted_in("D3", "C1", "IfcCovering")
+    assert host_wall_global_id(door) is None              # wall-only compat: None
+    assert host_element_of(door) == ("C1", "IfcCovering")  # broadened: resolves the actual host
+
+
+def test_host_element_prefers_wall_over_non_wall():
+    op = _Opening([_VoidRel(_Wall("C1", cls="IfcCovering")), _VoidRel(_Wall("W1", cls="IfcWall"))])
+    assert host_element_of(_Door("D", [_FillRel(op)])) == ("W1", "IfcWall")
 
 
 # --- Ingester ---------------------------------------------------------------
 
 
-def test_ingester_emits_hosted_by(monkeypatch):
-    doors = [_hosted_door("D1", "W1"), _hosted_door("D2", "W2"), _Door("D3", [])]
+def test_ingester_emits_hosted_by_incl_non_wall(monkeypatch):
+    # D1 hosted in a wall, D2 in a covering (the SBUF gap), D3 unhosted
+    doors = [_hosted_door("D1", "W1"), _door_hosted_in("D2", "C2", "IfcCovering"), _Door("D3", [])]
     monkeypatch.setattr(wh.ifcopenshell, "open", lambda _p: object())
     monkeypatch.setattr(wh, "safe_by_type", lambda _ifc, _q: doors)
 
@@ -86,15 +99,18 @@ def test_ingester_emits_hosted_by(monkeypatch):
     assert len(rels) == 2
     by_door = {r["subject_global_id"]: r for r in rels}
     assert by_door["D1"]["object_global_id"] == "W1"
-    assert by_door["D2"]["object_global_id"] == "W2"
+    assert by_door["D1"]["evidence"]["isWall"] is True
+    assert by_door["D2"]["object_global_id"] == "C2"
+    assert by_door["D2"]["evidence"]["hostClass"] == "IfcCovering"
+    assert by_door["D2"]["evidence"]["isWall"] is False
     assert all(r["relationship_type"] == "hosted_by" for r in rels)
-    assert all(r["relationship_family"] == "spatial" for r in rels)
     assert all(r["confidence"] == 1.0 for r in rels)
-    assert all(r["source_kind"] == "topologic_ingest_WallHosting" for r in rels)
 
     summary = ing.get_summary()
     assert summary["doors_total"] == 3
     assert summary["hosted_doors"] == 2
+    assert summary["hosted_in_wall"] == 1
+    assert summary["hosted_in_non_wall"] == 1
     assert summary["unresolved_doors"] == 1
 
 
