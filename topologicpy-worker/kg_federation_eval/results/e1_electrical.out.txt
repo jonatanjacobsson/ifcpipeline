@@ -1,0 +1,18 @@
+models (3):
+  - E1-631-SM-Lightning.ifc 2.3 MB
+  - E1-632-SM-Power.ifc 1.9 MB
+  - E1-646-SM-Fire_alarm.ifc 1.8 MB
+
+=== SEMANTIC (KnowledgeGraph) ===
+  E1-631-SM-Lightning.ifc            vertices=5021 triples=101567 guid_iris=5014  (23.8s)
+  E1-632-SM-Power.ifc                vertices=3122 triples=63730 guid_iris=3115  (14.2s)
+  E1-646-SM-Fire_alarm.ifc           vertices=2946 triples=59663 guid_iris=2940  (13.4s)
+
+  merged triples: 162822   (sum of individuals: 224960  -> 62138 deduped)
+  cross-model shared GlobalIds: 2880
+  element<->element edges in merged graph: intra-model=13381  cross-model=717
+
+=== GEOMETRIC (FederatedRelationships) ===
+  cross-discipline relationships: 0  by_type={}  (1.9s)
+
+DONE
