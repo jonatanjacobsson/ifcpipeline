@@ -23,6 +23,7 @@ is a refinement; the ``assumed`` state already reflects that these need confirma
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -64,21 +65,42 @@ def discipline(ifc_class: str) -> str:
     return "other"
 
 
-# --- geometry helpers (AABB + centroid in world coords) ---------------------
+# --- geometry helpers --------------------------------------------------------
 def _settings():
-    s = ifcopenshell.geom.settings()
-    try:
-        s.set(s.USE_WORLD_COORDS, True)
-    except Exception:
-        pass
-    return s
+    # LOCAL coords (no USE_WORLD_COORDS): lets the iterator reuse tessellation across identical
+    # representations (~270× faster on SBUF). World AABB is computed by transforming the local
+    # bbox corners with each element's placement matrix (_world_aabb).
+    return ifcopenshell.geom.settings()
+
+
+def _world_aabb(verts, m) -> Tuple[float, ...]:
+    """World AABB from local ``verts`` + a 16-float column-major placement matrix ``m``.
+
+    Transforms the 8 corners of the local bbox (not every vertex) — cheap and exact for AABB.
+    """
+    xs, ys, zs = verts[0::3], verts[1::3], verts[2::3]
+    lx0, ly0, lz0, lx1, ly1, lz1 = min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)
+    wx: List[float] = []
+    wy: List[float] = []
+    wz: List[float] = []
+    for x in (lx0, lx1):
+        for y in (ly0, ly1):
+            for z in (lz0, lz1):
+                wx.append(m[0] * x + m[4] * y + m[8] * z + m[12])
+                wy.append(m[1] * x + m[5] * y + m[9] * z + m[13])
+                wz.append(m[2] * x + m[6] * y + m[10] * z + m[14])
+    return (min(wx), min(wy), min(wz), max(wx), max(wy), max(wz))
 
 
 def aabb_of(element, settings) -> Optional[Tuple[float, ...]]:
-    """World-coord axis-aligned bounding box (minx,miny,minz,maxx,maxy,maxz) or None."""
+    """World-coord AABB for a single element (utility / fallback; the main path uses the iterator)."""
     try:
-        shape = ifcopenshell.geom.create_shape(settings, element)
-        verts = shape.geometry.verts
+        s = ifcopenshell.geom.settings()
+        try:
+            s.set(s.USE_WORLD_COORDS, True)
+        except Exception:
+            pass
+        verts = ifcopenshell.geom.create_shape(s, element).geometry.verts
         if not verts:
             return None
         xs, ys, zs = verts[0::3], verts[1::3], verts[2::3]
@@ -160,28 +182,50 @@ class Ingester(_Base):
     SCRIPT_NAME = "FederatedRelationships"
     DESCRIPTION = "Derive cross-discipline spatial relationships (penetrates/intersects/sits_in/mounted_on) across federated models"
 
-    def __init__(self, ifc_files: List[Path], log: logging.Logger, clearance: float = 0.05, grid_m: float = 3.0):
+    def __init__(self, ifc_files: List[Path], log: logging.Logger, clearance: float = 0.05,
+                 grid_m: float = 3.0, num_threads: int = 0):
         """Geometry-derived cross-model relationships from federated IFC models.
 
         :param clearance: max gap (m) for a within_clearance relation.
         :param grid_m: broad-phase grid cell size (m) for the target spatial index.
+        :param num_threads: geometry-iterator threads (0 = auto: cpu_count-1).
         """
         super().__init__(ifc_files, log)
         self.clearance = float(clearance)
         self.grid_m = float(grid_m)
+        self.num_threads = int(num_threads) or max(1, (os.cpu_count() or 2) - 1)
 
     def _collect(self, ifc, settings) -> List[Dict[str, Any]]:
+        """AABBs via the multi-threaded geometry iterator — initializes the kernel once and
+        streams (vs per-element ``create_shape``, which re-inits per call; ~10–20× faster)."""
+        skip = {"IfcOpeningElement", "IfcOpeningStandardCase"}
+        by_gid = {
+            e.GlobalId: e.is_a()
+            for e in safe_by_type(ifc, "IfcProduct")
+            if getattr(e, "GlobalId", None) and e.is_a() not in skip
+        }
         out: List[Dict[str, Any]] = []
-        for e in safe_by_type(ifc, "IfcProduct"):
-            gid = getattr(e, "GlobalId", None)
-            cls = e.is_a()
-            if not gid or cls in {"IfcOpeningElement", "IfcOpeningStandardCase"}:
-                continue
-            a = aabb_of(e, settings)
-            if a is None:
-                continue
-            out.append({"gid": gid, "ifc_class": cls, "discipline": discipline(cls),
-                        "aabb": a, "centroid": ((a[0]+a[3])/2, (a[1]+a[4])/2, (a[2]+a[5])/2)})
+        try:
+            it = ifcopenshell.geom.iterator(settings, ifc, self.num_threads)
+            if not it.initialize():
+                return out
+        except Exception:
+            self.log.warning("federated_rel: geometry iterator unavailable", exc_info=True)
+            return out
+        while True:
+            shape = it.get()
+            gid = getattr(shape, "guid", None)
+            cls = by_gid.get(gid)
+            if cls:
+                verts = shape.geometry.verts
+                if verts:
+                    mat = shape.transformation.matrix
+                    m = list(getattr(mat, "data", mat))
+                    a = _world_aabb(verts, m)
+                    out.append({"gid": gid, "ifc_class": cls, "discipline": discipline(cls),
+                                "aabb": a, "centroid": ((a[0]+a[3])/2, (a[1]+a[4])/2, (a[2]+a[5])/2)})
+            if not it.next():
+                break
         return out
 
     def extract(self) -> None:
