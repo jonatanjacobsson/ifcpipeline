@@ -2877,6 +2877,59 @@ def _run_ingest_core(job_data: dict) -> dict:
             result["storage"] = "filesystem"
             result["output_path"] = out_path
 
+        # Optional side artifacts (e.g. RDF/Turtle from KnowledgeGraphExport).
+        # Additive: scripts that don't override get_artifacts() return [] and skip this.
+        try:
+            artifacts = ingester.get_artifacts() or []
+        except Exception:
+            logger.warning("ingest: get_artifacts() failed for %s", script_name, exc_info=True)
+            artifacts = []
+        if artifacts:
+            result_artifacts: List[dict] = []
+            for art in artifacts:
+                try:
+                    art_name, art_data, art_ctype = art
+                except (ValueError, TypeError):
+                    logger.warning("ingest: malformed artifact from %s: %r", script_name, art)
+                    continue
+                art_bytes = art_data.encode("utf-8") if isinstance(art_data, str) else art_data
+                if s3.is_enabled():
+                    art_key = f"output/topology/kg/{art_name}"
+                    art_local = os.path.join(tmpdir, art_name)
+                    with open(art_local, "wb") as f:
+                        f.write(art_bytes)
+                    try:
+                        art_audit = s3.upload_and_audit(
+                            art_local,
+                            key=art_key,
+                            operation=f"topologicpy_ingest_{script_name}_artifact",
+                            worker=WORKER_NAME,
+                            job_id=_current_job_id(),
+                            parents=[("input", key) for key in parent_keys],
+                        )
+                        result_artifacts.append({
+                            "key": art_key,
+                            "path": f"s3://{s3.bucket_name()}/{art_key}",
+                            "content_type": art_ctype,
+                            "bytes": len(art_bytes),
+                            "audit_id": art_audit.get("audit_id"),
+                            "sha256": art_audit.get("sha256"),
+                            "version_id": art_audit.get("version_id"),
+                        })
+                    except Exception as art_exc:
+                        logger.warning("ingest: artifact upload failed for %s: %s", art_name, art_exc)
+                else:
+                    art_dir = os.path.join(OUTPUT_DIR, "topology", "kg")
+                    os.makedirs(art_dir, exist_ok=True)
+                    art_path = os.path.join(art_dir, art_name)
+                    with open(art_path, "wb") as f:
+                        f.write(art_bytes)
+                    result_artifacts.append({
+                        "path": art_path, "content_type": art_ctype, "bytes": len(art_bytes),
+                    })
+            if result_artifacts:
+                result["artifacts"] = result_artifacts
+
         result["relationships"] = output_data["relationships"]
         result["elements"] = output_data["elements"]
 

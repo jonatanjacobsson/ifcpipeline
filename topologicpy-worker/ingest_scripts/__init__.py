@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,17 @@ class Ingester(ABC):
             "elements": self.get_elements(),
             "relationships": self.get_relationships(),
         }
+
+    def get_artifacts(self) -> List[Tuple[str, Any, str]]:
+        """Optional non-JSON side artifacts to persist alongside the relationships JSON.
+
+        Returns a list of ``(filename, data, content_type)`` tuples where ``data`` is
+        ``str`` or ``bytes``. Default: none. Scripts that emit a derived artifact —
+        e.g. ``KnowledgeGraphExport`` writing RDF/Turtle — override this. The worker
+        uploads each to ``output/topology/kg/<filename>`` with the same audit lineage
+        as the relationships JSON.
+        """
+        return []
 
 
 @dataclass
