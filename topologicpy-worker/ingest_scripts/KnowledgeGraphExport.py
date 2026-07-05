@@ -53,6 +53,55 @@ def _localname(uri: str) -> str:
     return s
 
 
+def _install_kg_speedups(KG) -> None:
+    """Memoize two pure-but-hot topologicpy KnowledgeGraph static helpers.
+
+    Profile (A1 export): ``KnowledgeGraph.Namespaces`` is called ~610k times (it
+    rebuilds the prefix dict from ``Ontology.NAMESPACES`` per triple term) and
+    ``KnowledgeGraph._rdflib`` ~780k times (it re-runs the rdflib imports).
+    ``Ontology.NAMESPACES`` is only mutated at topologicpy import time, so
+    ``Namespaces(extra)`` is pure in the *contents and order* of ``extra`` (prefix
+    order is visible in the TTL header); callers mutate the returned dict (e.g.
+    ``KnowledgeGraph.__init__`` keeps it as ``self._namespaces``), hence the
+    per-call copies. Idempotent; process-local (scripts run as isolated RQ jobs).
+    """
+    if getattr(KG, "_kg_export_speedups", False):
+        return
+
+    orig_ns = KG.Namespaces
+    ns_cache: Dict[Any, Dict[str, str]] = {}
+
+    def namespaces(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        if extra is not None and not isinstance(extra, dict):
+            return orig_ns(extra)
+        # tuple(...) keys preserve dict insertion order, unlike frozenset.
+        key = None if extra is None else tuple(extra.items())
+        try:
+            hit = ns_cache[key]
+        except TypeError:  # unhashable value in extra
+            return orig_ns(extra)
+        except KeyError:
+            if len(ns_cache) > 128:
+                ns_cache.clear()
+            hit = ns_cache[key] = orig_ns(extra)
+        return dict(hit)
+
+    orig_rd = KG._rdflib
+    rd_cache: List[dict] = []
+
+    def _rdflib(silent: bool = False):
+        if not rd_cache:
+            rd = orig_rd(silent=silent)
+            if rd is None:  # only cache success; rdflib is a hard dep here anyway
+                return None
+            rd_cache.append(rd)
+        return dict(rd_cache[0])
+
+    KG.Namespaces = staticmethod(namespaces)
+    KG._rdflib = staticmethod(_rdflib)
+    KG._kg_export_speedups = True
+
+
 class Ingester(_Base):
     SCRIPT_NAME = "KnowledgeGraphExport"
     DESCRIPTION = (
@@ -112,16 +161,6 @@ class Ingester(_Base):
         return n
 
     @staticmethod
-    def _triple_count(ttl: str) -> Optional[int]:
-        try:
-            import rdflib
-            rg = rdflib.Graph()
-            rg.parse(data=ttl, format="turtle")
-            return len(rg)
-        except Exception:
-            return None
-
-    @staticmethod
     def _prefixes(ttl: str) -> List[str]:
         out = []
         for line in ttl.splitlines():
@@ -134,13 +173,11 @@ class Ingester(_Base):
                 break
         return out
 
-    def _iri_to_guid(self, ttl: str) -> Dict[str, str]:
+    def _iri_to_guid(self, rg) -> Dict[str, str]:
         """Map each subject IRI to its GlobalId by reading the guid property triples."""
         mapping: Dict[str, str] = {}
         try:
             import rdflib
-            rg = rdflib.Graph()
-            rg.parse(data=ttl, format="turtle")
             for s, p, o in rg:
                 if _GUID_PRED.search(str(p)) and isinstance(o, rdflib.Literal):
                     mapping[str(s)] = str(o)
@@ -150,15 +187,21 @@ class Ingester(_Base):
 
     def _materialize_edges(self, ttl: str, source_kind: str) -> int:
         """Emit inferred element->element edges (both endpoints map to a GlobalId)."""
-        guid = self._iri_to_guid(ttl)
+        # Parse the TTL once and share the graph between the guid mapping and the
+        # edge scan (the sorted-TTL parse order keeps the output deterministic).
+        try:
+            import rdflib
+            rg = rdflib.Graph()
+            rg.parse(data=ttl, format="turtle")
+        except Exception:
+            self.log.warning("kg_export: edge materialization failed", exc_info=True)
+            return 0
+        guid = self._iri_to_guid(rg)
         if not guid:
             return 0
         emitted = 0
         seen: set = set()
         try:
-            import rdflib
-            rg = rdflib.Graph()
-            rg.parse(data=ttl, format="turtle")
             for s, p, o in rg:
                 ps = str(p)
                 if _NON_EDGE_PRED.search(ps) or _GUID_PRED.search(ps):
@@ -200,6 +243,7 @@ class Ingester(_Base):
             import rdflib  # noqa: F401
         except Exception as exc:
             raise RuntimeError("KnowledgeGraphExport requires rdflib (pip install rdflib): %r" % exc)
+        _install_kg_speedups(KnowledgeGraph)
 
         per_file: List[Dict[str, Any]] = []
         kgs: List[Any] = []
@@ -210,10 +254,14 @@ class Ingester(_Base):
             self.log.info("kg_export: building TGraph for %s", stem)
             g = topograph.build_graph(ifc_path)
             stamped = self._set_guid_keys(g)
-            kg = KnowledgeGraph.ByTopology(g, includeBOT=self.include_bot, silent=True)
+            # useRDFLib=False skips building the rdflib mirror during construction
+            # (per-triple _term_to_rdflib plus a full resync); TurtleString() uses the
+            # token writer either way, so the TTL artifact is byte-identical.
+            kg = KnowledgeGraph.ByTopology(g, includeBOT=self.include_bot, silent=True,
+                                           useRDFLib=False)
 
             base_ttl = kg.TurtleString()
-            base_n = self._triple_count(base_ttl)
+            base_n = len(kg)  # token triples == serialized statements; no re-parse
             entry: Dict[str, Any] = {
                 "file": Path(ifc_path).name,
                 "vertices": topograph.order(g),
@@ -224,10 +272,13 @@ class Ingester(_Base):
             final_kg = kg
             ttl = base_ttl
             if self.reason:
+                # Re-enable the rdflib mirror deferred by useRDFLib=False above:
+                # Infer's RDFGraph() then syncs the triples exactly once.
+                kg._rdflib_enabled = True
                 final_kg = kg.Infer(profile="rdfs", includeBOT=self.include_bot,
                                     includeOntologyAxioms=True)
                 ttl = final_kg.TurtleString()
-                inf_n = self._triple_count(ttl)
+                inf_n = len(final_kg)
                 entry["inferred_triples"] = inf_n
                 entry["inferred_delta"] = (None if (inf_n is None or base_n is None)
                                           else inf_n - base_n)
@@ -242,7 +293,7 @@ class Ingester(_Base):
         if self.merge and len(kgs) > 1:
             merged = KnowledgeGraph.MergeGraphs(kgs)
             mttl = merged.TurtleString()
-            merged_triples = self._triple_count(mttl)
+            merged_triples = len(merged)
             name = "merged%s.kg.ttl" % (".reasoned" if self.reason else "")
             self._artifacts.append((name, mttl, "text/turtle"))
             if self.materialize and self.reason:

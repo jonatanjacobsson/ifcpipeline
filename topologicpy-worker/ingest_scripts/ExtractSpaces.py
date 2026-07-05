@@ -20,6 +20,7 @@ import ifcopenshell
 import ifcopenshell.util.element
 
 from ingest_scripts import Element, Ingester as _Base, Relationship, safe_by_type
+from ingest_scripts._pset_index import build_pset_index
 
 _APARTMENT_AGGREGATE_NAME_RE = re.compile(r"^\d+-\d+$")
 _APARTMENT_ROOM_NAME_RE = re.compile(r"^(\d+-\d+)-\d+$")
@@ -30,10 +31,16 @@ def apartment_id_from_space(
     *,
     pset_name: str = "BIP",
     property_name: str = "Appartment",
+    psets: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
-    """Resolve apartment / zone id from BIP pset or ``{building}-{apt}-{room}`` name."""
+    """Resolve apartment / zone id from BIP pset or ``{building}-{apt}-{room}`` name.
+
+    ``psets`` optionally supplies a precomputed name→props map for the space
+    (from ``build_pset_index``) to skip the per-space ``get_psets`` walk.
+    """
     try:
-        psets = ifcopenshell.util.element.get_psets(space, psets_only=True)
+        if psets is None:
+            psets = ifcopenshell.util.element.get_psets(space, psets_only=True)
         props = psets.get(pset_name, {})
         for key in (property_name, "Apartment"):
             value = props.get(key)
@@ -84,14 +91,14 @@ def group_member_space_guids(group: Any) -> List[str]:
     return space_ids
 
 
-def is_apartment_room_space(space: Any) -> bool:
+def is_apartment_room_space(space: Any, psets: Optional[Dict[str, Any]] = None) -> bool:
     """True for room-level spaces, not apartment aggregate anchors."""
     name = (getattr(space, "Name", None) or "").strip()
     if _APARTMENT_AGGREGATE_NAME_RE.match(name):
         return False
     if _APARTMENT_ROOM_NAME_RE.match(name):
         return True
-    return apartment_id_from_space(space) is not None
+    return apartment_id_from_space(space, psets=psets) is not None
 
 
 class Ingester(_Base):
@@ -206,6 +213,7 @@ class Ingester(_Base):
 
             if self.include_apartment_zones:
                 apt_z, apt_e, apt_skip = self._extract_apartment_zones(
+                    ifc,
                     spaces,
                     source_file=ifc_path.name,
                 )
@@ -306,24 +314,39 @@ class Ingester(_Base):
 
     def _extract_apartment_zones(
         self,
+        ifc: Any,
         spaces: List[Any],
         *,
         source_file: str,
     ) -> Tuple[int, int, int]:
         """Derive in_zone edges from BIP apartment codes to aggregate space anchors."""
+        if not spaces:
+            return 0, 0, 0
+
         anchors = apartment_aggregate_guids(spaces)
         zones_used: Set[str] = set()
         edge_count = 0
         skipped = 0
 
+        # One forward pass covers both pset lookups below (default "BIP" from
+        # is_apartment_room_space plus the configured apartment pset).
+        pset_index = build_pset_index(
+            ifc,
+            {"BIP", self.apartment_pset},
+            psets_only=True,
+            only_ids={space.id() for space in spaces},
+        )
+
         for space in spaces:
-            if not is_apartment_room_space(space):
+            space_psets = pset_index.get(space.id(), {})
+            if not is_apartment_room_space(space, psets=space_psets):
                 continue
 
             apartment_id = apartment_id_from_space(
                 space,
                 pset_name=self.apartment_pset,
                 property_name=self.apartment_property,
+                psets=space_psets,
             )
             if not apartment_id:
                 skipped += 1
