@@ -7,7 +7,10 @@ ifcopenshell==0.8.4
 # Python-native TGraph data structure. See topologicpy-worker/tgraph_eval/.
 # NOTE (0.9.52): adds the KnowledgeGraph module (RDF/Turtle export, RDFS+BOT
 # reasoning, MergeGraphs federation) used by ingest_scripts/KnowledgeGraphExport.
-topologicpy>=0.9.52
+# Upper-bounded: KnowledgeGraphExport memoizes KnowledgeGraph internals and the
+# topograph disk cache round-trips TGraph.ToPython/FromPython — re-verify both
+# (ingest_bench fingerprints) before crossing 0.10.
+topologicpy>=0.9.52,<0.10
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
 # (algorithm="louvain"), used by ZonePartition. topologicpy does not pull it in.
 python-igraph>=0.11

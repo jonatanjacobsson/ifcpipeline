@@ -41,6 +41,7 @@ entities before linking — no per-file role assignment required.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import time
 from collections import defaultdict
@@ -682,13 +683,26 @@ class Ingester(_Base):
         navmesh_passages_linked = 0
 
         try:
-            space_models, portal_models = self._prepare_space_and_portal_models()
+            # One multithreaded geometry pass per model replaces the scattered
+            # per-element create_shape calls below (identical tessellation). Space
+            # models tessellate via the prepare callback, overlapping a later
+            # (typically large) portal file's parse.
+            geom_caches: Dict[int, _GeomCache] = {}
+            space_models, portal_models = self._prepare_space_and_portal_models(
+                on_space_model=lambda path, ifc: self._cache_space_geometry(
+                    [(path, ifc)], geom_caches
+                ),
+            )
             if len(self.ifc_files) > 1:
                 methods.add("federated_inputs")
             if self.thin_spaces and self._temp_paths:
                 methods.add("thin_spaces_remove")
 
-            space_points, space_sources, space_names = _collect_spaces_centroids(space_models)
+            self._cache_space_geometry(space_models, geom_caches)  # no-op if prepassed
+
+            space_points, space_sources, space_names = _collect_spaces_centroids(
+                space_models, geom_caches
+            )
             element_storey, storey_elevations = _collect_storey_maps(space_models + portal_models)
             storey_stats = _storey_resolution_stats(
                 space_points, space_names, element_storey, storey_elevations, self.storey_z_tolerance,
@@ -707,10 +721,14 @@ class Ingester(_Base):
             )
 
             if len(space_points) >= 2:
-                space_bboxes = _collect_space_bboxes(space_models)
+                self._cache_portal_geometry(portal_models, geom_caches)
+                space_bboxes = _collect_space_bboxes(space_models, geom_caches)
                 # Tight footprints disambiguate bbox overlaps in door/opening side-point
                 # resolution (a neighbour room's bbox can overhang a corridor-side point).
-                self._space_polys = _collect_space_footprints(space_models)
+                self._space_polys = {
+                    gid: _BufferedPoly(poly)
+                    for gid, poly in _collect_space_footprints(space_models, geom_caches).items()
+                }
                 door_methods: Set[str] = set()
                 added, portals = self._link_all_doors_to_spaces(
                     portal_models,
@@ -724,6 +742,7 @@ class Ingester(_Base):
                     seen_edges,
                     portal_elements,
                     door_methods,
+                    geom_caches,
                 )
                 methods.update(door_methods)
 
@@ -743,6 +762,7 @@ class Ingester(_Base):
                         seen_edges,
                         portal_elements,
                         opening_methods,
+                        geom_caches,
                     )
                     methods.update(opening_methods)
 
@@ -786,6 +806,7 @@ class Ingester(_Base):
                     seen_edges,
                     portal_elements,
                     vertical_methods := set(),
+                    geom_caches,
                 )
                 methods.update(vertical_methods)
 
@@ -894,6 +915,7 @@ class Ingester(_Base):
 
     def _prepare_space_and_portal_models(
         self,
+        on_space_model=None,
     ) -> Tuple[List[Tuple[Path, ifcopenshell.file]], List[Tuple[Path, ifcopenshell.file]]]:
         """Resolve spaces-only thin model(s) and full portal source model(s).
 
@@ -902,43 +924,63 @@ class Ingester(_Base):
 
         Federated inputs: files that are already spaces-only are used as-is; files with
         doors/architecture supply portal geometry without a second remove pass.
+
+        Files are parsed on worker threads (``ifcopenshell.open`` releases the GIL),
+        so a later file's parse overlaps this loop's processing — including the
+        optional ``on_space_model(path, ifc)`` callback fired for each resolved space
+        model (used to tessellate spaces while a big portal file is still parsing).
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         space_models: List[Tuple[Path, ifcopenshell.file]] = []
         portal_models: List[Tuple[Path, ifcopenshell.file]] = []
         seen_space_paths: Set[str] = set()
 
-        for ifc_path in self.ifc_files:
-            ifc_path = ifc_path.resolve()
-            self.log.info("EgressCirculation: opening %s", ifc_path.name)
-            full_ifc = ifcopenshell.open(str(ifc_path))
-            portal_models.append((ifc_path, full_ifc))
+        def _add_space_model(path: Path, model) -> None:
+            space_models.append((path, model))
+            if on_space_model is not None:
+                try:
+                    on_space_model(path, model)
+                except Exception:
+                    self.log.warning(
+                        "EgressCirculation: space geometry prepass failed for %s",
+                        path.name, exc_info=True,
+                    )
 
-            space_count = len(_safe_by_type(full_ifc, "IfcSpace"))
-            if space_count == 0:
-                continue
+        paths = [p.resolve() for p in self.ifc_files]
+        with ThreadPoolExecutor(max_workers=min(2, max(1, len(paths)))) as pool:
+            futures = [pool.submit(ifcopenshell.open, str(p)) for p in paths]
+            for ifc_path, future in zip(paths, futures):
+                self.log.info("EgressCirculation: opening %s", ifc_path.name)
+                full_ifc = future.result()
+                portal_models.append((ifc_path, full_ifc))
 
-            already_thin = ifc_thin_spaces.is_spaces_only_file(full_ifc)
-            if already_thin or not self.thin_spaces:
-                key = str(ifc_path)
-                if key not in seen_space_paths:
-                    space_models.append((ifc_path, full_ifc))
-                    seen_space_paths.add(key)
-                continue
+                space_count = len(_safe_by_type(full_ifc, "IfcSpace"))
+                if space_count == 0:
+                    continue
 
-            try:
-                thin_path = ifc_thin_spaces.thin_spaces_copy(ifc_path, log=self.log)
-                self._temp_paths.append(thin_path)
-                space_models.append((thin_path, ifcopenshell.open(str(thin_path))))
-            except Exception as exc:
-                self.log.warning(
-                    "EgressCirculation: thin spaces failed for %s (%s); using full file for spaces",
-                    ifc_path.name,
-                    exc,
-                )
-                key = str(ifc_path)
-                if key not in seen_space_paths:
-                    space_models.append((ifc_path, full_ifc))
-                    seen_space_paths.add(key)
+                already_thin = ifc_thin_spaces.is_spaces_only_file(full_ifc)
+                if already_thin or not self.thin_spaces:
+                    key = str(ifc_path)
+                    if key not in seen_space_paths:
+                        _add_space_model(ifc_path, full_ifc)
+                        seen_space_paths.add(key)
+                    continue
+
+                try:
+                    thin_path = ifc_thin_spaces.thin_spaces_copy(ifc_path, log=self.log)
+                    self._temp_paths.append(thin_path)
+                    _add_space_model(thin_path, ifcopenshell.open(str(thin_path)))
+                except Exception as exc:
+                    self.log.warning(
+                        "EgressCirculation: thin spaces failed for %s (%s); using full file for spaces",
+                        ifc_path.name,
+                        exc,
+                    )
+                    key = str(ifc_path)
+                    if key not in seen_space_paths:
+                        _add_space_model(ifc_path, full_ifc)
+                        seen_space_paths.add(key)
 
         if not space_models and portal_models:
             # Portal-only inputs — fall back to full files for space discovery.
@@ -946,8 +988,98 @@ class Ingester(_Base):
                 "EgressCirculation: no dedicated space file; using full input(s) for spaces",
             )
             space_models = list(portal_models)
+            if on_space_model is not None:
+                for path, model in space_models:
+                    try:
+                        on_space_model(path, model)
+                    except Exception:
+                        self.log.warning(
+                            "EgressCirculation: space geometry prepass failed for %s",
+                            path.name, exc_info=True,
+                        )
 
         return space_models, portal_models
+
+    def _cache_space_geometry(
+        self,
+        space_models: List[Tuple[Path, ifcopenshell.file]],
+        geom_caches: Dict[int, _GeomCache],
+    ) -> None:
+        """One iterator pass per space model: centroid + bbox + tight footprint for
+        every IfcSpace (replaces three separate per-space ``create_shape`` sweeps)."""
+        for ifc_path, ifc in space_models:
+            if id(ifc) in geom_caches:
+                continue
+            spaces = _safe_by_type(ifc, "IfcSpace")
+            if not spaces:
+                geom_caches[id(ifc)] = _GeomCache()
+                continue
+            t0 = time.time()
+            geom_caches[id(ifc)] = _build_geom_cache(
+                ifc, spaces, self.log,
+                footprint_ids=frozenset(sp.id() for sp in spaces),
+            )
+            self.log.info(
+                "EgressCirculation: cached %d space geometries from %s in %.1fs",
+                len(spaces), ifc_path.name, time.time() - t0,
+            )
+
+    def _cache_portal_geometry(
+        self,
+        portal_models: List[Tuple[Path, ifcopenshell.file]],
+        geom_caches: Dict[int, _GeomCache],
+    ) -> None:
+        """One iterator pass per portal model covering exactly what the door/opening/
+        stair passes probe geometrically: doors (centroids), door-less opening
+        candidates (bbox + XY moments) and stair/lift assemblies (raw verts)."""
+        for ifc_path, ifc in portal_models:
+            elems: Dict[int, Any] = {}
+            moment_ids: Set[int] = set()
+            vert_ids: Set[int] = set()
+            for door in _safe_by_type(ifc, "IfcDoor"):
+                elems[door.id()] = door
+            if self.link_doorless_openings:
+                for opening in (
+                    _safe_by_type(ifc, "IfcOpeningElement")
+                    + _safe_by_type(ifc, "IfcOpeningStandardCase")
+                ):
+                    if self._opening_is_doorless_passage(opening):
+                        elems[opening.id()] = opening
+                        moment_ids.add(opening.id())
+            if self.link_stair_elements:
+                roots = list(_safe_by_type(ifc, "IfcStair"))
+                for flight in _safe_by_type(ifc, "IfcStairFlight"):
+                    if not _has_stair_parent(flight):
+                        roots.append(flight)
+                roots.extend(_safe_by_type(ifc, "IfcTransportElement"))
+                for root in roots:
+                    elems[root.id()] = root
+                    vert_ids.add(root.id())
+                    for rel in getattr(root, "IsDecomposedBy", None) or []:
+                        for child in getattr(rel, "RelatedObjects", None) or []:
+                            elems[child.id()] = child
+                            vert_ids.add(child.id())
+            existing = geom_caches.get(id(ifc))
+            if existing is not None:
+                for eid in existing.attempted:  # shared space/portal model: no re-pass
+                    elems.pop(eid, None)
+            if not elems:
+                if existing is None:
+                    geom_caches[id(ifc)] = _GeomCache()
+                continue
+            t0 = time.time()
+            cache = _build_geom_cache(
+                ifc, list(elems.values()), self.log,
+                moment_ids=frozenset(moment_ids), vert_ids=frozenset(vert_ids),
+            )
+            if existing is not None:
+                existing.update(cache)
+            else:
+                geom_caches[id(ifc)] = cache
+            self.log.info(
+                "EgressCirculation: cached %d portal geometries from %s in %.1fs",
+                len(elems), ifc_path.name, time.time() - t0,
+            )
 
     def _cleanup_temp_paths(self) -> None:
         import os
@@ -1118,6 +1250,7 @@ class Ingester(_Base):
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
         methods_used: Set[str],
+        geom_caches: Optional[Dict[int, _GeomCache]] = None,
     ) -> Tuple[int, int]:
         """Link each door to the two spaces it separates on the same storey.
 
@@ -1134,6 +1267,7 @@ class Ingester(_Base):
 
         for ifc_path, ifc in portal_models:
             portal_to_spaces = portal_maps[id(ifc)]
+            geom = (geom_caches or {}).get(id(ifc))
             for door in _safe_by_type(ifc, "IfcDoor"):
                 pair, method = _resolve_door_space_pair(
                     door,
@@ -1149,12 +1283,13 @@ class Ingester(_Base):
                     self.door_plan_tolerance,
                     self.door_link_distance,
                     space_polys=getattr(self, "_space_polys", None),
+                    geom=geom,
                 )
                 if not pair:
                     continue
 
                 s1, s2 = pair
-                door_pt = _element_centroid(door) or space_points.get(s1)
+                door_pt = _element_centroid(door, geom) or space_points.get(s1)
                 storey_key = _storey_group_key(
                     door.GlobalId,
                     door_pt,
@@ -1203,6 +1338,7 @@ class Ingester(_Base):
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
         methods_used: Set[str],
+        geom_caches: Optional[Dict[int, _GeomCache]] = None,
     ) -> Tuple[int, int]:
         """Link each DOOR-LESS, floor-reaching wall opening to the two spaces it separates.
 
@@ -1229,12 +1365,13 @@ class Ingester(_Base):
             )
 
         for ifc_path, ifc in portal_models:
+            geom = (geom_caches or {}).get(id(ifc))
             openings = (
                 _safe_by_type(ifc, "IfcOpeningElement")
                 + _safe_by_type(ifc, "IfcOpeningStandardCase")
             )
             for opening in openings:
-                if target_bbox is not None and _opening_near_bbox(opening, target_bbox):
+                if target_bbox is not None and _opening_near_bbox(opening, target_bbox, geom=geom):
                     self._diagnose_opening(
                         opening, space_bboxes, space_points, space_names,
                         element_storey, storey_elevations,
@@ -1242,10 +1379,11 @@ class Ingester(_Base):
                 if not self._opening_is_doorless_passage(opening):
                     continue
                 if not _opening_reaches_floor(
-                    opening, storey_elevations, self.storey_z_tolerance, self.max_sill_height
+                    opening, storey_elevations, self.storey_z_tolerance, self.max_sill_height,
+                    geom=geom,
                 ):
                     continue
-                if not _opening_passable_size(opening, self.min_opening_width):
+                if not _opening_passable_size(opening, self.min_opening_width, geom):
                     continue
                 openings_seen += 1
 
@@ -1261,12 +1399,13 @@ class Ingester(_Base):
                     self.door_side_offset,
                     self.door_plan_tolerance,
                     space_polys=getattr(self, "_space_polys", None),
+                    geom=geom,
                 )
                 if not pair:
                     continue
 
                 s1, s2 = pair
-                op_pt = _element_centroid(opening) or space_points.get(s1)
+                op_pt = _element_centroid(opening, geom) or space_points.get(s1)
                 storey_key = _storey_group_key(
                     opening.GlobalId,
                     op_pt,
@@ -1566,6 +1705,7 @@ class Ingester(_Base):
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
         methods_out: Set[str],
+        geom_caches: Optional[Dict[int, _GeomCache]] = None,
     ) -> int:
         """Connect spaces across storeys for vertical circulation.
 
@@ -1582,6 +1722,7 @@ class Ingester(_Base):
             elem_added = self._link_stair_element_connectors(
                 portal_models, space_bboxes, space_points, space_names,
                 element_storey, storey_elevations, seen_edges, portal_elements,
+                geom_caches,
             )
             added += elem_added
             if elem_added:
@@ -1636,6 +1777,7 @@ class Ingester(_Base):
         storey_elevations: Dict[str, float],
         seen_edges: Set[Tuple[str, str]],
         portal_elements: Dict[str, str],
+        geom_caches: Optional[Dict[int, _GeomCache]] = None,
     ) -> int:
         """Vertical links measured from stair/elevator ELEMENT geometry.
 
@@ -1663,9 +1805,9 @@ class Ingester(_Base):
             max(b[3] for b in bx) + m, max(b[4] for b in bx) + m, max(b[5] for b in bx) + m,
         )
 
-        def verts_of(elem):
+        def verts_of(elem, geom=None):
             return [
-                v for v in _assembly_world_verts(elem, settings)
+                v for v in _assembly_world_verts(elem, settings, geom)
                 if env[0] <= v[0] <= env[3] and env[1] <= v[1] <= env[4] and env[2] <= v[2] <= env[5]
             ]
 
@@ -1697,6 +1839,7 @@ class Ingester(_Base):
             return n
 
         for _, ifc in portal_models:
+            geom = (geom_caches or {}).get(id(ifc))
             # --- stairs: IfcStair (and standalone IfcStairFlight not under an IfcStair) ---
             stair_elems = list(_safe_by_type(ifc, "IfcStair"))
             for flight in _safe_by_type(ifc, "IfcStairFlight"):
@@ -1706,7 +1849,7 @@ class Ingester(_Base):
                 if stair.GlobalId in seen_elems:
                     continue
                 seen_elems.add(stair.GlobalId)
-                verts = verts_of(stair)
+                verts = verts_of(stair, geom)
                 bbox = _verts_bbox(verts)
                 if bbox is None:
                     continue
@@ -1740,8 +1883,8 @@ class Ingester(_Base):
                 if lift.GlobalId in seen_elems:
                     continue
                 seen_elems.add(lift.GlobalId)
-                bbox = _verts_bbox(verts_of(lift))
-                ctr = _element_centroid(lift)
+                bbox = _verts_bbox(verts_of(lift, geom))
+                ctr = _element_centroid(lift, geom)
                 if bbox is not None:
                     xy = ((bbox[0] + bbox[3]) / 2.0, (bbox[1] + bbox[4]) / 2.0)
                 else:
@@ -2099,6 +2242,211 @@ def _geom_settings():
     return settings
 
 
+class _GeomCache:
+    """World-coord geometry for selected elements of ONE model, filled by a single
+    multithreaded iterator pass (per-element ``create_shape`` re-initializes the
+    geometry kernel on every call). The iterator yields the same USE_WORLD_COORDS
+    tessellation bit-for-bit as a *correctly used* per-element ``create_shape``
+    (shape object kept alive while its ``.geometry.verts`` are materialized) —
+    :func:`_build_geom_cache` re-verifies that parity per model with a probe
+    sample and discards the cache when the two disagree, so callers keep taking
+    the legacy per-element paths on any file where the kernels diverge.
+
+    Known accepted drift vs the pre-cache code: the legacy
+    :func:`_assembly_world_verts` read ``.geometry.verts`` off a *temporary*
+    ``create_shape`` result, a use-after-free in ifcopenshell 0.8.4 that turned
+    the leading floats of stair/lift tessellations into heap garbage (observed
+    on IFC2X3 Revit exports: first vertex ~(0,0,0)/denormals, unstable at the
+    bit level). Cached verts — and the fixed fallback — return the true
+    coordinates instead, so stair/lift evidence (e.g. ``rise_m``) can change on
+    files where the old code read freed memory. That legacy output was
+    unreproducible garbage; it is intentionally not preserved.
+
+    Keys are entity ``.id()`` — valid only within the model instance the cache
+    was built from (a thin spaces copy is a distinct model from its source).
+    """
+
+    def __init__(self):
+        self.attempted: Set[int] = set()  # ids covered by an iterator pass
+        # centroids/bboxes hold None when tessellation yielded no verts (mirrors
+        # the "shape ok but empty verts" outcome of create_shape)
+        self.centroids: Dict[int, Optional[Tuple[float, float, float]]] = {}
+        self.bboxes: Dict[int, Optional[Tuple[float, float, float, float, float, float]]] = {}
+        self.xy_moments: Dict[int, Tuple[float, float, float, float, float]] = {}
+        self.assembly_verts: Dict[int, List[Tuple[float, float, float]]] = {}
+        self.footprints: Dict[int, Any] = {}
+
+    def update(self, other: "_GeomCache") -> None:
+        self.attempted |= other.attempted
+        self.centroids.update(other.centroids)
+        self.bboxes.update(other.bboxes)
+        self.xy_moments.update(other.xy_moments)
+        self.assembly_verts.update(other.assembly_verts)
+        self.footprints.update(other.footprints)
+
+
+class _BufferedPoly:
+    """Shapely footprint with a memoized ``buffer(tol)``.
+
+    ``_pick_space_at_plan_point`` buffers the same space footprint for every probed
+    point; ``buffer`` is deterministic, so reusing the buffered geometry is
+    outcome-identical while dropping thousands of repeat buffer() calls.
+    """
+
+    __slots__ = ("poly", "_buffered")
+
+    def __init__(self, poly):
+        self.poly = poly
+        self._buffered: Dict[float, Any] = {}
+
+    def buffer(self, tol: float):
+        buffered = self._buffered.get(tol)
+        if buffered is None:
+            buffered = self.poly.buffer(tol)
+            self._buffered[tol] = buffered
+        return buffered
+
+
+def _xy_moments(verts) -> Optional[Tuple[float, float, float, float, float]]:
+    """(cx, cy, sxx, sxy, syy) of the XY vert cloud — the exact running sums
+    :func:`_opening_axis_pairs` computes inline, so cached results are bit-identical."""
+    xs = list(verts[0::3])
+    ys = list(verts[1::3])
+    n = len(xs)
+    if n < 3:
+        return None
+    cx = sum(xs) / n
+    cy = sum(ys) / n
+    sxx = sum((x - cx) ** 2 for x in xs) / n
+    syy = sum((y - cy) ** 2 for y in ys) / n
+    sxy = sum((xs[i] - cx) * (ys[i] - cy) for i in range(n)) / n
+    return (cx, cy, sxx, sxy, syy)
+
+
+def _parity_probe_sample(elements: List) -> List:
+    """First/middle/last of the include list — deterministic across runs."""
+    n = len(elements)
+    return [elements[i] for i in sorted({0, n // 2, n - 1})]
+
+
+def _build_geom_cache(
+    ifc,
+    elements: List,
+    log: logging.Logger,
+    *,
+    moment_ids: FrozenSet[int] = frozenset(),
+    vert_ids: FrozenSet[int] = frozenset(),
+    footprint_ids: FrozenSet[int] = frozenset(),
+) -> _GeomCache:
+    """One streaming iterator pass over exactly ``elements`` of ``ifc``.
+
+    Every included element gets centroid + bbox; ``moment_ids`` additionally get XY
+    covariance moments (openings), ``vert_ids`` raw vert tuples (stair/lift assembly
+    parts) and ``footprint_ids`` a tight 2D footprint polygon (spaces). An element the
+    iterator does not deliver stays in ``attempted`` with no values — downstream that
+    degrades exactly like a raising ``create_shape``. If the iterator itself is
+    unavailable/aborts, undelivered ids are dropped from ``attempted`` so callers fall
+    back to the original per-element paths.
+
+    Parity gate: iterator output only replaces the legacy per-element
+    ``create_shape`` calls when the two demonstrably agree on this model. A
+    deterministic sample of ``elements`` is probed with ``create_shape`` (the
+    shape object held alive while its verts are materialized — reading
+    ``.geometry.verts`` off the temporary is a use-after-free in ifcopenshell
+    0.8.4, see :class:`_GeomCache`) and compared bit-for-bit against the
+    iterator verts; any disagreement discards the whole cache so every caller
+    keeps the legacy per-element behaviour on this model.
+    """
+    cache = _GeomCache()
+    if not elements:
+        return cache
+    settings = _geom_settings()
+    probe_cs: Dict[int, Optional[Tuple[float, ...]]] = {}
+    for el in _parity_probe_sample(elements):
+        peid = el.id()
+        if peid in probe_cs:
+            continue
+        try:
+            shape = ifcopenshell.geom.create_shape(settings, el)
+            # ``shape`` must stay alive while the verts tuple is built
+            probe_cs[peid] = tuple(shape.geometry.verts)
+        except Exception:
+            probe_cs[peid] = None  # raising create_shape == iterator-undelivered
+    probe_it: Dict[int, Tuple[float, ...]] = {}
+    try:
+        it = ifcopenshell.geom.iterator(
+            settings, ifc, max(1, (os.cpu_count() or 2) - 1), include=elements
+        )
+        ok = it.initialize()
+    except Exception:
+        log.warning(
+            "EgressCirculation: geometry iterator unavailable; using per-element shapes",
+            exc_info=True,
+        )
+        return cache
+    if not ok:
+        return cache
+    cache.attempted = {e.id() for e in elements}
+    delivered: Set[int] = set()
+    try:
+        while True:
+            shape = it.get()
+            eid = shape.id
+            delivered.add(eid)
+            verts = shape.geometry.verts
+            if eid in probe_cs:
+                probe_it[eid] = tuple(verts)
+            if not verts:
+                cache.centroids[eid] = None
+                cache.bboxes[eid] = None
+            else:
+                xs = verts[0::3]
+                ys = verts[1::3]
+                zs = verts[2::3]
+                cache.centroids[eid] = (
+                    sum(xs) / len(xs), sum(ys) / len(ys), sum(zs) / len(zs)
+                )
+                cache.bboxes[eid] = (
+                    min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)
+                )
+                if eid in moment_ids:
+                    moments = _xy_moments(verts)
+                    if moments is not None:
+                        cache.xy_moments[eid] = moments
+                if eid in vert_ids:
+                    cache.assembly_verts[eid] = [
+                        (verts[i], verts[i + 1], verts[i + 2])
+                        for i in range(0, len(verts), 3)
+                    ]
+                if eid in footprint_ids:
+                    fp = _footprint_from_mesh(verts, shape.geometry.faces)
+                    if fp is not None:
+                        cache.footprints[eid] = fp
+            if not it.next():
+                break
+    except Exception:
+        log.warning(
+            "EgressCirculation: geometry iterator pass aborted; partial cache",
+            exc_info=True,
+        )
+        cache.attempted &= delivered
+    for peid, cs_verts in probe_cs.items():
+        if peid not in cache.attempted:
+            continue  # dropped after an abort — caller falls back per-element anyway
+        # probe_it holds the iterator verts (possibly empty) for every delivered
+        # probe id; missing == undelivered, which downstream behaves like a
+        # raising create_shape (None probe). Any other combination must match
+        # bit-for-bit or the cached geometry would diverge from the legacy path.
+        if cs_verts != probe_it.get(peid):
+            log.warning(
+                "EgressCirculation: iterator geometry differs from per-element "
+                "create_shape on this model; geometry cache disabled, keeping "
+                "legacy per-element shapes",
+            )
+            return _GeomCache()
+    return cache
+
+
 def _parse_room_prefix(name: str) -> Optional[str]:
     """Extract storey prefix from room number, e.g. '040-206_16m²' → '040'."""
     m = _ROOM_NR_RE.search(name or "")
@@ -2406,16 +2754,18 @@ def _spaces_on_same_level(
 
 def _collect_spaces_centroids(
     models: List[Tuple[Path, ifcopenshell.file]],
+    geom_caches: Optional[Dict[int, _GeomCache]] = None,
 ) -> Tuple[Dict[str, Tuple[float, float, float]], Dict[str, str], Dict[str, str]]:
     space_points: Dict[str, Tuple[float, float, float]] = {}
     space_sources: Dict[str, str] = {}
     space_names: Dict[str, str] = {}
     for ifc_path, ifc in models:
+        geom = (geom_caches or {}).get(id(ifc))
         for space in _safe_by_type(ifc, "IfcSpace"):
             gid = space.GlobalId
             if gid in space_points:
                 continue
-            pt = _element_centroid(space)
+            pt = _element_centroid(space, geom)
             if pt is None:
                 continue
             space_points[gid] = pt
@@ -2440,14 +2790,27 @@ def _is_portal_class(ifc_class: str) -> bool:
 
 def _collect_space_bboxes(
     models: List[Tuple[Path, ifcopenshell.file]],
+    geom_caches: Optional[Dict[int, _GeomCache]] = None,
 ) -> Dict[str, Tuple[float, float, float, float, float, float]]:
     """World-coordinate axis-aligned bboxes for IfcSpace (metres, USE_WORLD_COORDS)."""
     bboxes: Dict[str, Tuple[float, float, float, float, float, float]] = {}
     settings = _geom_settings()
     for _, ifc in models:
+        geom = (geom_caches or {}).get(id(ifc))
         for space in _safe_by_type(ifc, "IfcSpace"):
             gid = space.GlobalId
             if gid in bboxes:
+                continue
+            if geom is not None and space.id() in geom.attempted:
+                if space.id() in geom.bboxes:
+                    bbox = geom.bboxes[space.id()]
+                    if bbox is not None:  # None == empty verts -> no entry (as before)
+                        bboxes[gid] = bbox
+                    continue
+                # failed tessellation -> same fallback as the except branch below
+                pt = _element_centroid(space, geom)
+                if pt:
+                    bboxes[gid] = (pt[0] - 0.5, pt[1] - 0.5, pt[2] - 0.5, pt[0] + 0.5, pt[1] + 0.5, pt[2] + 0.5)
                 continue
             try:
                 shape = ifcopenshell.geom.create_shape(settings, space)
@@ -2512,12 +2875,13 @@ def _storey_sort_key(
 def _door_plan_side_points(
     door,
     offset_m: float,
+    geom: Optional[_GeomCache] = None,
 ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
     """Two plan-view sample points on opposite sides of a door opening."""
     import ifcopenshell.util.placement as pu
     import math
 
-    centre = _element_centroid(door)
+    centre = _element_centroid(door, geom)
     if centre is None:
         return None
     try:
@@ -2567,6 +2931,7 @@ def _minor_axis_2d(
 def _opening_axis_pairs(
     opening,
     offset_m: float,
+    geom: Optional[_GeomCache] = None,
 ) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
     """Side-point pairs across the opening's two horizontal footprint axes, minor first.
 
@@ -2576,23 +2941,22 @@ def _opening_axis_pairs(
     major (perpendicular) — and let the caller accept whichever straddles two rooms. Empty
     when geometry is unavailable or the footprint is too isotropic to orient.
     """
-    try:
-        shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
-        verts = shape.geometry.verts
-        if not verts:
+    if geom is not None and opening.id() in geom.attempted:
+        moments = geom.xy_moments.get(opening.id())
+        if moments is None:
             return []
-        xs = list(verts[0::3])
-        ys = list(verts[1::3])
-    except Exception:
-        return []
-    n = len(xs)
-    if n < 3:
-        return []
-    cx = sum(xs) / n
-    cy = sum(ys) / n
-    sxx = sum((x - cx) ** 2 for x in xs) / n
-    syy = sum((y - cy) ** 2 for y in ys) / n
-    sxy = sum((xs[i] - cx) * (ys[i] - cy) for i in range(n)) / n
+    else:
+        try:
+            shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
+            verts = shape.geometry.verts
+            if not verts:
+                return []
+        except Exception:
+            return []
+        moments = _xy_moments(verts)
+        if moments is None:
+            return []
+    cx, cy, sxx, sxy, syy = moments
     nx, ny = _minor_axis_2d(sxx, sxy, syy)
     if nx is None:
         return []
@@ -2694,8 +3058,9 @@ def _door_space_proximity_fallback(
     same_storey_only: bool,
     z_tolerance: float,
     max_dist: float,
+    geom: Optional[_GeomCache] = None,
 ) -> Optional[Tuple[str, str]]:
-    door_pt = _element_centroid(door)
+    door_pt = _element_centroid(door, geom)
     if door_pt is None:
         return None
     door_storey = _storey_group_key(
@@ -2739,8 +3104,9 @@ def _resolve_door_space_pair(
     plan_tolerance: float,
     link_distance: float,
     space_polys: Optional[Dict[str, Any]] = None,
+    geom: Optional[_GeomCache] = None,
 ) -> Tuple[Optional[Tuple[str, str]], str]:
-    door_pt = _element_centroid(door)
+    door_pt = _element_centroid(door, geom)
     door_storey = _storey_group_key(
         door.GlobalId,
         door_pt,
@@ -2756,7 +3122,7 @@ def _resolve_door_space_pair(
             element_storey, storey_elevations, z_tolerance,
         )
         if len(ifc_spaces) >= 2:
-            side_pts = _door_plan_side_points(door, door_side_offset)
+            side_pts = _door_plan_side_points(door, door_side_offset, geom)
             if side_pts and len(ifc_spaces) > 2:
                 allowed = set(ifc_spaces)
                 s1 = _pick_space_at_plan_point(
@@ -2777,7 +3143,7 @@ def _resolve_door_space_pair(
                     return tuple(sorted((s1, s2))), "ifc_portal_boundary"
             return tuple(sorted((ifc_spaces[0], ifc_spaces[1]))), "ifc_portal_boundary"
 
-    side_pts = _door_plan_side_points(door, door_side_offset)
+    side_pts = _door_plan_side_points(door, door_side_offset, geom)
     if side_pts:
         s1 = _pick_space_at_plan_point(
             side_pts[0], door_storey, space_bboxes, space_names, space_points,
@@ -2798,6 +3164,7 @@ def _resolve_door_space_pair(
     fallback = _door_space_proximity_fallback(
         door, space_points, space_names, element_storey, storey_elevations,
         same_storey_only=same_storey_only, z_tolerance=z_tolerance, max_dist=max_dist,
+        geom=geom,
     )
     if fallback:
         return tuple(sorted(fallback)), "door_space_proximity_fallback"
@@ -2816,6 +3183,7 @@ def _resolve_opening_space_pair(
     side_offset: float,
     plan_tolerance: float,
     space_polys: Optional[Dict[str, Any]] = None,
+    geom: Optional[_GeomCache] = None,
 ) -> Tuple[Optional[Tuple[str, str]], str]:
     """Door-less opening → the two spaces it separates, via plan-view side points only.
 
@@ -2825,7 +3193,7 @@ def _resolve_opening_space_pair(
     the opening) land inside real space footprints. Exterior openings (one side outdoors)
     find no second space and drop out.
     """
-    op_pt = _element_centroid(opening)
+    op_pt = _element_centroid(opening, geom)
     op_storey = _storey_group_key(
         opening.GlobalId,
         op_pt,
@@ -2837,8 +3205,8 @@ def _resolve_opening_space_pair(
     # Try footprint axes (minor first, then major) and placement-axis fallback.
     # Both PCA axes are tried because the through-direction for a wide opening may be the major
     # axis (e.g. a 0.91×3.05 m void where X is the wall thickness, Y the opening width).
-    candidates = _opening_axis_pairs(opening, side_offset)
-    placement = _door_plan_side_points(opening, side_offset)
+    candidates = _opening_axis_pairs(opening, side_offset, geom)
+    placement = _door_plan_side_points(opening, side_offset, geom)
     if placement:
         candidates.append(placement)
     for side_pts in candidates:
@@ -2884,25 +3252,39 @@ def _opening_reaches_floor(
     storey_elevations: Dict[str, float],
     z_tolerance: float,
     max_sill_height: float,
+    geom: Optional[_GeomCache] = None,
 ) -> bool:
     """Geometry wrapper around :func:`_reaches_floor` for an opening element."""
-    try:
-        shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
-        verts = shape.geometry.verts
-        if not verts:
+    if geom is not None and opening.id() in geom.attempted:
+        bbox = geom.bboxes.get(opening.id())
+        if bbox is None:
+            return True  # empty verts / failed tessellation both fail open
+        min_z = bbox[2]
+    else:
+        try:
+            shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
+            verts = shape.geometry.verts
+            if not verts:
+                return True
+            min_z = min(verts[2::3])
+        except Exception:
             return True
-        min_z = min(verts[2::3])
-    except Exception:
-        return True
     return _reaches_floor(min_z, storey_elevations, z_tolerance, max_sill_height)
 
 
-def _opening_passable_size(opening, min_width_m: float) -> bool:
+def _opening_passable_size(opening, min_width_m: float, geom: Optional[_GeomCache] = None) -> bool:
     """True when a door-less opening is big enough to walk through.
 
     World-bbox plan extent and height must both be ≥ ``min_width_m``. Fails *open* (True) on
     missing/failed geometry so a real opening is never dropped on a geometry error.
     """
+    if geom is not None and opening.id() in geom.attempted:
+        bbox = geom.bboxes.get(opening.id())
+        if bbox is None:
+            return True  # empty verts / failed tessellation both fail open
+        plan_extent = max(bbox[3] - bbox[0], bbox[4] - bbox[1])
+        height = bbox[5] - bbox[2]
+        return plan_extent >= min_width_m and height >= min_width_m
     try:
         shape = ifcopenshell.geom.create_shape(_geom_settings(), opening)
         verts = shape.geometry.verts
@@ -2916,9 +3298,9 @@ def _opening_passable_size(opening, min_width_m: float) -> bool:
         return True
 
 
-def _opening_near_bbox(opening, bbox, margin: float = 0.8) -> bool:
+def _opening_near_bbox(opening, bbox, margin: float = 0.8, geom: Optional[_GeomCache] = None) -> bool:
     """True when the opening's centroid XY falls within ``bbox`` expanded by ``margin`` (m)."""
-    ctr = _element_centroid(opening)
+    ctr = _element_centroid(opening, geom)
     if ctr is None:
         return False
     x, y = ctr[0], ctr[1]
@@ -2946,7 +3328,19 @@ def _host_wall_global_id(door) -> Optional[str]:
     return None
 
 
-def _element_centroid(element) -> Optional[Tuple[float, float, float]]:
+def _element_centroid(element, geom: Optional[_GeomCache] = None) -> Optional[Tuple[float, float, float]]:
+    if geom is not None:
+        eid = element.id()
+        if eid in geom.attempted:
+            if eid in geom.centroids:
+                return geom.centroids[eid]  # None when tessellation had no verts
+            # iterator did not deliver it == create_shape raising -> placement fallback
+            try:
+                import ifcopenshell.util.placement as pu
+                m = pu.get_local_placement(element.ObjectPlacement)
+                return (m[0][3], m[1][3], m[2][3])
+            except Exception:
+                return None
     try:
         settings = _geom_settings()
         shape = ifcopenshell.geom.create_shape(settings, element)
@@ -3081,7 +3475,7 @@ def _element_footprint_xy(element, settings, z_lo=None, z_hi=None):
         return None
 
 
-def _assembly_world_verts(element, settings) -> List[Tuple[float, float, float]]:
+def _assembly_world_verts(element, settings, geom: Optional[_GeomCache] = None) -> List[Tuple[float, float, float]]:
     """World-coord verts of an element *and its decomposition children*.
 
     An ``IfcStair`` (and often ``IfcTransportElement``) is an assembly whose own shape is
@@ -3091,8 +3485,19 @@ def _assembly_world_verts(element, settings) -> List[Tuple[float, float, float]]
     out: List[Tuple[float, float, float]] = []
 
     def add(el):
+        if geom is not None and el.id() in geom.attempted:
+            # missing entry == failed/empty tessellation -> contributes nothing (as before)
+            out.extend(geom.assembly_verts.get(el.id(), ()))
+            return
         try:
-            verts = ifcopenshell.geom.create_shape(settings, el).geometry.verts
+            # The shape must be held in a local while ``verts`` is read: taking
+            # ``.geometry.verts`` off the create_shape temporary is a
+            # use-after-free in ifcopenshell 0.8.4 that fills the leading floats
+            # with heap garbage (wrong stair/lift rise on IFC2X3 Revit exports).
+            # This fixed path matches the iterator-cached verts bit-for-bit; the
+            # old freed-memory output is intentionally not preserved.
+            shape = ifcopenshell.geom.create_shape(settings, el)
+            verts = shape.geometry.verts
         except Exception:
             return
         for i in range(0, len(verts), 3):
@@ -3138,7 +3543,37 @@ def _has_stair_parent(flight) -> bool:
     return False
 
 
-def _collect_space_footprints(models):
+def _footprint_from_mesh(verts, faces):
+    """Tight XY footprint polygon from a world-coord tri mesh, or None.
+
+    Exactly the construction :func:`_collect_space_footprints` uses — union of the
+    mesh triangles projected to XY. Returns None on missing/degenerate geometry or
+    when shapely is unavailable.
+    """
+    if not _HAS_SHAPELY or not verts or not faces:
+        return None
+    try:
+        tris = []
+        for i in range(0, len(faces), 3):
+            ia, ib, ic = faces[i] * 3, faces[i + 1] * 3, faces[i + 2] * 3
+            tri = Polygon([
+                (verts[ia], verts[ia + 1]),
+                (verts[ib], verts[ib + 1]),
+                (verts[ic], verts[ic + 1]),
+            ])
+            if tri.area > 1e-9:
+                tris.append(tri)
+        if not tris:
+            return None
+        fp = unary_union(tris).buffer(0)
+        if fp.is_empty or fp.area < 1e-6:
+            return None
+        return fp
+    except Exception:
+        return None
+
+
+def _collect_space_footprints(models, geom_caches=None):
     """gid → tight 2D footprint polygon (shapely), for point-in-polygon space resolution.
 
     Union of the space's mesh triangles projected to XY — tighter than the axis-aligned
@@ -3151,30 +3586,20 @@ def _collect_space_footprints(models):
     polys: Dict[str, "Polygon"] = {}
     settings = _geom_settings()
     for _, ifc in models:
+        geom = (geom_caches or {}).get(id(ifc))
         for sp in _safe_by_type(ifc, "IfcSpace"):
             gid = sp.GlobalId
             if gid in polys:
                 continue
+            if geom is not None and sp.id() in geom.attempted:
+                fp = geom.footprints.get(sp.id())
+                if fp is not None:
+                    polys[gid] = fp
+                continue
             try:
                 shape = ifcopenshell.geom.create_shape(settings, sp)
-                verts = shape.geometry.verts
-                faces = shape.geometry.faces
-                if not verts or not faces:
-                    continue
-                tris = []
-                for i in range(0, len(faces), 3):
-                    ia, ib, ic = faces[i] * 3, faces[i + 1] * 3, faces[i + 2] * 3
-                    tri = Polygon([
-                        (verts[ia], verts[ia + 1]),
-                        (verts[ib], verts[ib + 1]),
-                        (verts[ic], verts[ic + 1]),
-                    ])
-                    if tri.area > 1e-9:
-                        tris.append(tri)
-                if not tris:
-                    continue
-                fp = unary_union(tris).buffer(0)
-                if fp.is_empty or fp.area < 1e-6:
+                fp = _footprint_from_mesh(shape.geometry.verts, shape.geometry.faces)
+                if fp is None:
                     continue
                 polys[gid] = fp
             except Exception:

@@ -14,6 +14,7 @@ from typing import Any, List, Set
 import ifcopenshell.util.element
 
 from ingest_scripts import Ingester as _Base, Relationship, safe_by_types
+from ingest_scripts._pset_index import build_pset_index
 
 _DEFAULT_PSET = "Pset_IfcPipelineRoomStamp"
 _SPACE_GUID_KEYS = ("SpaceGlobalId", "RoomGlobalId")
@@ -69,13 +70,20 @@ class Ingester(_Base):
 
             self.log.info("roomstamp_ingest: scanning %d elements", len(elements))
 
+            # One pass over IfcRelDefinesByProperties for the stamp pset only —
+            # replaces a get_psets() inverse walk per element.
+            stamp_index = (
+                build_pset_index(ifc, (self.pset_name,), psets_only=True)
+                if elements else {}
+            )
+
             for element in elements:
                 elements_scanned += 1
                 global_id = getattr(element, "GlobalId", None)
                 if not global_id:
                     continue
 
-                props = self._read_stamp_props(element)
+                props = self._read_stamp_props(element, stamp_index)
                 if not props:
                     continue
 
@@ -143,12 +151,8 @@ class Ingester(_Base):
             elapsed,
         )
 
-    def _read_stamp_props(self, element: Any) -> dict[str, str]:
-        try:
-            psets = ifcopenshell.util.element.get_psets(element, psets_only=True)
-        except Exception:
-            return {}
-        raw = psets.get(self.pset_name)
+    def _read_stamp_props(self, element: Any, stamp_index: dict) -> dict[str, str]:
+        raw = stamp_index.get(element.id(), {}).get(self.pset_name)
         if not isinstance(raw, dict):
             return {}
         return {str(k): "" if v is None else str(v) for k, v in raw.items()}

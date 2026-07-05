@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import ifcopenshell.util.element
 
 from ingest_scripts import Ingester as _Base, Relationship, safe_by_type
+from ingest_scripts._pset_index import build_pset_index
 
 # (function_slug, patterns matched against long_name / space_name / reference)
 _SPACE_FUNCTION_RULES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
@@ -54,6 +55,9 @@ _MEASURE_SPECS: Tuple[Tuple[str, str, str, str], ...] = (
     ("measure_space_name", "BIP", "SpaceName", ""),
     ("measure_apartment", "BIP", "Appartment", ""),
 )
+
+# Only pset/qto names extract() actually reads — the index skips everything else.
+_INDEXED_PSETS = frozenset({"Pset_SpaceCommon"} | {spec[1] for spec in _MEASURE_SPECS})
 
 
 def classify_space_function(
@@ -127,6 +131,17 @@ class Ingester(_Base):
             spaces = safe_by_type(ifc, "IfcSpace")
             self.log.info("space_attributes: found %d IfcSpace elements", len(spaces))
 
+            # One forward pass (psets AND IfcElementQuantity qtos) replaces a
+            # get_psets() inverse walk per space.
+            pset_index = {}
+            if spaces:
+                pset_index = build_pset_index(
+                    ifc,
+                    _INDEXED_PSETS,
+                    psets_only=False,
+                    only_ids={space.id() for space in spaces},
+                )
+
             for space in spaces:
                 global_id = space.GlobalId
                 name = (getattr(space, "Name", None) or "").strip()
@@ -137,7 +152,7 @@ class Ingester(_Base):
                     spaces_processed += 1
                     continue
 
-                psets = ifcopenshell.util.element.get_psets(space, psets_only=False)
+                psets = pset_index.get(space.id(), {})
                 reference = str((psets.get("Pset_SpaceCommon") or {}).get("Reference") or "")
 
                 if self.include_space_functions:
