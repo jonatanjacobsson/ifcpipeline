@@ -65,6 +65,23 @@ def discipline(ifc_class: str) -> str:
     return "other"
 
 
+def _cpu_allowance() -> int:
+    """Usable CPUs for the geometry iterator: the cgroup v2 quota when set, else cpu_count-1.
+
+    In a container ``os.cpu_count()`` reports the HOST's cores (e.g. 12) while the cgroup may
+    allow far fewer (e.g. 2) — oversubscribing the iterator threads is measurably slower
+    (A1+M1 pair: 11 threads 30s vs 2 threads 20.5s under a 2-CPU quota)."""
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            # Round up: a fractional 1.x-CPU quota must not collapse to a
+            # single iterator thread (measured ~2x slower than 2 threads).
+            return max(1, -(-int(quota) // int(period)))
+    except (OSError, ValueError):
+        pass
+    return max(1, (os.cpu_count() or 2) - 1)
+
+
 # --- geometry helpers --------------------------------------------------------
 def _settings():
     # LOCAL coords (no USE_WORLD_COORDS): lets the iterator reuse tessellation across identical
@@ -100,7 +117,11 @@ def aabb_of(element, settings) -> Optional[Tuple[float, ...]]:
             s.set(s.USE_WORLD_COORDS, True)
         except Exception:
             pass
-        verts = ifcopenshell.geom.create_shape(s, element).geometry.verts
+        # Hold the shape in a local: reading .geometry.verts off the bare
+        # create_shape(...) temporary is a use-after-free in ifcopenshell 0.8.4
+        # (the tuple materializes from freed memory — garbage leading floats).
+        shape = ifcopenshell.geom.create_shape(s, element)
+        verts = shape.geometry.verts
         if not verts:
             return None
         xs, ys, zs = verts[0::3], verts[1::3], verts[2::3]
@@ -188,12 +209,12 @@ class Ingester(_Base):
 
         :param clearance: max gap (m) for a within_clearance relation.
         :param grid_m: broad-phase grid cell size (m) for the target spatial index.
-        :param num_threads: geometry-iterator threads (0 = auto: cpu_count-1).
+        :param num_threads: geometry-iterator threads (0 = auto: cgroup CPU quota, else cpu_count-1).
         """
         super().__init__(ifc_files, log)
         self.clearance = float(clearance)
         self.grid_m = float(grid_m)
-        self.num_threads = int(num_threads) or max(1, (os.cpu_count() or 2) - 1)
+        self.num_threads = int(num_threads) or _cpu_allowance()
 
     def _collect(self, ifc, settings) -> List[Dict[str, Any]]:
         """AABBs via the multi-threaded geometry iterator — initializes the kernel once and
