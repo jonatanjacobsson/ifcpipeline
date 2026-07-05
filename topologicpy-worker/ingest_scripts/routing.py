@@ -11,7 +11,14 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePath
 
-ARCHITECTURE_SCRIPTS = ["ExtractSpaces", "SpatialContainment", "SpaceAdjacency", "WallHosting"]
+ARCHITECTURE_SCRIPTS = [
+    "ExtractSpaces",
+    "SpatialContainment",
+    "SpaceAdjacency",
+    "WallHosting",
+    # Takt zones + membership + adjacency (Taktology ingester §§0-2+6, zone half only).
+    "TaktProduction",
+]
 # Federated cross-discipline geometric relations (penetrates/intersects/sits_in/mounted_on).
 # Run on federated bundles (multiple discipline models in one revision), not single files.
 FEDERATED_SCRIPTS = ["FederatedRelationships"]
