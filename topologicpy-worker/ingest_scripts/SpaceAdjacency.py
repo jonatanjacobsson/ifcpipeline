@@ -84,6 +84,9 @@ class Ingester(_Base):
 
                 nodes = topograph.vertices(graph)
                 self.log.info("SpaceAdjacency: graph has %d vertices", len(nodes))
+                # One O(V+E) pass over the edge list instead of a per-space
+                # AdjacentVertices call (same membership, dedup'd by seen_edges).
+                adjacency = topograph.adjacency_nodes(graph)
 
                 for node in nodes:
                     if "IfcSpace" not in node.ifc_type:
@@ -100,7 +103,7 @@ class Ingester(_Base):
                         extra={"source_file": ifc_path.name},
                     ))
 
-                    for adj in topograph.adjacent(graph, node):
+                    for adj in adjacency.get(node.index, ()):
                         adj_id = adj.gid
                         if not adj_id:
                             continue
