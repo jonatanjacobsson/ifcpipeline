@@ -38,11 +38,15 @@ from ingest_scripts import Ingester as _Base, Relationship
 from ingest_scripts import topograph
 
 # Predicates that are schema/annotation, never instance-to-instance edges.
+# The trailing alternatives cover topologicpy >=0.9.58, which links property
+# sets and type objects as IRI resources (rooted, so they carry GUIDs and pass
+# the element-endpoint filter) instead of the <=0.9.57 top:IFC_* literals.
 _NON_EDGE_PRED = re.compile(
-    r"(22-rdf-syntax-ns#type|rdf-schema#|2002/07/owl#|/skos/|/dc/|/dcterms/|vann#|#IFC_)",
+    r"(22-rdf-syntax-ns#type|rdf-schema#|2002/07/owl#|/skos/|/dc/|/dcterms/|vann#|#IFC_"
+    r"|hasPropertySet$|isPropertySetOf$|hasIFCType$|isIFCTypeOf$)",
     re.IGNORECASE,
 )
-_GUID_PRED = re.compile(r"(ifc_guid|IFC_global_id|globalId|#guid$)", re.IGNORECASE)
+_GUID_PRED = re.compile(r"(ifc_guid|ifcGUID|ifcGlobalId|IFC_global_id|globalId|#guid$)", re.IGNORECASE)
 
 
 def _localname(uri: str) -> str:

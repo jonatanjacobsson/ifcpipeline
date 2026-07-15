@@ -7,10 +7,15 @@ ifcopenshell==0.8.4
 # Python-native TGraph data structure. See topologicpy-worker/tgraph_eval/.
 # NOTE (0.9.52): adds the KnowledgeGraph module (RDF/Turtle export, RDFS+BOT
 # reasoning, MergeGraphs federation) used by ingest_scripts/KnowledgeGraphExport.
+# NOTE (0.9.58): LPG surface verified identical to 0.9.57 (ByIFCFile shape,
+# snake_case relationship values, ToPython/FromPython round-trip). RDF/TTL
+# vocabulary is NOT stable across 0.9.57->0.9.58 (top:IFC_* removed; bot:/dict:
+# namespaces added; guid literal predicate is now top:ifcGUID — _GUID_PRED in
+# KnowledgeGraphExport matches both old and new).
 # Upper-bounded: KnowledgeGraphExport memoizes KnowledgeGraph internals and the
 # topograph disk cache round-trips TGraph.ToPython/FromPython — re-verify both
 # (ingest_bench fingerprints) before crossing 0.10.
-topologicpy>=0.9.52,<0.10
+topologicpy>=0.9.58,<0.10
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
 # (algorithm="louvain"), used by ZonePartition. topologicpy does not pull it in.
 python-igraph>=0.11
