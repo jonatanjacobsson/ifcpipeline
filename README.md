@@ -88,6 +88,8 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    - `ifc5d-worker` - Quantity calculations
    - `ifcpatch-worker` - IFC patching
    - `ifc2json-worker` - JSON conversion
+   - `ifccoord-worker` - MEP coordination
+   - `topologicpy-worker` - topology / space graphs
 3. **IFC Viewer** - Web-based 3D viewer (Vite + @thatopen/components)
 4. **n8n** - Workflow automation platform with custom nodes
 5. **Redis** - Job queue and result backend

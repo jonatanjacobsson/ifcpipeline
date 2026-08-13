@@ -421,25 +421,6 @@ class IFC2JSONRequest(VersionPinOptional):
         return _validate_safe_path(v)
 
 
-class FragmentsRequest(VersionPinOptional):
-    """IFC → ThatOpen ``.frag`` pre-bake (ifcfrag-worker)."""
-
-    input_filename: str
-    output_filename: Optional[str] = None
-
-    @field_validator("input_filename")
-    @classmethod
-    def validate_input(cls, v: str) -> str:
-        return _validate_safe_path(v)
-
-    @field_validator("output_filename")
-    @classmethod
-    def validate_output(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
-        return _validate_safe_path(v)
-
-
 class DownloadRequest(BaseModel):
     file_path: str
 
