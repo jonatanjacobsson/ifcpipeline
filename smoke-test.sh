@@ -48,14 +48,10 @@ SERVICES=(
   api-gateway
   ifccsv-worker ifcfast-worker ifctester-worker ifcconvert-worker
   ifcdiff-worker ifc5d-worker ifc2json-worker ifcpatch-worker
-  ifcclash-worker guid-index-worker
+  ifcclash-worker
   # ifc-gherkin-worker + beast-pdf-gherkin-worker moved to cde/ (2026-05);
   # smoke them via cde/scripts instead.
 )
-
-# Enable async GUID indexing for the smoke test so we can assert on
-# tester_results / clash_pairs / object_guids afterwards.
-export GUID_INDEX_MODE="${GUID_INDEX_MODE:-async}"
 
 echo ">>> Building & starting services"
 docker compose up -d --build "${SERVICES[@]}"
@@ -274,12 +270,7 @@ if [ "$audit_fail" -ne 0 ]; then
   exit 1
 fi
 
-echo ">>> GUID index smoke"
-# Give the guid-index-worker a moment to drain the queue we just fed.
-sleep 5
-
-guid_fail=0
-
+echo ">>> Tester / clash audit rows"
 psql_exec() {
   docker compose exec -T postgres psql -U "${POSTGRES_USER:-ifcpipeline}" \
     -d "${POSTGRES_DB:-ifcpipeline}" -tA -c "$1"
@@ -289,44 +280,12 @@ row_count() {
   local sql="$1"
   local out
   out=$(psql_exec "$sql" 2>/dev/null || echo 0)
-  # Strip whitespace.
   echo "${out//[[:space:]]/}"
 }
 
-guids_total=$(row_count "SELECT COUNT(*) FROM object_guids;")
 tester_total=$(row_count "SELECT COUNT(*) FROM tester_results;")
 clash_total=$(row_count "SELECT COUNT(*) FROM clash_pairs;")
-echo "  object_guids=$guids_total  tester_results=$tester_total  clash_pairs=$clash_total"
-
-# With GUID_INDEX_MODE=async, the root upload + patch derivative should
-# have populated object_guids within a few seconds. We only assert a
-# *minimum* because row counts depend on the fixture.
-if [ "${GUID_INDEX_MODE}" = "async" ] || [ "${GUID_INDEX_MODE}" = "sync" ]; then
-  [ "${guids_total:-0}" -gt 0 ] || {
-    echo "  [FAIL] object_guids is empty (expected >0 after uploads + ifcpatch)"
-    guid_fail=1
-  }
-fi
-
-# Pick any indexed guid and exercise the /guid endpoints.
-sample_guid=$(psql_exec "SELECT ifc_guid FROM object_guids ORDER BY id DESC LIMIT 1;" || true)
-sample_guid=${sample_guid//[[:space:]]/}
-if [ -n "$sample_guid" ]; then
-  echo "  sample guid: $sample_guid"
-  rows_count=$(curl -fsS "${AUTH[@]}" "$API/guid/$sample_guid" | jqget count)
-  path_nodes=$(curl -fsS "${AUTH[@]}" "$API/guid/$sample_guid/path" \
-    | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("nodes",[])))')
-  echo "  /guid returned count=$rows_count, /guid/path returned nodes=$path_nodes"
-  [ "${rows_count:-0}" -ge 1 ] || { echo "  [FAIL] /guid/{guid} returned zero rows"; guid_fail=1; }
-  [ "${path_nodes:-0}" -ge 1 ] || { echo "  [FAIL] /guid/{guid}/path returned zero nodes"; guid_fail=1; }
-else
-  echo "  [skip] no guid rows yet (worker may still be draining)"
-fi
-
-if [ "$guid_fail" -ne 0 ]; then
-  echo "SMOKE TEST FAILED (GUID index checks)"
-  exit 1
-fi
+echo "  tester_results=$tester_total  clash_pairs=$clash_total"
 
 if [ "$soft_fail" -gt 0 ]; then
   echo "SMOKE TEST OK (with ${soft_fail} known library-issue failure(s) — see OBJECT_STORAGE.md)"
