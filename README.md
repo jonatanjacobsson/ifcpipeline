@@ -258,7 +258,7 @@ To update IFC Pipeline to the latest version:
 
 ### Required Environment Variables
 
-Create a `.env` file in the project root with the following variables:
+Copy `.env.example` to `.env` (and `seaweedfs/s3.json.example` to `seaweedfs/s3.json`). Compose interpolation **fails** without `IFC_PIPELINE_API_KEY`, `POSTGRES_PASSWORD`, `S3_ACCESS_KEY`, and `S3_SECRET_KEY`. Set `N8N_ENCRYPTION_KEY` too — a blank key breaks n8n credential encryption.
 
 #### Security & Access
 ```bash
@@ -272,6 +272,7 @@ IFC_PIPELINE_PREVIEW_EXTERNAL_URL=http://localhost:8001
 ```bash
 N8N_WEBHOOK_URL=http://localhost:5678  # Use localhost for local dev
 N8N_COMMUNITY_PACKAGES_ENABLED=true
+N8N_ENCRYPTION_KEY=   # openssl rand -base64 32
 ```
 
 #### Database Configuration
@@ -285,6 +286,14 @@ POSTGRES_DB=ifcpipeline
 ```bash
 REDIS_URL=redis://redis:6379/0
 ```
+
+#### Object storage (required for `docker compose up`)
+```bash
+S3_ACCESS_KEY=   # must match seaweedfs/s3.json
+S3_SECRET_KEY=
+```
+
+`WORKER_VM_IP` is **optional**. Set it only if a remote worker VM runs Dozzle agent on `:7007`. A single-host clone does not need it.
 
 > 💡 **Tip**: IP ranges in CIDR format can bypass API key authentication for trusted networks
 
@@ -332,7 +341,7 @@ Bucket versioning is enabled by `seaweedfs-setup` on first run so every overwrit
 
 ### SeaweedFS service
 
-The `seaweedfs` container binds S3 API to `127.0.0.1:8333` and the filer UI to `127.0.0.1:8443`. Remote workers reach S3 on `PIPELINE_LAN_IP:8333` via [`docker-compose.host-lan.yml`](docker-compose.host-lan.yml).
+The `seaweedfs` service listens on `:8333` inside the compose network. The [host-lan overlay](docker-compose.host-lan.yml) publishes S3 on `0.0.0.0:8333` and the filer UI on `127.0.0.1:8443` so remote workers can reach the bucket; a single-host `docker compose up` does not need that overlay. Restrict those LAN ports at the **host** firewall — this repo does not ship iptables/ufw policy.
 
 - Bucket bootstrap: `seaweedfs-setup` (MinIO `mc` client against SeaweedFS S3) creates `ifcpipeline` and enables versioning on first start.
 - Health: TCP connect to `:8333` (unauthenticated S3 requests return 403 — that still proves the gateway is up).
