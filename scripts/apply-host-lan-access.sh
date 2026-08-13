@@ -69,17 +69,3 @@ if [[ -n "$WORKER_VM_IP" ]]; then
   echo "==> After primary IP changes, refresh worker config:"
   echo "  ./scripts/deploy-remote-workers-from-primary.sh"
 fi
-
-if [[ "${SKIP_FIREWALL:-}" == "1" ]]; then
-  echo ""
-  echo "==> Skipping firewall (SKIP_FIREWALL=1)"
-elif [[ $EUID -eq 0 ]]; then
-  bash "$ROOT/scripts/apply-host-lan-firewall.sh"
-elif sudo -n true 2>/dev/null; then
-  sudo -n bash "$ROOT/scripts/apply-host-lan-firewall.sh"
-else
-  echo ""
-  echo "==> Firewall not applied (needs root)."
-  echo "    Install reboot units: sudo ./scripts/install-host-lan-reboot.sh"
-  echo "    Or run once:          sudo ./scripts/apply-host-lan-firewall.sh"
-fi

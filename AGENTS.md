@@ -45,7 +45,8 @@ LAN ports (6379/5432/8333) are locked to the worker VM via `DOCKER-USER`. Becaus
 external interface (the NIC holding `PIPELINE_LAN_IP`) — an interface-agnostic
 `--dport DROP` also drops internal container-to-container traffic (api-gateway↔
 postgres/redis, n8n↔postgres), making internal connections **time out** and
-n8n crash-loop. Apply/repair with `sudo ./scripts/apply-host-lan-firewall.sh`.
+n8n crash-loop. Scope `DOCKER-USER` rules to the external NIC; do not ship a
+host firewall in this repo.
 
 ## Object storage (S3 / SeaweedFS)
 
