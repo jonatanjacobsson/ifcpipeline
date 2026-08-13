@@ -108,7 +108,6 @@ RSYNC_EXCLUDES=(
   --exclude 'ifcdiff-worker/'
   --exclude 'ifc5d-worker/'
   --exclude 'ifc2json-worker/'
-  --exclude 'guid-index-worker/'
   --exclude 'cleanup-service/'
   --exclude 'tests/'
   --exclude 'patches/'

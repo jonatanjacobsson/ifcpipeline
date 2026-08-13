@@ -1,24 +1,16 @@
--- GUID-level audit trail for the object-storage variant.
+-- Tester / clash GUID rows for the object-storage variant.
 --
--- Each row in object_guids links an ifc_guid (IfcGloballyUniqueId) to a
--- specific object_version (and therefore to a specific bucket/key/VersionId),
--- with a `role` string that says *how* the guid ended up there:
---   root     - uploaded as part of a root IFC file
---   patched  - present in an ifcpatch output
---   split    - present in an extracted subset
---   exported - present in an ifccsv / ifc2json export
---   diff_added, diff_deleted, diff_changed - per ifcdiff classification
+-- Per-element GUID indexing (object_guids) is unused here — CDE owns that
+-- pipeline. The table is still created so existing databases and this init
+-- file stay compatible; nothing in ifcpipeline writes to it.
 --
 -- Tester and clash results have their own tables because (a) they carry
 -- additional columns beyond role/entity_type, and (b) a clash pair is a
--- relation between two guids, not a single-guid fact — spraying either
--- into object_guids would conflate very different semantics.
+-- relation between two guids, not a single-guid fact.
 --
--- Idempotency: the UNIQUE index (object_version_id, ifc_guid, role) lets
--- workers (and the backfill script) retry indexing without duplicating
--- rows. ifctester writes its own tester_results rows with a similar
--- UNIQUE constraint. ifcclash does NOT have a UNIQUE constraint because a
--- single clash run may legitimately record the same pair under different
+-- ifctester writes tester_results with a UNIQUE constraint so retries are
+-- idempotent. ifcclash does NOT have a UNIQUE constraint because a single
+-- clash run may legitimately record the same pair under different
 -- clash_sets; the worker dedupes per-run before inserting.
 
 CREATE TABLE IF NOT EXISTS object_guids (

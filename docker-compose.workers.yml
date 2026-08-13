@@ -453,15 +453,16 @@ services:
           cpus: '0.5'
           memory: 1G
 
-  # MEP coordination worker — primary-local consumer for parallel ifccoord jobs
-  # alongside bimbotw1 (docker-compose.remote-workers.yml). Heavy (~16G).
+  # MEP coordination — optional profile `ifccoord`.
+  # Needs the private `ifc-coord` git submodule (`git submodule update --init ifc-coord`).
+  # Fresh public clone: omit the profile so `docker compose up` does not COPY that tree.
+  # Enable: COMPOSE_PROFILES=ifccoord (in `.env`) or `--profile ifccoord`.
   ifccoord-worker:
+    profiles: [ifccoord]
     logging: *default-logging
     build:
       context: .
       dockerfile: ifccoord-worker/Dockerfile
-      args:
-        - IFCCOORD_TAG=${IFCCOORD_TAG:-latest}
     platform: linux/amd64
     user: "1000:1000"
     volumes:
