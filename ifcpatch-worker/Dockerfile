@@ -32,13 +32,15 @@ COPY ifcpatch-worker/recipe_loader.py /app/
 # Copy custom recipes directory
 COPY ifcpatch-worker/custom_recipes /app/custom_recipes/
 
-# ifc_coord MEP clash coordination engine (Phase 4)
-COPY ifc-coord/ifc_coord /app/ifc_coord
-COPY ifc-coord/ag_ifc /app/ag_ifc
+# MEP coordination (`ifc_coord` / `ag_ifc`) lives in ifccoord-worker, which is
+# Compose profile `ifccoord` and needs the private ifc-coord submodule.
+# CoordinateClashesFromReport still exists here; it errors at import if the
+# engine is not on PYTHONPATH (do not COPY ifc-coord — that breaks public clones).
 
-# Create necessary directories
-RUN mkdir -p /output/patch /uploads
-RUN chmod -R 777 /output /uploads
+# Create necessary directories (compose also runs this service as 1000:1000)
+RUN mkdir -p /output/patch /uploads \
+    && chown -R 1000:1000 /app /output /uploads
+USER 1000:1000
 
 # Set PYTHONPATH to include the app directory
 ENV PYTHONPATH=/app
