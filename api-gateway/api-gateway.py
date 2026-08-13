@@ -25,7 +25,6 @@ from shared.classes import (
     IfcTesterRequest,
     IfcDiffRequest,
     IFC2JSONRequest,
-    FragmentsRequest,
     DownloadLink,
     DownloadRequest,
     IfcQtoRequest,
@@ -78,9 +77,9 @@ ifcfast_queue = Queue('ifcfast', connection=redis_conn)
 ifcclash_queue = Queue('ifcclash', connection=redis_conn)
 ifctester_queue = Queue('ifctester', connection=redis_conn)
 # ifc_gherkin / beast_pdf_gherkin queues moved to cde/pipeline-gateway (2026-05).
+# ifcfrag / fragmenter moved to CDE (cde/fragmenter + arq generate_fragments_for_version).
 ifcdiff_queue = Queue('ifcdiff', connection=redis_conn)
 ifc2json_queue = Queue('ifc2json', connection=redis_conn)
-ifcfrag_queue = Queue('ifcfrag', connection=redis_conn)
 ifc5d_queue = Queue('ifc5d', connection=redis_conn)
 ifcpatch_queue = Queue('ifcpatch', connection=redis_conn)
 revit_queue = Queue('revit', connection=redis_conn)
@@ -292,7 +291,6 @@ async def health_check():
         "ifcdiff_queue": "waiting",
         "ifc5d_queue": "waiting",
         "ifc2json_queue": "waiting",
-        "ifcfrag_queue": "waiting",
         "ifcpatch_queue": "waiting",
         "revit_queue": "waiting",
         "ifccoord_queue": "waiting",
@@ -323,7 +321,6 @@ async def health_check():
         "ifcdiff_queue": ifcdiff_queue,
         "ifc5d_queue": ifc5d_queue,
         "ifc2json_queue": ifc2json_queue,
-        "ifcfrag_queue": ifcfrag_queue,
         "ifcpatch_queue": ifcpatch_queue,
         "revit_queue": revit_queue,
         "ifccoord_queue": ifccoord_queue,
@@ -1038,121 +1035,6 @@ async def get_ifc2json(filename: str, _: str = Depends(verify_access)):
                 raise HTTPException(status_code=500, detail="Failed to parse the JSON file")
 
     raise HTTPException(status_code=404, detail=f"File {filename} not found")
-
-
-def _frag_output_candidates(filename: str) -> list[str]:
-    """Resolve possible S3 keys for a ``.frag`` artifact."""
-    base = os.path.basename(filename)
-    stem, ext = os.path.splitext(base)
-    if ext.lower() == ".frag":
-        names = [base]
-    else:
-        names = [f"{stem or base}.frag", f"{base}.frag"]
-    keys: list[str] = []
-    seen: set[str] = set()
-    for name in names:
-        for candidate in (
-            s3.normalize_output_key(name, "frag"),
-            s3.normalize_output_key(filename, "frag"),
-            f"output/frag/{name}",
-        ):
-            if candidate not in seen:
-                seen.add(candidate)
-                keys.append(candidate)
-    return keys
-
-
-def _frag_input_from_filename(filename: str) -> str:
-    """Derive the IFC input key used to bake a frag for ``filename``."""
-    normalized = s3.normalize_input_key(filename)
-    # Preserve chained pipeline keys (e.g. output/topology/model.ifc).
-    if "/" in normalized:
-        base = os.path.basename(normalized)
-        stem, ext = os.path.splitext(base)
-        if ext.lower() == ".frag":
-            dir_part = os.path.dirname(normalized)
-            return f"{dir_part}/{stem}.ifc" if dir_part else s3.normalize_input_key(f"{stem}.ifc")
-        return normalized
-    base = os.path.basename(normalized)
-    stem, ext = os.path.splitext(base)
-    if ext.lower() == ".frag":
-        ifc_name = f"{stem}.ifc"
-    elif ext.lower() == ".ifc":
-        ifc_name = base
-    else:
-        ifc_name = f"{base}.ifc"
-    return s3.normalize_input_key(ifc_name)
-
-
-@app.post("/fragments", tags=["Conversion"])
-async def fragments_generate(request: FragmentsRequest, _: str = Depends(verify_access)):
-    """Enqueue IFC → ``.frag`` conversion (ifcfrag-worker)."""
-    try:
-        validate_input_file_exists(request.input_filename)
-        job = ifcfrag_queue.enqueue(
-            "tasks.run_ifcfrag",
-            request.model_dump(),
-            job_timeout="1h",
-            result_ttl=JOB_RESULT_TTL,
-        )
-        logger.info("Enqueued ifcfrag job with ID: %s", job.id)
-        return {"job_id": job.id}
-    except Exception as e:
-        logger.error("Error enqueueing ifcfrag job: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/fragments/{filename:path}", tags=["Conversion"])
-async def fragments_ensure(
-    filename: str,
-    _: str = Depends(verify_access),
-    input_version_id: Optional[str] = None,
-):
-    """Return an existing ``output/frag/*.frag`` or enqueue generation on first request."""
-    if not s3.is_enabled():
-        raise HTTPException(status_code=503, detail="Object storage is disabled")
-
-    frag_key: Optional[str] = None
-    frag_meta: Optional[dict] = None
-    for candidate in _frag_output_candidates(filename):
-        try:
-            if s3.object_exists(candidate):
-                frag_key = candidate
-                frag_meta = s3.head_metadata(candidate)
-                break
-        except Exception as exc:
-            logger.warning("frag lookup for %s failed: %s", candidate, exc)
-
-    if frag_key:
-        presigned = s3.presigned_get_url_public(frag_key, expires_in=1800)
-        return {
-            "status": "ready",
-            "bucket": s3.bucket_name(),
-            "object_key": frag_key,
-            "presigned_url": presigned,
-            "sha256": (frag_meta or {}).get("sha256"),
-            "size_bytes": (frag_meta or {}).get("size_bytes"),
-            "version_id": (frag_meta or {}).get("version_id"),
-        }
-
-    input_key = _frag_input_from_filename(filename)
-    validate_input_file_exists(input_key)
-    payload: dict = {"input_filename": input_key}
-    if input_version_id:
-        payload["input_version_id"] = input_version_id
-    job = ifcfrag_queue.enqueue(
-        "tasks.run_ifcfrag",
-        payload,
-        job_timeout="1h",
-        result_ttl=JOB_RESULT_TTL,
-    )
-    logger.info("Lazy-enqueued ifcfrag job %s for %s", job.id, input_key)
-    return {
-        "status": "generating",
-        "job_id": job.id,
-        "input_key": input_key,
-        "expected_output_prefix": "output/frag/",
-    }
 
 
 @app.get("/artifacts/{subdir}/{filename:path}", tags=["File Operations"])

@@ -15,11 +15,11 @@ fi
 ALL_WORKERS=(
   ifc5d-worker ifcpatch-worker ifcconvert-worker ifcclash-worker
   ifccsv-worker ifcfast-worker ifctester-worker ifcdiff-worker ifc2json-worker
-  ifcfrag-worker ifccoord-worker topologicpy-worker
+  ifccoord-worker topologicpy-worker
 )
 PRIMARY_LOCAL_WORKERS=(
   ifc5d-worker ifcconvert-worker ifccsv-worker ifcfast-worker ifc2json-worker
-  ifcfrag-worker ifccoord-worker topologicpy-worker
+  ifccoord-worker topologicpy-worker
 )
 REMOTE_WORKERS=(ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker)
 

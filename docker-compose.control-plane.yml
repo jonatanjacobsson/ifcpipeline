@@ -220,24 +220,7 @@ services:
           cpus: '0.1'
           memory: 128M
 
-  # Node IfcImporter service — shared with CDE; ifcfrag-worker POSTs here.
-  fragmenter:
-    logging: *default-logging
-    build:
-      context: ../cde/fragmenter
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      - PORT=4001
-      - HOST=0.0.0.0
-      - MAX_PAYLOAD_BYTES=1073741824
-    ports:
-      - "127.0.0.1:8041:4001"
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 3G
+  # IFC → .frag lives in CDE (cde/fragmenter + arq), not this stack.
 
   ifc-classifier:
     logging: *default-logging
