@@ -82,7 +82,7 @@ S3-compatible object store so that:
 | n8n           | 5678 |
 | rq-dashboard  | 9181 |
 | dozzle        | 9182 |
-| SeaweedFS S3  | **8333** (loopback + LAN via host-lan overlay) |
+| SeaweedFS S3  | **8333** (compose network; published on `0.0.0.0` only with the host-lan overlay) |
 | SeaweedFS filer UI | **8443** (loopback only) |
 
 ## Running the smoke test
@@ -192,7 +192,7 @@ redirects, e.g. `https://s3-api.example.com`):
 
 - `docker-compose.control-plane.yml` — `seaweedfs`, `seaweedfs-setup`, `seaweedfs-data` volume, S3 env on api-gateway + guid-index-worker.
 - `docker-compose.workers.yml` — S3 env on every worker; `depends_on: seaweedfs-setup`.
-- `docker-compose.host-lan.yml` — publish Redis/Postgres/SeaweedFS S3 on `PIPELINE_LAN_IP`.
+- `docker-compose.host-lan.yml` — publish Redis/Postgres/SeaweedFS S3 on all host interfaces (`0.0.0.0`). `PIPELINE_LAN_IP` is for worker `.env.remote` only.
 
 ## Audit trail (object lineage)
 
