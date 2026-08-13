@@ -3,9 +3,10 @@
 IfcPipeline is a **multi-host** IFC processing stack.
 
 - **Primary / control-plane** (`PIPELINE_LAN_IP` in `.env`): runs
-  `redis`, `postgres`, `seaweedfs`, `api-gateway`, `guid-index-worker`, and
+  `redis`, `postgres`, `seaweedfs`, `api-gateway`, and
   **local** RQ workers (`ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`,
-  `ifccoord`, `topologicpy`).
+  `topologicpy`). `ifccoord` is Compose profile `ifccoord` (private
+  `ifc-coord` submodule — not started on a public clone).
 - **Worker host** (`WORKER_VM_IP` in `.env`, optional on a single-host clone):
   runs **remote** RQ workers (`ifcclash`, `ifcdiff`, `ifcpatch`, `ifctester`,
   `ifccoord`, `topologicpy`) via `docker-compose.remote-workers.yml --env-file

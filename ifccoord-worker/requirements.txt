@@ -1,3 +1,21 @@
-rq>=2.0.0
-pydantic>=2.0.0
-boto3>=1.34.0
+# Queue, validation, object storage
+rq>=2.0.0,<3.0.0
+pydantic>=2.9.0,<3.0.0
+boto3>=1.34,<2
+redis>=5,<6
+
+# IFC — same pins as ifcclash-worker / ifcpatch-worker
+ifcopenshell==0.8.5
+ifcclash==0.8.5
+ifcpatch==0.8.5
+bcf-client==0.8.5
+typing-extensions>=4.12.0
+
+# ifc_coord / ag_ifc (MTV, CP-SAT, optional mesh contact)
+numpy>=1.26.0,<3.0.0
+networkx>=3.3,<4.0.0
+shapely>=2.0,<3.0
+scipy>=1.11,<2.0
+ortools>=9.10,<10
+trimesh>=4.0,<5
+python-fcl>=0.7,<1

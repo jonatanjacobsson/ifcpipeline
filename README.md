@@ -88,7 +88,7 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    - `ifc5d-worker` - Quantity calculations
    - `ifcpatch-worker` - IFC patching
    - `ifc2json-worker` - JSON conversion
-   - `ifccoord-worker` - MEP coordination
+   - `ifccoord-worker` - MEP coordination (optional Compose profile `ifccoord`; needs the private `ifc-coord` submodule)
    - `topologicpy-worker` - topology / space graphs
 3. **IFC Viewer** - Web-based 3D viewer (Vite + @thatopen/components)
 4. **n8n** - Workflow automation platform with custom nodes
@@ -161,6 +161,14 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    ```
    
    **Note:** First build may take 10-30 minutes depending on your system (longer on Apple Silicon due to emulation)
+
+   `ifccoord-worker` is **off by default** (Compose profile `ifccoord`). It copies the private [`ifc-coord`](https://github.com/jonatanjacobsson/ifc-coord) submodule. A public clone can `docker compose up` without it. To enable:
+
+   ```bash
+   git submodule update --init ifc-coord
+   # in .env: COMPOSE_PROFILES=ifccoord
+   docker compose --profile ifccoord up -d --build ifccoord-worker
+   ```
 
 5. **Verify the installation**:
    ```bash
@@ -318,7 +326,6 @@ S3_SECRET_KEY=<required, no default>
 S3_BUCKET=ifcpipeline
 S3_REGION=us-east-1
 S3_CHECKSUM_MODE=app                   # or "native" for server-side SHA256
-GUID_INDEX_MODE=off                    # or "sync" / "async" if the guid-index-worker is running
 ```
 
 Set strong `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env` and keep them in sync with `seaweedfs/s3.json` (gitignored; copy from `seaweedfs/s3.json.example`).
@@ -357,13 +364,12 @@ See [`OBJECT_STORAGE.md`](OBJECT_STORAGE.md) and [`DEPLOYMENT.md`](DEPLOYMENT.md
 
 ### Audit trail
 
-New Postgres tables (`object_versions`, `object_lineage`, `object_guids`, …) power these endpoints:
+New Postgres tables (`object_versions`, `object_lineage`, …) power these endpoints:
 
 - `GET /lineage/{object_key}` — full ancestor/descendant graph of any version.
 - `GET /lineage/job/{job_id}` — lineage for a specific job's inputs/outputs.
 - `GET /audit/history/{object_key}` — every recorded version of a key.
 - `GET /audit/dedupe/{sha256}` — find every key that ever held these bytes.
-- `GET /guid/{ifc_guid}`, `/guid/{ifc_guid}/path|diffs|clashes|tester` — trace an `IfcGloballyUniqueId` through the pipeline (requires the optional `guid-index-worker`).
 
 See [`OBJECT_STORAGE.md`](./OBJECT_STORAGE.md) for full design rationale, per-worker status, and the migration path from the legacy filesystem stack.
 
