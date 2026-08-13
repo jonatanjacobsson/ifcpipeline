@@ -212,6 +212,8 @@ class SpaceIndex:
                             type(raw_cell).__name__,
                         )
                     continue
+                if isinstance(cell_spaces, SpaceCandidate):
+                    cell_spaces = [cell_spaces]
                 if raw_cell is not None and not isinstance(raw_cell, list):
                     self.grid[(gx + dx, gy + dy)] = cell_spaces
                 for space in cell_spaces:
@@ -786,6 +788,7 @@ def _collect_elements(
     sample_strategy: TopologySampleStrategy,
     max_elements: Optional[int],
     overlap_samples: int = _OVERLAP_SAMPLES,
+    use_geometry_iterator: bool = True,
 ) -> Tuple[List[ElementCandidate], int]:
     elements: List[ElementCandidate] = []
     geometry_failures = 0
@@ -800,10 +803,13 @@ def _collect_elements(
     if max_elements is not None:
         all_products = all_products[:max_elements]
 
-    # Always compute geometry bboxes (and meshes when available) so PLACEMENT
-    # can be validated and overlap voting has footprint samples.
+    # Compute geometry bboxes (and meshes when available) unless disabled for large
+    # models where geom.iterator can SIGSEGV; placement-only is coarser but stable.
     products_needing_bbox = list(all_products)
-    bboxes, meshes = _geometry_from_iterator(model, products_needing_bbox, settings)
+    if use_geometry_iterator:
+        bboxes, meshes = _geometry_from_iterator(model, products_needing_bbox, settings)
+    else:
+        bboxes, meshes = {}, {}
 
     for product in all_products:
         pid = product.id()
@@ -2461,6 +2467,7 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
                 request.sample_strategy,
                 request.max_elements,
                 overlap_samples=tuning.overlap_samples,
+                use_geometry_iterator=request.use_geometry_iterator,
             )
             element_geometry_failures += failures
             element_geometry_seconds += time.perf_counter() - file_element_start
@@ -2813,7 +2820,11 @@ def _run_ingest_core(job_data: dict) -> dict:
             from ingest_scripts import resolve_positional_arguments
             kwargs = resolve_positional_arguments(script_name, request.arguments)
         else:
-            kwargs = request.arguments
+            kwargs = {
+                k: v
+                for k, v in dict(request.arguments or {}).items()
+                if not (isinstance(k, str) and k.startswith("_"))
+            }
 
         ingester = IngesterClass(
             ifc_files=staged_files,
@@ -3008,6 +3019,93 @@ def _isolated_job_worker(result_queue, payload: dict) -> None:
         raise
 
 
+def _is_sigsegv_exitcode(exitcode: Optional[int]) -> bool:
+    """True when a spawn child died from SIGSEGV (Linux exit 139 or signal -11)."""
+    if exitcode is None:
+        return False
+    if exitcode in (139, -11):
+        return True
+    return exitcode < 0 and -exitcode == 11
+
+
+def _is_sigsegv_runtime_error(exc: BaseException) -> bool:
+    if not isinstance(exc, RuntimeError):
+        return False
+    msg = str(exc)
+    return "likely SIGSEGV" in msg or "exit=-11" in msg or "exit=139" in msg
+
+
+_INGEST_SIGSEGV_FALLBACK_SCRIPTS = frozenset(
+    {
+        "SpatialContainment",
+        "SpaceAdjacency",
+        "EgressCirculation",
+        "ZonePartition",
+        "PathRouting",
+        "BridgesAndCuts",
+        "GraphCentrality",
+    }
+)
+
+
+def _ingest_args_dict(job_data: dict) -> dict[str, Any]:
+    args = job_data.get("arguments")
+    return args if isinstance(args, dict) else {}
+
+
+def _ingest_force_ifc_native(job_data: dict) -> bool:
+    args = _ingest_args_dict(job_data)
+    if args.get("force_ifc_native"):
+        return True
+    return args.get("use_topologic") is False
+
+
+def _is_isolated_child_crash(exc: BaseException) -> bool:
+    if not isinstance(exc, RuntimeError):
+        return False
+    msg = str(exc)
+    if not msg.startswith("topologicpy ingest crashed in isolated subprocess"):
+        return False
+    return _is_sigsegv_runtime_error(exc) or "exit=1 with no result" in msg
+
+
+def _ingest_already_retried_inprocess(job_data: dict) -> bool:
+    args = _ingest_args_dict(job_data)
+    return bool(args.get("_inprocess_retry"))
+
+
+def _job_data_for_inprocess_retry(job_data: dict) -> dict:
+    retry = dict(job_data)
+    script_name = str(job_data.get("script") or "")
+    if script_name in _INGEST_SIGSEGV_FALLBACK_SCRIPTS:
+        merged = dict(_ingest_args_dict(job_data))
+        merged["force_ifc_native"] = True
+        merged["use_topologic"] = False
+    else:
+        merged = dict(_ingest_args_dict(job_data))
+    merged["_inprocess_retry"] = True
+    retry["arguments"] = merged
+    return retry
+
+
+def _isolated_crash_runtime_error(
+    func_name: str,
+    exitcode: Optional[int],
+    child_err: Optional[str] = None,
+) -> RuntimeError:
+    sig_hint = ""
+    if _is_sigsegv_exitcode(exitcode):
+        sig_hint = ", likely SIGSEGV"
+    elif exitcode is not None and exitcode < 0:
+        sig_hint = f", signal={-exitcode}"
+    return RuntimeError(
+        f"topologicpy {func_name} crashed in isolated subprocess "
+        f"(exit={exitcode}{sig_hint}"
+        + (f", child={child_err!r}" if child_err else " with no result")
+        + ")"
+    )
+
+
 def _run_in_spawn_isolation(func_name: str, job_data: dict) -> dict:
     """Run a core function in a ``spawn`` subprocess so all native memory is
     reclaimed when the child exits. A child crash (e.g. OCCT SIGSEGV) kills only
@@ -3048,10 +3146,15 @@ def _run_in_spawn_isolation(func_name: str, job_data: dict) -> dict:
             return data
         raise RuntimeError(f"topologicpy {func_name} isolated worker: {data}")
 
-    raise RuntimeError(
-        f"topologicpy {func_name} crashed in isolated subprocess "
-        f"(exit={proc.exitcode}) with no result"
-    )
+    child_err: Optional[str] = None
+    try:
+        status, data = q.get_nowait()
+        if status == "err":
+            child_err = str(data)
+    except Empty:
+        pass
+
+    raise _isolated_crash_runtime_error(func_name, proc.exitcode, child_err)
 
 
 def run_roomstamp_benchmark(job_data: dict) -> dict:
@@ -3065,6 +3168,27 @@ def run_roomstamp_benchmark(job_data: dict) -> dict:
 def run_ingest(job_data: dict) -> dict:
     """RQ entry point. Runs the ingest script in a spawn-isolated child so native
     topologic/OCCT memory is reclaimed when the job finishes."""
-    if not _spawn_isolation_enabled():
-        return _run_ingest_core(job_data)
-    return _run_in_spawn_isolation("ingest", job_data)
+
+    def _attempt(data: dict, *, isolated: bool | None = None) -> dict:
+        use_isolation = (
+            _spawn_isolation_enabled() if isolated is None else isolated
+        )
+        if use_isolation:
+            return _run_in_spawn_isolation("ingest", data)
+        return _run_ingest_core(data)
+
+    script_name = str(job_data.get("script") or "")
+    try:
+        return _attempt(job_data)
+    except RuntimeError as exc:
+        if (
+            _is_isolated_child_crash(exc)
+            and not _ingest_already_retried_inprocess(job_data)
+        ):
+            logger.warning(
+                "ingest script=%s isolated child crash (%s); retrying in-process",
+                script_name,
+                exc,
+            )
+            return _attempt(_job_data_for_inprocess_retry(job_data), isolated=False)
+        raise

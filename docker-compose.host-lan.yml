@@ -4,8 +4,8 @@
 # Usage (from repo root):
 #   docker compose -f docker-compose.control-plane.yml -f docker-compose.host-lan.yml up -d redis postgres seaweedfs
 #
-# Restrict off-host access to the worker VM with:
-#   sudo ./scripts/apply-host-lan-firewall.sh
+# If you publish these ports for remote workers, restrict them at the host
+# firewall (do not leave Redis/Postgres/S3 open to the whole LAN).
 #
 # PIPELINE_LAN_IP in .env is auto-synced by scripts for worker .env.remote only;
 # it is not used for Docker port bindings.

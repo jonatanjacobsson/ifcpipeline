@@ -20,6 +20,7 @@ RUN python /tmp/patch_vertex.py
 COPY topologicpy-worker/space_cache.py /app/
 COPY topologicpy-worker/tasks.py /app/
 COPY topologicpy-worker/ingest_scripts /app/ingest_scripts
+COPY ifcpatch-worker/custom_recipes/RemoveElements.py /app/custom_recipes/RemoveElements.py
 
 RUN mkdir -p /output/topology /uploads
 RUN chmod -R 777 /output /uploads

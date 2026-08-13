@@ -180,7 +180,7 @@ _CACHE_SUFFIX = ".tgraph.json"
 
 
 def _cache_max_bytes() -> int:
-    # Default 1 GB: the host runs close to the disk-watcher's 20 GB free floor.
+    # Default 1 GB: keep the on-disk tgraph cache from eating SeaweedFS free space.
     try:
         return int(os.environ.get("INGEST_TGRAPH_CACHE_MAX_MB", "1024")) * 1024 ** 2
     except ValueError:

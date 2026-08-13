@@ -12,9 +12,8 @@ LAN. (Object storage is **SeaweedFS** on port 8333; MinIO was decommissioned
 2026-06.)
 
 `docker-compose.host-lan.yml` publishes redis/postgres/seaweedfs on all host
-interfaces (reboot-safe). Restrict off-host access with
-`scripts/apply-host-lan-firewall.sh`. `PIPELINE_LAN_IP` in `.env` is
-auto-synced for worker `.env.remote` only.
+interfaces (reboot-safe). Restrict off-host access at the host firewall.
+`PIPELINE_LAN_IP` in `.env` is auto-synced for worker `.env.remote` only.
 
 ## Rule
 
@@ -53,8 +52,5 @@ ports vanish, so re-applying the overlay is enough.
 also sees container-to-container traffic. Lock the LAN ports to the worker VM
 **scoped to the external interface** (`eth0`) — an interface-agnostic
 `--dport DROP` silently drops internal `api-gateway/n8n -> postgres/redis`
-(connections time out; n8n crash-loops). Apply/repair with:
-
-```bash
-sudo ./scripts/apply-host-lan-firewall.sh
-```
+(connections time out; n8n crash-loops). Apply/repair with a host-local
+firewall scoped to that NIC — this repo does not ship one.

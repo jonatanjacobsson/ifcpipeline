@@ -87,13 +87,9 @@ be **scoped to the external interface**. With `net.bridge.bridge-nf-call-iptable
 internal connections **time out** (not "refused"); n8n crash-loops with
 "Could not establish database connection".
 
-Apply / repair with the idempotent script (scopes every rule to the NIC holding
-`PIPELINE_LAN_IP`, e.g. `eth0`):
-
-```bash
-cd /home/bimbot-ubuntu/apps/ifcpipeline
-sudo ./scripts/apply-host-lan-firewall.sh
-```
+Apply / repair with a host-local firewall (scope every `DOCKER-USER` rule to
+the NIC holding `PIPELINE_LAN_IP`, e.g. `eth0`). This repo does not ship that
+script — an interface-agnostic `--dport DROP` will break n8n and the API.
 
 Diagnose a suspected drop (timeout = dropped, refused = path OK):
 
