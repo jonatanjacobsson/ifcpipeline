@@ -457,6 +457,7 @@ services:
   # Needs the private `ifc-coord` git submodule (`git submodule update --init ifc-coord`).
   # Fresh public clone: omit the profile so `docker compose up` does not COPY that tree.
   # Enable: COMPOSE_PROFILES=ifccoord (in `.env`) or `--profile ifccoord`.
+  # Heavy (~16G); primary-local can run alongside bimbotw1 remote replicas.
   ifccoord-worker:
     profiles: [ifccoord]
     logging: *default-logging
