@@ -162,7 +162,7 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    
    **Note:** First build may take 10-30 minutes depending on your system (longer on Apple Silicon due to emulation)
 
-   `ifccoord-worker` is **off by default** (Compose profile `ifccoord`). It copies the private [`ifc-coord`](https://github.com/jonatanjacobsson/ifc-coord) submodule. A public clone can `docker compose up` without it. To enable:
+   `ifccoord-worker` is **off by default** (Compose profile `ifccoord`). It copies the private [`ifc-coord`](https://github.com/jonatanjacobsson/ifc-coord) submodule. `ifcpatch-worker` does **not** copy that tree, so a public clone can `docker compose up --build` without the submodule. To enable coordination:
 
    ```bash
    git submodule update --init ifc-coord
