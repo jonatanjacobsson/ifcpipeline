@@ -10,7 +10,7 @@ How to run the stack on a **primary host** (control plane + optional local worke
 | `docker-compose.control-plane.yml` | API, Redis, Postgres, SeaweedFS, n8n, dashboards, viewer, cleanup |
 | `docker-compose.workers.yml` | All twelve `*-worker` services (canonical definitions) |
 | `docker-compose.remote-workers.yml` | Worker host: `include` workers + `remote` profile + external env |
-| `docker-compose.host-lan.yml` | Primary overlay: publish Redis/Postgres/SeaweedFS S3 on `PIPELINE_LAN_IP` |
+| `docker-compose.host-lan.yml` | Primary overlay: publish Redis/Postgres/SeaweedFS S3 on `0.0.0.0` (6379/5432/8333). `PIPELINE_LAN_IP` is for worker `.env.remote` only |
 | `docker-compose.test.yml` | Smoke-test overlay (slim gateway `depends_on`) |
 
 ### Worker placement
@@ -50,7 +50,7 @@ No worker containers on this machine; jobs are enqueued here and consumed elsewh
 docker compose -f docker-compose.control-plane.yml -f docker-compose.host-lan.yml up -d
 ```
 
-Apply LAN publish and firewall before remote workers connect (see [Remote workers](#remote-workers)).
+Apply LAN publish (`./scripts/apply-host-lan-access.sh`) before remote workers connect. Restrict 6379/5432/8333 at the **host** firewall (this repo does not ship iptables/ufw policy). See [Remote workers](#remote-workers).
 
 ### 3. Workers on worker host(s)
 
@@ -154,7 +154,7 @@ Run the `remote`-profile workers — **ifctester**, **ifcpatch**, **ifcclash**, 
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.host-lan.yml` | Primary: publish 6379 / 5432 / 8333 on LAN IP |
+| `docker-compose.host-lan.yml` | Primary: publish 6379 / 5432 / 8333 on all host interfaces (`0.0.0.0`) |
 | `docker-compose.remote-workers.yml` | Worker: `include` workers + `remote` profile |
 | `.env.remote.example` | Template for worker `.env.remote` |
 | `scripts/apply-host-lan-access.sh` | Apply host-lan on primary |
@@ -163,7 +163,7 @@ Run the `remote`-profile workers — **ifctester**, **ifcpatch**, **ifcclash**, 
 
 ### One-time setup
 
-**Primary host** — add to `.env`:
+**Primary host** — add to `.env` if you run a worker VM (not required for a single-host clone):
 
 ```bash
 PIPELINE_LAN_IP=<primary-lan-ip>
@@ -173,7 +173,7 @@ PIPELINE_HOST=<primary-hostname>
 
 ```bash
 ./scripts/apply-host-lan-access.sh
-# Restrict firewall to worker IP (example):
+# Restrict those LAN ports at the host firewall (example — use your own policy):
 sudo ufw allow from <worker-lan-ip> to any port 6379 proto tcp
 sudo ufw allow from <worker-lan-ip> to any port 5432 proto tcp
 sudo ufw allow from <worker-lan-ip> to any port 8333 proto tcp

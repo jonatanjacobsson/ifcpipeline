@@ -2,33 +2,33 @@
 
 IfcPipeline is a **multi-host** IFC processing stack.
 
-- **Primary / control-plane VM** (`PIPELINE_LAN_IP=192.168.101.195`): runs
+- **Primary / control-plane** (`PIPELINE_LAN_IP` in `.env`): runs
   `redis`, `postgres`, `seaweedfs`, `api-gateway`, `guid-index-worker`, and
   **local** RQ workers (`ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`,
   `ifcfrag`, `ifccoord`, `topologicpy`).
-- **Worker VM `bimbotw1`** (`WORKER_VM_IP=192.168.109.54`,
-  repo `/home/bimbot-w1/apps/ifcpipeline`): runs **remote** RQ workers
-  (`ifcclash`, `ifcdiff`, `ifcpatch`, `ifctester`) via
-  `docker-compose.remote-workers.yml --env-file .env.remote`. They reach
-  redis/postgres/seaweedfs over the LAN.
+- **Worker host** (`WORKER_VM_IP` in `.env`, optional on a single-host clone):
+  runs **remote** RQ workers (`ifcclash`, `ifcdiff`, `ifcpatch`, `ifctester`,
+  `ifccoord`, `topologicpy`) via `docker-compose.remote-workers.yml --env-file
+  .env.remote`. They reach redis/postgres/seaweedfs over the LAN.
 
 ## ⚠️ Critical: control-plane rebuilds need the host-lan overlay
 
-`docker-compose.host-lan.yml` publishes redis/postgres/seaweedfs on
-`PIPELINE_LAN_IP`. The base `docker-compose.yml` does **not**. Running
-`docker compose up -d` on the primary host **without** the overlay makes Compose
-recreate those services back to loopback-only, **strips the LAN bindings**, and
-breaks every remote worker (`Error 111 ... Connection refused`) — even when you
-only target an unrelated service like `api-gateway`.
+`docker-compose.host-lan.yml` publishes redis/postgres/seaweedfs on **all host
+interfaces** (`0.0.0.0:6379/5432/8333`). `PIPELINE_LAN_IP` is only written into
+worker `.env.remote`. The base `docker-compose.yml` does **not** publish those
+ports. Running `docker compose up -d` on the primary **without** the overlay
+strips the LAN bindings and breaks every remote worker (`Error 111 ...
+Connection refused`) — even when you only target an unrelated service like
+`api-gateway`.
 
 **Always** pass both files on the primary host:
 
 ```bash
-cd /home/bimbot-ubuntu/apps/ifcpipeline
+cd /path/to/ifcpipeline
 docker compose -f docker-compose.yml -f docker-compose.host-lan.yml up -d <service>
 ```
 
-Verify after any recreate (must show `192.168.101.195`):
+Verify after any recreate (must show `0.0.0.0:6379` / `0.0.0.0:5432` / `0.0.0.0:8333`):
 
 ```bash
 docker ps --format '{{.Names}}: {{.Ports}}' | grep -E 'ifcpipeline-(redis|seaweedfs)|postgres_objectstorage'
@@ -45,7 +45,8 @@ LAN ports (6379/5432/8333) are locked to the worker VM via `DOCKER-USER`. Becaus
 external interface (the NIC holding `PIPELINE_LAN_IP`) — an interface-agnostic
 `--dport DROP` also drops internal container-to-container traffic (api-gateway↔
 postgres/redis, n8n↔postgres), making internal connections **time out** and
-n8n crash-loop. Apply/repair with `sudo ./scripts/apply-host-lan-firewall.sh`.
+n8n crash-loop. Scope `DOCKER-USER` rules to the external NIC; do not ship a
+host firewall in this repo.
 
 ## Object storage (S3 / SeaweedFS)
 
