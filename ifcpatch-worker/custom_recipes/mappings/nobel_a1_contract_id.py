@@ -1741,5 +1741,41 @@ CONTRACT_ID_RULES: list[dict] = [
     _rule(f'IfcElement, {_KG}*=440', "DE213"),
     # Slab catch-all
     _rule("IfcSlab", "DE109"),
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Early-phase concept model (A1_2b_BIM_XXX_0001): BIP pset carries no
+    # TypeID/Kostengruppe, only ComponentName + Material. The rules below key
+    # on those. They are inert on the richer TypeID/Kostengruppe models
+    # (disjoint BIP schemas), so they coexist safely with the rules above.
+    # Selectors verified against the model: values are quoted (an unquoted
+    # space throws a parse error) and matched on the clean descriptive prefix
+    # (a '+' inside a value silently matches nothing). Comma = AND.
+    # ──────────────────────────────────────────────────────────────────────
+    # IfcWall — by construction type (specific timber families before plain).
+    _rule('IfcWall, BIP.ComponentName*="Timber CLT"', "DE113"),             # Trästomme (structural CLT)
+    _rule('IfcWall, BIP.ComponentName*="Timber composite wall"', "DE119"),  # Utfackningsväggar (infill)
+    _rule('IfcWall, BIP.ComponentName*="Bricks reused facade"', "DE120"),   # Murning (reused-brick facade)
+    _rule('IfcWall, BIP.ComponentName*="Bricks reused interior"', "DE120"), # Murning (reused-brick interior)
+    _rule('IfcWall, BIP.ComponentName*="Drywall"', "DE306"),                # Mellanväggar (gypsum partitions)
+    _rule('IfcWall, BIP.ComponentName*="Parapet Construction"', "DE123"),   # Takarbeten (roof parapet as wall)
+    _rule('IfcWall, BIP.Material="Cladding tbd"', "DE122"),                 # Fasadbeklädnad (facade cladding)
+    _rule('IfcWall, BIP.Material="Foamglass"', "DE119"),                    # Utfackningsväggar (insulating infill)
+    _rule('IfcWall, BIP.Material="Timber"', "DE306"),                       # Mellanväggar (light timber partition)
+    # IfcCovering — by build-up family.
+    _rule('IfcCovering, BIP.ComponentName*="Suspended Ceiling"', "DE408"),  # Undertak
+    _rule('IfcCovering, BIP.ComponentName*="Roof covering"', "DE123"),      # Takarbeten
+    _rule('IfcCovering, BIP.ComponentName*="Parapet Cladding"', "DE123"),   # Takarbeten (roof parapet cladding)
+    _rule('IfcCovering, BIP.ComponentName*="Wall Cladding"', "DE122"),      # Fasadbeklädnad
+    _rule('IfcCovering, BIP.ComponentName*="Floor Construction"', "DE403"), # Golvbeläggning
+    # IfcCovering — Insulation split by material (all sit on the lowest levels
+    # → ground/foundation/floor, NOT roof). Dual constraint isolates these
+    # from the roof Foamglass covering.
+    _rule('IfcCovering, BIP.ComponentName*="Insulation", BIP.Material="XPS"', "DE108"),                       # Grundläggning/Mark (below-grade)
+    _rule('IfcCovering, BIP.ComponentName*="Insulation", BIP.Material="Foamglass"', "DE108"),                 # Grundläggning/Mark (under-slab)
+    _rule('IfcCovering, BIP.ComponentName*="Insulation", BIP.Material="Mineral wool"', "DE108"),              # Grundläggning/Mark (floor build-up)
+    _rule('IfcCovering, BIP.ComponentName*="Insulation", BIP.Material="Wood wool insulation board"', "DE408"),# Undertak (acoustic ceiling board)
+    _rule('IfcCovering, BIP.ComponentName*="Terrain"', "DE127"),            # Finplanering
+    # IfcMember — natural-stone facade elements.
+    _rule('IfcMember, BIP.Material="Natural stone"', "DE401"),              # Natursten
 ]
 
