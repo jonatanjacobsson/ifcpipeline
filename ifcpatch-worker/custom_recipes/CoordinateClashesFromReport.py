@@ -94,8 +94,8 @@ class Patcher:
         except ModuleNotFoundError as exc:
             raise ModuleNotFoundError(
                 "ifc_coord is not installed in this worker image. "
-                "Rebuild ifcpatch-worker with ifc-coord/ copied into the image "
-                "(see docs/PHASE4_INTEGRATION.md)."
+                "Run MEP coordination on ifccoord-worker (Compose profile "
+                "`ifccoord`, private ifc-coord submodule), not ifcpatch-worker."
             ) from exc
 
         if not self.file_b_arg:
