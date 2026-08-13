@@ -339,10 +339,6 @@ def _execute_ifcdiff(job_data: dict) -> dict:
                         ("reference", s3_ctx["new_key"]),
                     ],
                     parent_version_ids=parent_pins or None,
-                    # The diff JSON classifies its own per-GUID roles
-                    # (diff_added/diff_deleted/diff_changed). The guid-index
-                    # worker picks `extract_from_diff_report` when the role
-                    # starts with `diff_`.
                     guid_role="diff_report",
                     metadata={
                         "diff_count": diff_count,

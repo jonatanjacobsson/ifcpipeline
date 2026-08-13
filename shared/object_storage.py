@@ -1248,12 +1248,9 @@ def upload_and_audit(
     lineage row can pin to the exact bytes the worker consumed. When provided
     the parent_version_id is also embedded in the child's metadata.
 
-    `guid_role` controls the asynchronous GUID-index enqueue:
-      - str (default "derived"): stamp rows with this role in object_guids.
-        ifcpatch passes "patched", ifclite passes "split", etc.
-      - None: skip GUID extraction entirely (used by ifctester / ifcclash,
-        which write their own specialised rows into tester_results /
-        clash_pairs instead).
+    `guid_role` is accepted for caller compatibility and ignored. GUID
+    indexing lives in CDE (`cde/guid-index-worker`). ifctester / ifcclash
+    still write `tester_results` / `clash_pairs` themselves.
 
     Returns a dict with the S3 URI, sha256, size, version_id, and the audit
     version id (which may be None if the DB is unreachable).
@@ -1294,18 +1291,6 @@ def upload_and_audit(
     except Exception as e:  # audit must never break the pipeline
         logger.warning("audit: upload_and_audit could not record lineage: %s", e)
 
-    # Enqueue GUID indexing (async) if configured and the caller opted in.
-    if guid_role is not None:
-        try:
-            _maybe_enqueue_guid_index(
-                audit_id=audit_id,
-                object_key=key,
-                version_id=version_id,
-                role_hint=guid_role,
-            )
-        except Exception as e:
-            logger.warning("guid-index: could not enqueue for %s: %s", key, e)
-
     return {
         "s3_uri": put["s3_uri"],
         "bucket": bucket,
@@ -1316,85 +1301,3 @@ def upload_and_audit(
         "audit_id": audit_id,
         "shadow": shadow,
     }
-
-
-# --------------------------------------------------------------------------- #
-# GUID indexer hook (defined here so every upload path picks it up)          #
-# --------------------------------------------------------------------------- #
-
-
-def guid_index_mode() -> str:
-    """`sync`, `async`, or `off`. Defaults to `off` so upload paths stay
-    silent until the `guid-index-worker` service is running. The compose
-    stack flips this to `async` for the services that should feed the
-    index (api-gateway + all workers)."""
-    return os.environ.get("GUID_INDEX_MODE", "off").lower()
-
-
-def _maybe_enqueue_guid_index(
-    *,
-    audit_id: Optional[int],
-    object_key: str,
-    version_id: Optional[str],
-    role_hint: str,
-) -> None:
-    """Fire-and-forget GUID indexing.
-
-    - `off` : do nothing.
-    - `async`: enqueue on the `guid_index_queue` (requires redis+rq).
-    - `sync` : run in-process (used by smoke tests and small installs).
-
-    Audit rows without an id (DB unavailable) are skipped entirely — there is
-    nothing to anchor the GUID rows to.
-    """
-    mode = guid_index_mode()
-    if mode == "off" or not audit_id:
-        return
-    if mode == "sync":
-        try:
-            from . import guid_extract, audit_db  # local imports
-            pairs = list(_extract_for_sync(object_key, version_id, role_hint))
-            if pairs:
-                audit_db.record_guids(audit_id, pairs)
-        except Exception as e:
-            logger.warning("guid-index (sync) failed for %s: %s", object_key, e)
-        return
-
-    # async
-    try:
-        from redis import Redis
-        from rq import Queue
-        redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-        redis = Redis.from_url(redis_url)
-        q = Queue("guid_index", connection=redis)
-        q.enqueue(
-            "tasks.index_object",
-            audit_id,
-            object_key,
-            version_id,
-            role_hint,
-            job_timeout=60 * 30,
-        )
-    except Exception as e:
-        logger.warning("guid-index (async) enqueue failed for %s: %s", object_key, e)
-
-
-def _extract_for_sync(object_key: str, version_id: Optional[str], role: str):
-    """Inline GUID extraction for GUID_INDEX_MODE=sync. Mirrors the worker's
-    extension-based dispatch but runs in-process."""
-    from . import guid_extract
-    ext = os.path.splitext(object_key)[1].lower()
-    with download_to_tempfile(object_key, suffix=ext or ".bin", version_id=version_id) as local:
-        if role.startswith("diff_") or (ext == ".json" and "diff" in object_key.lower()):
-            yield from guid_extract.extract_from_diff_report(local)
-            return
-        if ext in (".ifc", ".ifczip"):
-            base = guid_extract.extract_from_ifc_path(local)
-        elif ext == ".json":
-            base = guid_extract.extract_from_ifc_json_path(local)
-        elif ext in (".csv", ".xlsx"):
-            base = guid_extract.extract_from_csv_path(local)
-        else:
-            return
-        for guid, entity, inner_role in base:
-            yield (guid, entity, inner_role or role)

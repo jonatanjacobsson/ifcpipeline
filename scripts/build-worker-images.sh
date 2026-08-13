@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Build worker images on the primary host (repo root, .env required).
-# guid-index-worker is defined in docker-compose.control-plane.yml — build with:
-#   docker compose -f docker-compose.control-plane.yml build guid-index-worker
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -15,13 +13,19 @@ fi
 ALL_WORKERS=(
   ifc5d-worker ifcpatch-worker ifcconvert-worker ifcclash-worker
   ifccsv-worker ifcfast-worker ifctester-worker ifcdiff-worker ifc2json-worker
-  ifccoord-worker topologicpy-worker
+  topologicpy-worker
 )
 PRIMARY_LOCAL_WORKERS=(
   ifc5d-worker ifcconvert-worker ifccsv-worker ifcfast-worker ifc2json-worker
-  ifccoord-worker topologicpy-worker
+  topologicpy-worker
 )
 REMOTE_WORKERS=(ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker)
+
+# Private ifc-coord submodule — skip on a public clone (compose profile `ifccoord`).
+if [[ -d ifc-coord/ag_ifc ]]; then
+  ALL_WORKERS+=(ifccoord-worker)
+  PRIMARY_LOCAL_WORKERS+=(ifccoord-worker)
+fi
 
 TARGET="${WORKER_BUILD_TARGET:-all}"
 case "$TARGET" in

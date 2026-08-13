@@ -8,7 +8,7 @@ How to run the stack on a **primary host** (control plane + optional local worke
 |------|---------|
 | `docker-compose.yml` | Combined entry (`include` control plane + workers) — **development default** |
 | `docker-compose.control-plane.yml` | API, Redis, Postgres, SeaweedFS, n8n, dashboards, viewer, cleanup |
-| `docker-compose.workers.yml` | All eleven `*-worker` services (canonical definitions) |
+| `docker-compose.workers.yml` | RQ workers (canonical definitions; `ifccoord` is profile `ifccoord`) |
 | `docker-compose.remote-workers.yml` | Worker host: `include` workers + `remote` profile + external env |
 | `docker-compose.host-lan.yml` | Primary overlay: publish Redis/Postgres/SeaweedFS S3 on `0.0.0.0` (6379/5432/8333). `PIPELINE_LAN_IP` is for worker `.env.remote` only |
 | `docker-compose.test.yml` | Smoke-test overlay (slim gateway `depends_on`) |
@@ -17,13 +17,14 @@ How to run the stack on a **primary host** (control plane + optional local worke
 
 | Host | Compose | Workers |
 |------|---------|---------|
-| **Primary** | `docker-compose.yml` or control plane + workers | `ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`, `ifccoord`, `topologicpy` (+ optional duplicate remote workers during migration) |
-| **Primary control plane** | `docker-compose.control-plane.yml` | `guid-index-worker` (not in `workers.yml`) |
+| **Primary** | `docker-compose.yml` or control plane + workers | `ifc5d`, `ifcconvert`, `ifccsv`, `ifcfast`, `ifc2json`, `topologicpy` (+ optional `ifccoord` via profile `ifccoord`) |
+| **Primary control plane** | `docker-compose.control-plane.yml` | (no RQ workers; GUID index lives in CDE) |
 | **Worker VM** | `docker-compose.remote-workers.yml` | `ifctester`, `ifcpatch`, `ifcclash`, `ifcdiff`, `ifccoord`, `topologicpy` (the `remote` profile) |
 
-All eleven RQ workers in `docker-compose.workers.yml`: `ifc5d`, `ifcpatch`,
+Ten default RQ workers in `docker-compose.workers.yml`: `ifc5d`, `ifcpatch`,
 `ifcconvert`, `ifcclash`, `ifccsv`, `ifcfast`, `ifctester`, `ifcdiff`,
-`ifc2json`, `ifccoord`, `topologicpy`.
+`ifc2json`, `topologicpy`. `ifccoord` is opt-in (`--profile ifccoord` or
+`COMPOSE_PROFILES=ifccoord`) and needs the private `ifc-coord` git submodule.
 
 Build on primary: `./scripts/build-worker-images.sh` (`WORKER_BUILD_TARGET=all|primary|remote`).
 

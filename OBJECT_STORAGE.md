@@ -190,7 +190,7 @@ redirects, e.g. `https://s3-api.example.com`):
 
 ## Compose services
 
-- `docker-compose.control-plane.yml` — `seaweedfs`, `seaweedfs-setup`, `seaweedfs-data` volume, S3 env on api-gateway + guid-index-worker.
+- `docker-compose.control-plane.yml` — `seaweedfs`, `seaweedfs-setup`, `seaweedfs-data` volume, S3 env on api-gateway.
 - `docker-compose.workers.yml` — S3 env on every worker; `depends_on: seaweedfs-setup`.
 - `docker-compose.host-lan.yml` — publish Redis/Postgres/SeaweedFS S3 on all host interfaces (`0.0.0.0`). `PIPELINE_LAN_IP` is for worker `.env.remote` only.
 
@@ -374,74 +374,20 @@ auto-pin behaviour.
 Toggle with `S3_CHECKSUM_MODE=native` in `.env` when the backend supports
 native checksums. The `app` fallback remains for backends that don't.
 
-## GUID-level audit trail
+## Tester and clash GUID rows
 
-The audit tables above track objects (files). On top of them, an optional
-**GUID index** records which IFC `GlobalId`s live in which object
-versions, so you can answer "where did this element go?" without a
-separate BIM data lake.
+The audit tables above track objects (files). `postgres/init/05-guid-index.sql`
+also creates:
 
-### Tables (created by `postgres/init/05-guid-index.sql`)
-
-- `object_guids (object_version_id, ifc_guid, entity_type, role)` with
-  UNIQUE `(object_version_id, ifc_guid, role)`. Roles are
-  `root` / `patched` / `split` / `exported` / `converted` / `qto_added` and
-  `diff_added` / `diff_deleted` / `diff_changed` for ifcdiff reports.
 - `tester_results (object_version_id, ifc_guid, ids_rule, passed, reason)` —
-  populated directly by `ifctester-worker`, never via the generic index.
+  populated directly by `ifctester-worker`.
 - `clash_pairs (object_version_id, guid_a, guid_b, distance, kind)` —
   populated directly by `ifcclash-worker`.
 
-### How it's populated
-
-`shared/object_storage.upload_and_audit` and the gateway's `/upload/{ft}`
-enqueue a `tasks.index_object(audit_id, object_key, version_id, role)` job
-onto the `guid_index` RQ queue after each successful PUT.
-The `guid-index-worker` downloads the pinned `VersionId`, picks the right
-streaming extractor from `shared/guid_extract.py` (STEP regex for
-`.ifc`/`.ifczip`, `ijson` for JSON, pandas chunks for `.csv`/`.xlsx`,
-classified extraction for diff reports), and batches inserts through
-`audit_db.record_guids` at 5 000 rows per `execute_values` call with
-`ON CONFLICT DO NOTHING`.
-
-### Operator knob: `GUID_INDEX_MODE`
-
-| Value | Behavior |
-| --- | --- |
-| `off` *(default)* | Never enqueue, no DB writes. Safe default for fresh stacks. |
-| `async` | Enqueue on `guid_index`; the dedicated worker does the extraction. |
-| `sync` | Extract in-process on the caller — use only for smoke tests and small installs. |
-
-Set it per-service in `.env` / `docker-compose.yml`. Only the api-gateway
-and guid-index-worker need the variable for the async path.
-
-### Query endpoints
-
-| Endpoint | Returns |
-| --- | --- |
-| `GET /guid/{guid}` | Every `object_version` the GUID appears in, newest first. `limit` capped at 1000, default 100, `after_id` cursor. |
-| `GET /guid/{guid}/path?depth=N` | Recursive lineage graph around the GUID. Response contains `nodes` (each with `present: bool`), `edges` (with `parent_version_id`), and `dropped_at` edges where `parent.present && !child.present`, annotated with the operation that dropped it. |
-| `GET /guid/{guid}/diffs` | Versions where the GUID was flagged with a `diff_*` role. |
-| `GET /guid/{guid}/clashes` | Clash pairs referencing the GUID. |
-| `GET /guid/{guid}/tester` | ifctester verdicts (`passed`/`reason`) per run. |
-
-All endpoints accept `limit` (≤1000) and `after_id` for pagination and are
-protected by the same `X-API-Key` header as the rest of the gateway.
-
-### Backfilling existing objects
-
-`scripts/backfill_guids.py` iterates `object_versions` and enqueues one
-indexing job per row at its pinned `version_id`:
-
-```bash
-docker compose run --rm api-gateway \
-  python /app/scripts/backfill_guids.py --batch-size 500
-```
-
-`--dry-run` prints what would be enqueued without touching Redis.
-`--role-override <role>` forces a single role on every job. Idempotent by
-the UNIQUE `(object_version_id, ifc_guid, role)` index, so re-runs are
-no-ops.
+Per-element GUID indexing (which `GlobalId` lives in which object version)
+lives in **CDE** (`cde/guid-index-worker`), not this stack. The unused
+`object_guids` table may still exist on databases created from this init
+script; nothing in ifcpipeline writes to it.
 
 ## Lifecycle & retention
 

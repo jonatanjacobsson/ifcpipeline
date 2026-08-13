@@ -4,7 +4,7 @@
 # Remote profile (bimbotw1): ifctester, ifcpatch, ifcclash, ifcdiff, ifccoord,
 # topologicpy.
 # Primary-local workers (ifc5d, ifcconvert, ifccsv, ifcfast, ifc2json)
-# and guid-index-worker use profile [never] here.
+# use profile [never] here.
 # Usage (worker host, repo root):
 #   COMPOSE_PROFILES=remote docker compose -f docker-compose.remote-workers.yml \
 #     --env-file .env.remote up -d ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker
@@ -130,7 +130,7 @@ services:
           memory: 4G
 
   ifccoord-worker:
-    profiles: [remote]
+    profiles: !override [remote]
     image: ifcpipeline-ifccoord-worker:latest
     depends_on: !reset []
     environment:
