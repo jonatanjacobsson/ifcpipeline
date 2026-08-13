@@ -1,5 +1,5 @@
 [Unit]
-Description=ifcpipeline host-LAN data plane ports and firewall
+Description=ifcpipeline host-LAN data plane ports (redis/postgres/seaweedfs)
 Documentation=file:///home/bimbot-ubuntu/apps/ifcpipeline/DEPLOYMENT.md
 After=docker.service network-online.target
 Wants=network-online.target

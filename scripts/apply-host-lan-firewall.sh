@@ -55,15 +55,22 @@ echo "==> Allow worker:       ${WORKER_VM_IP}"
 echo "==> Ports:              ${PORTS[*]}"
 echo ""
 
-# 1) Remove any prior rules for these ports (both the buggy interface-agnostic
-#    form and this script's scoped form). Idempotent: ignore failures.
+# 1) Remove prior scoped rules for these ports on the external NIC (any source IP).
+#    Idempotent. Cleans up stale worker IPs after DHCP changes.
+delete_docker_user_matches() {
+  local pattern="$1"
+  local rule rest
+  while read -r rule; do
+    [[ "$rule" =~ ^-A\ DOCKER-USER\ (.*)$ ]] || continue
+    rest="${BASH_REMATCH[1]}"
+    iptables -D DOCKER-USER $rest 2>/dev/null || break
+  done < <(iptables -S DOCKER-USER 2>/dev/null | grep -E "$pattern" || true)
+}
+
 for P in "${PORTS[@]}"; do
-  # legacy interface-agnostic rules
-  iptables -D DOCKER-USER -s "${WORKER_VM_IP}/32" -p tcp --dport "$P" -j RETURN 2>/dev/null || true
+  delete_docker_user_matches " -i ${EXT_IF} .* --dport ${P} .* -j DROP"
+  delete_docker_user_matches " -i ${EXT_IF} .* --dport ${P} .* -j RETURN"
   iptables -D DOCKER-USER -p tcp --dport "$P" -j DROP 2>/dev/null || true
-  # older eth0-scoped rules
-  iptables -D DOCKER-USER -i "$EXT_IF" -s "${WORKER_VM_IP}/32" -p tcp --dport "$P" -j RETURN 2>/dev/null || true
-  iptables -D DOCKER-USER -i "$EXT_IF" -p tcp --dport "$P" -j DROP 2>/dev/null || true
 done
 
 # 2) Insert scoped rules. Insert DROP first, then RETURN, so RETURN ends up

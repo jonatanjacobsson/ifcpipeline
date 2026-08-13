@@ -1,5 +1,15 @@
+# Default log rotation for every service (json-file, 20m x 3 = 60MB cap per
+# container). The docker daemon has no global default; unbounded json-file logs
+# filled the host disk on 2026-08-10 (one container's log reached 16.5GB).
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   api-gateway:
+    logging: *default-logging
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
@@ -55,6 +65,7 @@ services:
           memory: 1536M
 
   ifc-viewer:
+    logging: *default-logging
     build:
       context: ./ifc-viewer
       dockerfile: Dockerfile
@@ -70,6 +81,7 @@ services:
           memory: 256M
 
   redis:
+    logging: *default-logging
     image: "redis:7.2.11-alpine"
     # Host ports are published by docker-compose.host-lan.yml (primary host).
     # Persist Redis to disk so the RQ failed-job registry survives restarts.
@@ -114,6 +126,7 @@ services:
   # docker-compose.host-lan.yml on the primary host.
   # Presigned URLs must use the public hostname (S3_PUBLIC_ENDPOINT_URL).
   seaweedfs:
+    logging: *default-logging
     image: chrislusf/seaweedfs:4.29
     command: >
       server
@@ -146,6 +159,7 @@ services:
 
   # One-shot: wait for SeaweedFS, create the bucket + enable versioning.
   seaweedfs-setup:
+    logging: *default-logging
     image: quay.io/minio/mc:latest
     depends_on:
       seaweedfs:
@@ -163,6 +177,7 @@ services:
     restart: "no"
 
   rq-dashboard:
+    logging: *default-logging
     image: hannes221/rq-dashboard-fast:latest
     ports:
       - "9181:8000"
@@ -187,6 +202,7 @@ services:
           memory: 256M
 
   dozzle:
+    logging: *default-logging
     image: amir20/dozzle:latest
     ports:
       - "9182:8080"
@@ -194,8 +210,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - DOZZLE_LEVEL=info
-      # Agent on worker sets DOZZLE_HOSTNAME=bimbotw1 (see docker-compose.remote-workers.yml).
-      - DOZZLE_REMOTE_AGENT=${WORKER_VM_IP:?Set WORKER_VM_IP in .env}:7007
+      # Optional: only set when a remote worker VM runs dozzle-agent on :7007.
+      # Unset WORKER_VM_IP on a single-host / fresh clone — Dozzle still shows local logs.
+      - DOZZLE_REMOTE_AGENT=${WORKER_VM_IP:+${WORKER_VM_IP}:7007}
     restart: unless-stopped
     deploy:
       resources:
@@ -205,6 +222,7 @@ services:
 
   # Node IfcImporter service — shared with CDE; ifcfrag-worker POSTs here.
   fragmenter:
+    logging: *default-logging
     build:
       context: ../cde/fragmenter
       dockerfile: Dockerfile
@@ -222,6 +240,7 @@ services:
           memory: 3G
 
   ifc-classifier:
+    logging: *default-logging
     build:
       context: .
       dockerfile: ifc-classifier-service/Dockerfile
@@ -239,6 +258,7 @@ services:
           memory: 512M
 
   n8n:
+    logging: *default-logging
     image: docker.n8n.io/n8nio/n8n
     user: "1000:1000"
     ports:
@@ -258,6 +278,19 @@ services:
       - WEBHOOK_URL=${N8N_WEBHOOK_URL}
       - N8N_PROXY_HOPS=${N8N_PROXY_HOPS:-1}
       - GENERIC_TIMEZONE=Europe/Stockholm
+      # Large-file handling: spill binary data to disk instead of keeping it as
+      # base64 in the in-memory execution data. Required for the streamed
+      # download/upload path in the custom ifcpipeline + streambim nodes (they
+      # use prepareBinaryData / getBinaryStream, which only stream when the
+      # binary has an on-disk id). Without this, big IFC uploads (e.g. the 143 MB
+      # federated master model → StreamBIM) OOM-crash the n8n process.
+      # NOTE: filesystem mode is incompatible with n8n *queue* mode; this n8n is
+      # single-instance so that does not apply here.
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - N8N_BINARY_DATA_STORAGE_PATH=/home/node/.n8n/binaryData
+      # V8's default old-space (~2 GB) is the real ceiling, well below the 6G
+      # container limit; raise it as belt-and-suspenders for transient buffers.
+      - NODE_OPTIONS=--max-old-space-size=5120
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_COMMUNITY_PACKAGES_ENABLED=${N8N_COMMUNITY_PACKAGES_ENABLED:-true}
       - NODES_EXCLUDE="[]"
@@ -293,6 +326,7 @@ services:
           memory: 6G
 
   postgres:
+    logging: *default-logging
     image: postgres:14
     container_name: ifc_pipeline_postgres_objectstorage
     restart: unless-stopped
@@ -335,6 +369,7 @@ services:
   # versioned-keys / GUID-audit plan; kept entirely off the hot path of
   # existing workers so a misbehaving extractor can only hurt GUID lookups.
   guid-index-worker:
+    logging: *default-logging
     build:
       context: .
       dockerfile: guid-index-worker/Dockerfile
@@ -371,6 +406,7 @@ services:
           memory: 512M
 
   cleanup-service:
+    logging: *default-logging
     image: alpine
     user: "1000:1000"
     volumes:

@@ -717,6 +717,13 @@ class TopologicpyRequest(VersionPinOptional):
         ge=1,
         description="Optional cap for benchmark sampling large federated models",
     )
+    use_geometry_iterator: bool = Field(
+        default=True,
+        description=(
+            "When false, classify elements from object placement only (no geom.iterator). "
+            "Use on very large models where multithreaded mesh iteration can SIGSEGV."
+        ),
+    )
     tolerance: float = Field(
         default=0.01,
         ge=0,

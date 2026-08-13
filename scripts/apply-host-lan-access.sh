@@ -70,11 +70,16 @@ if [[ -n "$WORKER_VM_IP" ]]; then
   echo "  ./scripts/deploy-remote-workers-from-primary.sh"
 fi
 
-if [[ $EUID -eq 0 ]]; then
+if [[ "${SKIP_FIREWALL:-}" == "1" ]]; then
+  echo ""
+  echo "==> Skipping firewall (SKIP_FIREWALL=1)"
+elif [[ $EUID -eq 0 ]]; then
   bash "$ROOT/scripts/apply-host-lan-firewall.sh"
 elif sudo -n true 2>/dev/null; then
   sudo -n bash "$ROOT/scripts/apply-host-lan-firewall.sh"
 else
   echo ""
-  echo "==> Run manually (needs root): sudo ./scripts/apply-host-lan-firewall.sh"
+  echo "==> Firewall not applied (needs root)."
+  echo "    Install reboot units: sudo ./scripts/install-host-lan-reboot.sh"
+  echo "    Or run once:          sudo ./scripts/apply-host-lan-firewall.sh"
 fi

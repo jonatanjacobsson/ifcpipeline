@@ -17,6 +17,19 @@ name: ${REMOTE_COMPOSE_PROJECT:-ifcpipeline-w1}
 include:
   - path: docker-compose.workers.yml
 
+# Pin this project's network to a subnet that CANNOT overlap the Azure LAN.
+# The primary's data plane (Redis/Postgres/SeaweedFS) is reached at PIPELINE_LAN_IP,
+# which DHCP has parked in both 172.31.x and 172.17.x. If this network were left to
+# Docker's default pool it lands on 172.17.0.0/16 and SHADOWS the route to a 172.17.x
+# primary — containers then get EHOSTUNREACH ("No route to host") even though the
+# worker HOST can reach the primary fine. 10.123.x is outside 172.16/12, so it stays
+# clear of the Azure VNet no matter where DHCP drifts.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.123.0.0/24
+
 x-remote-worker-env: &remote-worker-env
   PYTHONUNBUFFERED: "1"
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -127,6 +140,12 @@ services:
       IFCCLASH_ISOLATE: ${IFCCLASH_ISOLATE:-1}
       IFCCLASH_COARSE_PROFILE: ${IFCCLASH_COARSE_PROFILE:-nobel}
       IFCCLASH_BVH_CACHE: ${IFCCLASH_BVH_CACHE:-off}
+      # ifc-lite + FCL clash engine (see docker-compose.workers.yml rationale).
+      # IFCCLASH_ENGINE=ifcopenshell in .env reverts.
+      IFCCLASH_ENGINE: ${IFCCLASH_ENGINE:-ifclite}
+      IFCCLASH_IFCLITE_FALLBACK: ${IFCCLASH_IFCLITE_FALLBACK:-off}
+      # Fast bbox-screen AABB warm from ifc-lite meshes (see workers.yml).
+      IFCCOORD_AABB_BACKEND: ${IFCCOORD_AABB_BACKEND:-ifclite}
     command: >
       rq worker --worker-class rq.worker.SimpleWorker ifccoord
       --url ${REDIS_URL} --path /app --logging_level INFO

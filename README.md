@@ -138,13 +138,17 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
 3. **Set up environment variables**:
    ```bash
    cp .env.example .env
-   # Edit .env with your settings
+   cp seaweedfs/s3.json.example seaweedfs/s3.json
+   # Edit .env with your settings (keep S3 keys in sync with seaweedfs/s3.json)
    nano .env  # or use your preferred editor
    ```
    
    **Important environment variables to update:**
    - `IFC_PIPELINE_API_KEY`: Set a secure random string (e.g., generate a UUID)
    - `POSTGRES_PASSWORD`: Set a secure database password
+   - `N8N_ENCRYPTION_KEY`: `openssl rand -base64 32` (required for n8n credentials)
+   - `S3_ACCESS_KEY` / `S3_SECRET_KEY`: must match `seaweedfs/s3.json`
+   - `WORKER_VM_IP`: optional — only if a remote worker VM runs Dozzle agent on :7007
    - For local development, keep the default localhost URLs
    - For production, update URLs to your actual domain names
 
