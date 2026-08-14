@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from html import escape
 from urllib.parse import urlencode
 
 from fasthtml.components import A, Button, Div, Form, Input, Option, P, Select, Span, Table, Tbody, Td, Th, Thead, Tr
@@ -39,9 +38,9 @@ def _meta_td(val) -> Td:
     text = "" if val is None else str(val)
     if text and re.match(r"^https?://\S+$", text, re.I):
         return Td(
-            A(truncate(text, 30), href=escape(text), target="_blank", rel="noopener", title=escape(text)),
+            A(truncate(text, 30), href=text, target="_blank", rel="noopener", title=text),
         )
-    return Td(escape(truncate(text, 30)), title=escape(text))
+    return Td(truncate(text, 30), title=text)
 
 
 def _next_sort_dir(col: str, cur_col: str, cur_dir: str) -> str:
@@ -64,7 +63,7 @@ def render_jobs_table_fragment(
             queue, state, page, per_page, sort_col=sort_col, sort_dir=sort_dir
         )
     except Exception as e:
-        return ft_html(Div(P(f"Could not load jobs: {escape(str(e))}", cls="error")))
+        return ft_html(Div(P(f"Could not load jobs: {str(e)}", cls="error")))
 
     raw_jobs = data.get("jobs") or []
     jobs = [j for j in raw_jobs if _job_matches_search(j, search)]
@@ -137,7 +136,7 @@ def render_jobs_table_fragment(
         thead_cells.append(
             Th(
                 A(
-                    f"{escape(mk)}{mark}",
+                    f"{mk}{mark}",
                     cls="table-sort-link",
                     hx_get=f"/htmx/jobs/table?{q_params(sort_col=mcol, sort_dir=nd)}",
                     hx_target="#jobs-htmx-root",
@@ -183,16 +182,16 @@ def render_jobs_table_fragment(
                 Td(
                     A(
                         short_id(jid),
-                        href=f"/htmx/jobs/{escape(jid)}",
+                        href=f"/htmx/jobs/{jid}",
                         cls="link-job",
-                        title=escape(jid),
+                        title=jid,
                     )
                 ),
                 Td(badge(st)),
-                Td(Span(escape(str(j.get("queue") or "")), cls="meta-tag")),
+                Td(Span(str(j.get("queue") or ""), cls="meta-tag")),
                 Td(
-                    escape(truncate(str(j.get("name") or ""), 60)),
-                    title=escape(str(j.get("name") or "")),
+                    truncate(str(j.get("name") or ""), 60),
+                    title=str(j.get("name") or ""),
                 ),
                 *meta_cells,
                 Td(time_ago(j.get("created_at"))),

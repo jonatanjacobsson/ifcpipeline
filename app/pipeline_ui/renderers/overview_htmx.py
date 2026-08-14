@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
 
 from fasthtml.components import (
     A,
@@ -52,7 +51,7 @@ def render_overview_fragment() -> str:
         health = system.health()
         jobs_payload = redis_service.get_jobs("all", "all", 1, 15)
     except Exception as e:
-        return str(Div(P(f"Could not load overview: {escape(str(e))}", cls="error")))
+        return str(Div(P(f"Could not load overview: {str(e)}", cls="error")))
 
     t = overview["totals"]
     r = overview["redis"]
@@ -97,13 +96,13 @@ def render_overview_fragment() -> str:
                 Td(
                     A(
                         short_id(jid),
-                        href=f"/htmx/jobs/{escape(jid)}",
+                        href=f"/htmx/jobs/{jid}",
                         cls="link-job",
                     )
                 ),
                 Td(badge(j.get("status") or "")),
-                Td(Span(escape(str(j.get("queue") or "")), cls="meta-tag")),
-                Td(escape(truncate(name, 55)), title=escape(name)),
+                Td(Span(str(j.get("queue") or ""), cls="meta-tag")),
+                Td(truncate(name, 55), title=name),
                 Td(time_ago(j.get("created_at"))),
             )
         )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
 from urllib.parse import urlencode
 
 from fasthtml.components import A, Div, Form, Input, Option, P, Select, Span, Table, Tbody, Td, Th, Thead, Tr
@@ -45,10 +44,10 @@ def render_history_table_fragment(
             sort_dir=sort_dir,
         )
     except Exception as e:
-        return ft_html(Div(P(f"Could not load history: {escape(str(e))}", cls="error")))
+        return ft_html(Div(P(f"Could not load history: {str(e)}", cls="error")))
 
     if data.get("error"):
-        return ft_html(Div(P(f"History error: {escape(str(data['error']))}", cls="error")))
+        return ft_html(Div(P(f"History error: {str(data['error'])}", cls="error")))
 
     jobs = data.get("jobs") or []
     total = data.get("total") or 0
@@ -158,15 +157,15 @@ def render_history_table_fragment(
                 Td(
                     A(
                         short_id(jid),
-                        href=f"/htmx/history/{escape(jid)}",
+                        href=f"/htmx/history/{jid}",
                         cls="link-job",
-                        title=escape(jid),
+                        title=jid,
                     )
                 ),
                 Td(badge(j.get("status") or "")),
-                Td(escape(str(j.get("queue") or ""))),
-                Td(escape(func_short), style="font-family:var(--font-mono);font-size:11px"),
-                Td(escape(truncate(name, 60)), title=escape(name)),
+                Td(str(j.get("queue") or "")),
+                Td(func_short, style="font-family:var(--font-mono);font-size:11px"),
+                Td(truncate(name, 60), title=name),
                 Td(time_ago(j.get("created_at"))),
                 Td(time_ago(j.get("ended_at")) if j.get("ended_at") else "-"),
             )
