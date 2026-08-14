@@ -51,7 +51,7 @@ def _next_sort_dir(col: str, cur_col: str, cur_dir: str) -> str:
 
 def render_jobs_table_fragment(
     queue: str = "all",
-    state: str = "all",
+    state: str = "live",
     page: int = 1,
     per_page: int = 100,
     search: str = "",
@@ -83,6 +83,7 @@ def render_jobs_table_fragment(
         q_opts.append(_opt(qs, qs, queue))
 
     state_opts = [
+        _opt("In flight", "live", state),
         _opt("All states", "all", state),
         _opt("queued", "queued", state),
         _opt("started", "started", state),
@@ -294,12 +295,21 @@ def render_jobs_table_fragment(
         Div(
             Div(
                 Div(
-                    Span("Job queue", cls="panel-title"),
+                    Span("Live queue", cls="panel-title"),
                     Span(
-                        "Meta columns follow the current page (same as the classic dashboard).",
+                        "What is in Redis right now. Completed jobs age out of here — "
+                        "look in History for those.",
                         cls="panel-header-subtitle",
                     ),
                     style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px",
+                ),
+                A(
+                    "Refresh",
+                    cls="btn btn-ghost btn-sm",
+                    hx_get=f"/htmx/jobs/table?{q_params()}",
+                    hx_target="#jobs-htmx-root",
+                    hx_indicator="#jobs-htmx-indicator",
+                    hx_swap="outerHTML",
                 ),
                 cls="panel-header",
             ),
@@ -318,13 +328,18 @@ def render_jobs_table_fragment(
     return ft_html(inner)
 
 
-def render_jobs_page() -> str:
+def render_jobs_page(queue: str = "all", state: str = "live", search: str = "") -> str:
+    """Deep-linkable: the dashboard and queue cards link here pre-filtered."""
+    qs = urlencode({"queue": queue or "all", "state": state or "live", "search": search or ""})
     return render_htmx_shell_page(
         document_title="IFC Pipeline — Jobs",
         header_title="Jobs",
-        hx_fragment_path="/htmx/jobs/table",
+        hx_fragment_path=f"/htmx/jobs/table?{qs}",
         json_href="/api/rq/jobs",
-        json_label="JSON: /api/rq/jobs",
+        json_label="JSON",
         active_nav="jobs",
+        # No polling: the fragment carries the filter and search inputs, and a periodic
+        # swap would wipe whatever the user is typing. Dashboard is the live view;
+        # this one has an explicit Refresh.
         hx_trigger="load",
     )

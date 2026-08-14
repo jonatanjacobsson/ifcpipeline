@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import n8n, network_share, rq, system
+from routers import logs, n8n, network_share, rq, system
 from services import job_history_service
 
 logger = logging.getLogger(__name__)
@@ -66,3 +66,4 @@ def register_json_api_routers(app: FastAPI) -> None:
     app.include_router(system.router)
     app.include_router(n8n.router)
     app.include_router(network_share.router)
+    app.include_router(logs.router)

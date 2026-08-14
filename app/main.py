@@ -25,6 +25,9 @@ logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
+# The log viewer polls the docker socket over HTTP; at INFO that is one line per call,
+# which drowns the dashboard's own logs (and it streams its own output back to itself).
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 app = FastAPI(title="IFC Pipeline Dashboard", version="1.0.0", lifespan=lifespan)
 

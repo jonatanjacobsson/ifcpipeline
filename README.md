@@ -583,13 +583,18 @@ Server-rendered HTMX dashboard at **http://localhost:9181** (see [`app/README.md
 
 | Page | What it shows |
 |------|---------------|
-| [Dashboard](http://localhost:9181/htmx/) | queue totals, Redis memory, recent jobs, service health |
-| [Jobs](http://localhost:9181/htmx/jobs/) | live RQ registries — filter, sort, delete, requeue |
-| [History](http://localhost:9181/htmx/history/) | finished jobs mirrored into Postgres, past RQ's result TTL |
-| [Workers](http://localhost:9181/htmx/workers/) | live workers, their queues and current job |
+| [Dashboard](http://localhost:9181/htmx/) | *is the pipeline healthy?* — status hero, per-queue activity, failures needing attention. Auto-refreshes |
+| [Jobs](http://localhost:9181/htmx/jobs/) | *what is in flight?* — live RQ registries, defaulting to everything except finished |
+| [History](http://localhost:9181/htmx/history/) | *what happened?* — the Postgres archive with durations, searchable |
+| [Workers](http://localhost:9181/htmx/workers/) | one card per queue with its workers inside; a queue with work and no worker reads as **blocked** |
+| [Logs](http://localhost:9181/htmx/logs/) | live container logs over SSE — one worker, or merged across every replica of a queue |
 | [Network Share](http://localhost:9181/htmx/network-share/) | browse `shared/uploads` + `shared/output`, edit text files, preview IFC/PDF |
 | [n8n](http://localhost:9181/htmx/n8n/) | workflows and recent executions (needs `N8N_API_KEY`) |
 | [Database](http://localhost:9181/htmx/database/) | row counts and recent tester/clash/diff results |
+
+Live logs need the docker socket mounted into the dashboard container; without it those
+pages explain themselves rather than failing. See [`app/README.md`](app/README.md) for the
+scoping rules and the security caveat.
 
 Click any job ID for its arguments, result, traceback and log files. The same data is
 available as JSON under `/api/rq/*`, `/api/system/*`, `/api/n8n/*` and

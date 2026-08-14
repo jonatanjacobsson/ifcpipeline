@@ -10,18 +10,70 @@ Data comes from the same JSON API the pages themselves expose, in
 
 ## Pages
 
+The three queue pages answer three different questions, and none of them duplicates
+another's job:
+
+| Nav | Path | Answers | Refresh |
+|-----|------|---------|---------|
+| Dashboard | `/htmx/` | *Is the pipeline healthy?* — status hero, per-queue activity strip, failures needing attention, service health. **No job table.** | auto, 5s |
+| Jobs | `/htmx/jobs/` | *What is in flight?* — the live RQ registries, defaulting to `In flight` (everything except finished). Filter, sort, requeue, delete. | manual |
+| History | `/htmx/history/` | *What happened?* — the Postgres archive with durations, searchable and sortable. | manual |
+
+Jobs and History do not poll on purpose: both carry filter and search inputs, and a
+periodic swap would wipe whatever is being typed. The Dashboard is the live view.
+
 | Nav | Path | Source |
 |-----|------|--------|
-| Dashboard | `/htmx/` | queue totals, Redis memory, recent jobs, service health |
-| Jobs | `/htmx/jobs/` | live RQ registries — filter by queue/state, sort, delete, requeue |
 | Job detail | `/htmx/jobs/<id>` | args, result, traceback, per-job log files |
-| History | `/htmx/history/` | finished jobs mirrored into Postgres (outlives RQ's result TTL) |
-| Workers | `/htmx/workers/` | live workers, their queues and current job |
+| Workers | `/htmx/workers/` | one card per queue, with the workers serving it inside |
+| Logs | `/htmx/logs/` | live container logs, by worker or merged across a queue |
 | Network Share | `/htmx/network-share/` | file browser + text editor + IFC/PDF preview |
 | n8n | `/htmx/n8n/` | workflows and recent executions |
 | Database | `/htmx/database/` | row counts and recent tester/clash/diff results |
 
 `/` redirects to `/htmx/`.
+
+## Workers
+
+Queues are the cards; workers are rows inside them. That matches how the pipeline is
+actually operated — the question is "is `ifcclash` moving?", not "what is worker
+`b7fbd5eea814` doing?".
+
+Card state drives both the accent colour and the animation, so a glance is enough:
+
+| State | Meaning |
+|-------|---------|
+| **running** | jobs started — the card carries a slow sheen and the dot pings |
+| **waiting** | queued work, a worker is listening |
+| **blocked** | queued work and **no** worker listening — the case a bare depth count hides |
+| **idle** | worker online, nothing queued |
+| **offline** | no worker registered for the queue |
+
+All animation is CSS and is disabled under `prefers-reduced-motion`.
+
+## Live logs
+
+`/htmx/logs/` streams container logs over SSE, the way Dozzle does — by single worker
+(`?container=`) or merged across every replica serving a queue (`?queue=`). The viewer
+follows by default, detaches when you scroll up, and filters client-side by substring
+and by stdout/stderr. Lines are capped at 5000 in the DOM.
+
+An RQ worker maps to its container through `Worker.hostname`, which inside a container
+is the container's short id.
+
+**This needs the docker socket**, mounted in
+[`../docker-compose.control-plane.yml`](../docker-compose.control-plane.yml) with
+`group_add: ["${DOCKER_GID:-999}"]` so the non-root dashboard can read it. Two things
+to be clear about:
+
+- Anything that can reach that socket can control the daemon. `:ro` applies to the
+  socket *file*, not to the API. Remove the mount to disable log streaming (the pages
+  then explain themselves instead of erroring), or put a read-only socket proxy in
+  front of it.
+- Streaming is restricted to containers carrying this compose project's
+  `com.docker.compose.project` label. Without that scope a crafted `?container=<id>`
+  would stream any container on the host — and other stacks' logs carry credentials.
+  `services/docker_logs.py` enforces it and `tests/` covers it.
 
 ## Layout
 
@@ -52,6 +104,7 @@ Everything is environment-driven ([`../dashboard/config.py`](../dashboard/config
 | `N8N_API_KEY` | *(empty)* | required to list workflows/executions |
 | `NETWORK_SHARE_PATH` | `/share` | root the file browser is confined to |
 | `WORKER_LOGS_DIR` | `/share/logs` | scanned for `<job_id>-*` log files |
+| `DOCKER_SOCKET` | `/var/run/docker.sock` | live log streaming; pages degrade if absent |
 | `ENABLE_BACKGROUND_PG_SYNC` | `true` | set `false` on extra replicas — only one should sync |
 | `JOB_HISTORY_SYNC_INTERVAL` | `90` | seconds between Redis→Postgres syncs |
 | `STALE_WORKER_AFTER_SECONDS` | `900` | heartbeat age past which a worker is a leaked registration |
