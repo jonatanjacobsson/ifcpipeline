@@ -183,6 +183,9 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
+    # Same uid as the workers: the share is mounted rw for the file editor, and files
+    # written back must stay owned by the user the workers run as.
+    user: "1000:1000"
     ports:
       - "9181:8000"
     environment:
