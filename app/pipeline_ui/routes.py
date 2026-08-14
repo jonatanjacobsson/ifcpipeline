@@ -10,6 +10,7 @@ from pipeline_ui.renderers import (
     detail_htmx,
     history_htmx,
     jobs_htmx,
+    logs_htmx,
     n8n_htmx,
     network_share_htmx,
     overview_htmx,
@@ -71,8 +72,12 @@ def htmx_jobs_table(
 
 
 @router.get("/jobs/", response_class=HTMLResponse)
-def htmx_jobs_page():
-    return HTMLResponse(jobs_htmx.render_jobs_page())
+def htmx_jobs_page(
+    queue: str = Query("all"),
+    state: str = Query("live"),
+    search: str = Query(""),
+):
+    return HTMLResponse(jobs_htmx.render_jobs_page(queue=queue, state=state, search=search))
 
 
 @router.get("/jobs", response_class=HTMLResponse)
@@ -119,8 +124,14 @@ def htmx_history_table(
 
 
 @router.get("/history/", response_class=HTMLResponse)
-def htmx_history_page():
-    return HTMLResponse(history_htmx.render_history_page())
+def htmx_history_page(
+    queue: str = Query("all"),
+    status: str = Query("all"),
+    search: str = Query(""),
+):
+    return HTMLResponse(
+        history_htmx.render_history_page(queue=queue, status=status, search=search)
+    )
 
 
 @router.get("/history", response_class=HTMLResponse)
@@ -150,6 +161,23 @@ def htmx_network_share_page(
 @router.get("/network-share", response_class=HTMLResponse)
 def htmx_network_share_no_slash():
     return RedirectResponse(url="/htmx/network-share/", status_code=307)
+
+
+# --- Logs (live container/queue streaming) ---
+@router.get("/logs/", response_class=HTMLResponse)
+def htmx_logs_page(
+    container: str = Query(""),
+    queue: str = Query(""),
+    tail: int = Query(200, ge=0, le=5000),
+):
+    return HTMLResponse(
+        logs_htmx.render_logs_page(container=container or None, queue=queue or None, tail=tail)
+    )
+
+
+@router.get("/logs", response_class=HTMLResponse)
+def htmx_logs_no_slash():
+    return RedirectResponse(url="/htmx/logs/", status_code=307)
 
 
 # --- n8n ---

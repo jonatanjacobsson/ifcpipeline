@@ -21,5 +21,10 @@ class Settings:
     # Where workers drop per-job log files named `<job_id>-*`. Surfaced in job detail.
     WORKER_LOGS_DIR: str = os.getenv("WORKER_LOGS_DIR", "/share/logs")
 
+    # Docker engine socket for the live log viewer. Optional — when it is not mounted,
+    # the Logs pages explain that instead of failing. Streaming is restricted to this
+    # compose project's own containers (see services/docker_logs.py).
+    DOCKER_SOCKET: str = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
+
 
 settings = Settings()

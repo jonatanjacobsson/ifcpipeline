@@ -133,6 +133,10 @@ def _collect_workers(redis: Redis) -> tuple[list[dict], int]:
             "name": w.name,
             "state": getattr(state, "value", state),
             "queues": queues,
+            # Inside a container RQ records the container's short id here, which is how
+            # a worker maps back to its container for the log viewer.
+            "hostname": getattr(w, "hostname", "") or "",
+            "pid": getattr(w, "pid", None),
             "current_job_id": w.get_current_job_id(),
             "successful_job_count": w.successful_job_count,
             "failed_job_count": w.failed_job_count,
@@ -230,18 +234,23 @@ def get_jobs(
         if queue_name != "all" and q.name != queue_name:
             continue
 
+        # "live" = everything still in flight or needing action; excludes `finished`,
+        # which otherwise buries the queue under thousands of completed jobs. Finished
+        # work belongs to History.
+        live = state == "live"
+
         job_ids = []
-        if state in ("all", "queued"):
+        if live or state in ("all", "queued"):
             job_ids.extend([(jid, "queued") for jid in q.get_job_ids()])
-        if state in ("all", "started"):
+        if live or state in ("all", "started"):
             job_ids.extend([(jid, "started") for jid in q.started_job_registry.get_job_ids()])
-        if state in ("all", "failed"):
+        if live or state in ("all", "failed"):
             job_ids.extend([(jid, "failed") for jid in q.failed_job_registry.get_job_ids()])
         if state in ("all", "finished"):
             job_ids.extend([(jid, "finished") for jid in q.finished_job_registry.get_job_ids()])
-        if state in ("all", "scheduled"):
+        if live or state in ("all", "scheduled"):
             job_ids.extend([(jid, "scheduled") for jid in q.scheduled_job_registry.get_job_ids()])
-        if state in ("all", "deferred"):
+        if live or state in ("all", "deferred"):
             job_ids.extend([(jid, "deferred") for jid in q.deferred_job_registry.get_job_ids()])
 
         raw_ids = [jid for jid, _ in job_ids]

@@ -20,8 +20,10 @@ for p in (_DASH, _APP):
 SHELL_PAGES = (
     "/htmx/",
     "/htmx/jobs/",
+    "/htmx/jobs/?queue=ifcclash&state=failed",
     "/htmx/history/",
     "/htmx/workers/",
+    "/htmx/logs/",
     "/htmx/network-share/",
     "/htmx/n8n/",
     "/htmx/database/",
@@ -29,6 +31,7 @@ SHELL_PAGES = (
 
 FRAGMENTS = (
     "/htmx/overview",
+    "/htmx/jobs/table?state=live",
     "/htmx/header-status",
     "/htmx/jobs/table",
     "/htmx/history/table",
@@ -42,6 +45,7 @@ REDIRECTS = (
     ("/htmx/jobs", "/htmx/jobs/"),
     ("/htmx/history", "/htmx/history/"),
     ("/htmx/workers", "/htmx/workers/"),
+    ("/htmx/logs", "/htmx/logs/"),
     ("/htmx/network-share", "/htmx/network-share/"),
     ("/htmx/n8n", "/htmx/n8n/"),
     ("/htmx/database", "/htmx/database/"),
@@ -85,7 +89,7 @@ class TestHtmxRoutes(unittest.TestCase):
 
     def test_sidebar_lists_only_the_supported_pages(self):
         r = self.client.get("/htmx/")
-        for label in ("Jobs", "History", "Workers", "Network Share", "n8n", "Database"):
+        for label in ("Jobs", "History", "Workers", "Logs", "Network Share", "n8n", "Database"):
             self.assertIn(f">{label}<", r.text.replace("\n", ""), label)
         # Dropped subsystems must not reappear via a stale nav entry.
         for gone in ("Interaxo", "StreamBIM", "Revit Analytics", "IFC Analysis", "Classic dashboard"):
@@ -100,6 +104,8 @@ class TestHtmxRoutes(unittest.TestCase):
             "/api/system/db/stats",
             "/api/n8n/status",
             "/api/network-share/status",
+            "/api/logs/status",
+            "/api/logs/containers",
         ):
             with self.subTest(path=path):
                 r = self.client.get(path)
@@ -270,6 +276,123 @@ class TestCacheSingleflight(unittest.TestCase):
             t.join()
 
         self.assertTrue(all(e == "upstream down" for e in errors), errors)
+
+
+class TestLogScoping(unittest.TestCase):
+    """The docker socket grants far more than log reads, so the endpoints must only
+    ever stream this compose project's own containers."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        from main import app
+
+        self.client = TestClient(app)
+
+    def test_stream_requires_a_target(self):
+        from services import docker_logs
+
+        if not docker_logs.available():
+            self.skipTest("docker socket not mounted")
+        r = self.client.get("/api/logs/stream")
+        self.assertEqual(r.status_code, 400)
+
+    def test_foreign_container_is_refused(self):
+        from services import docker_logs
+
+        if not docker_logs.available():
+            self.skipTest("docker socket not mounted")
+        # A plausible id and a plausible name, neither in this project.
+        for ref in ("0" * 64, "cde-backend-1", "some-other-stack-db-1"):
+            with self.subTest(ref=ref):
+                r = self.client.get(f"/api/logs/stream?container={ref}&follow=false")
+                self.assertEqual(r.status_code, 404)
+
+    def test_listed_containers_are_all_in_this_project(self):
+        from services import docker_logs
+
+        if not docker_logs.available():
+            self.skipTest("docker socket not mounted")
+        project = docker_logs.own_project()
+        self.assertTrue(project, "compose project must be known to scope the allowlist")
+        r = self.client.get("/api/logs/containers")
+        for c in r.json():
+            self.assertIn("id", c)
+            self.assertTrue(docker_logs.resolve(c["name"]), c["name"])
+
+    def test_unknown_queue_is_refused(self):
+        from services import docker_logs
+
+        if not docker_logs.available():
+            self.skipTest("docker socket not mounted")
+        r = self.client.get("/api/logs/stream?queue=definitely-not-a-queue&follow=false")
+        self.assertEqual(r.status_code, 404)
+
+    def test_logs_page_degrades_without_the_socket(self):
+        """The page must explain itself, not 500, when the socket is absent."""
+        from unittest.mock import patch
+
+        with patch("services.docker_logs.available", return_value=False):
+            r = self.client.get("/htmx/logs/")
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("docker socket", r.text.lower())
+
+
+class TestLogDemux(unittest.TestCase):
+    """Docker frames non-TTY output; chunks split frames and lines arbitrarily."""
+
+    def test_frames_split_across_chunks_reassemble(self):
+        from services.docker_logs import _Demuxer
+
+        def frame(stream, payload):
+            b = payload.encode()
+            return bytes([stream, 0, 0, 0]) + len(b).to_bytes(4, "big") + b
+
+        blob = frame(1, "hello world\n") + frame(2, "an error\n") + frame(1, "tail")
+        d = _Demuxer(tty=False)
+        got = []
+        # Feed one byte at a time: the worst case for a stateful parser.
+        for i in range(len(blob)):
+            got.extend(d.feed(blob[i : i + 1]))
+        got.extend(d.flush())
+
+        self.assertEqual(
+            got, [(1, "hello world"), (2, "an error"), (1, "tail")]
+        )
+
+    def test_tty_streams_are_passed_through(self):
+        from services.docker_logs import _Demuxer
+
+        d = _Demuxer(tty=True)
+        got = list(d.feed(b"plain line\nsecond\n"))
+        self.assertEqual(got, [(1, "plain line"), (1, "second")])
+
+    def test_timestamp_is_split_off(self):
+        from services.docker_logs import _split_timestamp
+
+        ts, msg = _split_timestamp("2026-08-14T09:22:22.635860188Z Worker started")
+        self.assertEqual(ts, "2026-08-14T09:22:22.635860188Z")
+        self.assertEqual(msg, "Worker started")
+        # A line that merely starts with a word must not lose it.
+        ts2, msg2 = _split_timestamp("Worker started")
+        self.assertEqual(ts2, "")
+        self.assertEqual(msg2, "Worker started")
+
+
+class TestJobsLiveFilter(unittest.TestCase):
+    def test_live_excludes_finished(self):
+        """`live` is what makes Jobs different from History; it must not include finished."""
+        import inspect
+
+        from services import redis_service
+
+        src = inspect.getsource(redis_service.get_jobs)
+        self.assertIn('live = state == "live"', src)
+        # the finished branch is the one line that must not be gated on `live`
+        finished_line = next(
+            l for l in src.splitlines() if '"finished")' in l and "state in" in l
+        )
+        self.assertNotIn("live or", finished_line)
 
 
 if __name__ == "__main__":

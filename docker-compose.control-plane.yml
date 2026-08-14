@@ -186,6 +186,10 @@ services:
     # Same uid as the workers: the share is mounted rw for the file editor, and files
     # written back must stay owned by the user the workers run as.
     user: "1000:1000"
+    # Read the docker socket for the live log viewer (gid 999 = docker on this host).
+    # Override DOCKER_GID in .env if your host differs: `getent group docker`.
+    group_add:
+      - "${DOCKER_GID:-999}"
     ports:
       - "9181:8000"
     environment:
@@ -211,6 +215,10 @@ services:
       # to make the dashboard read-only.
       - ./shared/uploads:/share/uploads
       - ./shared/output:/share/output
+      # Live log viewer. NOTE: :ro applies to the socket file, not the API — anything
+      # that can reach this socket can control the docker daemon. Drop this mount to
+      # disable the Logs pages, or put a read-only socket proxy in front of it.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - redis
       - postgres

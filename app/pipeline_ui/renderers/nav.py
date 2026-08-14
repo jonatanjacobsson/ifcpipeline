@@ -11,6 +11,7 @@ _ICO_WORKERS = """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 _ICO_NETWORK = """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>"""
 _ICO_N8N = """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>"""
 _ICO_DATABASE = """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>"""
+_ICO_LOGS = """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v5h5"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>"""
 
 
 def _nav_link(
@@ -48,6 +49,9 @@ def render_sidebar_nav(active_nav: str) -> Nav:
     parts.append(_nav_link(active_nav, "jobs", "Jobs", "/htmx/jobs/", _ICO_JOBS))
     parts.append(_nav_link(active_nav, "history", "History", "/htmx/history/", _ICO_HISTORY))
     parts.append(_nav_link(active_nav, "workers", "Workers", "/htmx/workers/", _ICO_WORKERS))
+    # Full page load: the viewer opens an EventSource in DOMContentLoaded, which an
+    # HTMX fragment swap would never fire.
+    parts.append(_nav_link(active_nav, "logs", "Logs", "/htmx/logs/", _ICO_LOGS, htmx=False))
 
     parts.append(Div("Files", cls="nav-section-label"))
     # Full page load: Network Share needs head assets (CodeMirror, htmx-network-share.js) and

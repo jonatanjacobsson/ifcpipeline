@@ -6,9 +6,31 @@ from urllib.parse import urlencode
 
 from fasthtml.components import A, Div, Form, Input, Option, P, Select, Span, Table, Tbody, Td, Th, Thead, Tr
 
-from pipeline_ui.renderers.htmx_common import badge, ft_html, short_id, time_ago, truncate
+from pipeline_ui.renderers.htmx_common import (
+    badge,
+    format_duration,
+    ft_html,
+    short_id,
+    time_ago,
+    truncate,
+)
 from pipeline_ui.renderers.htmx_layout import render_htmx_shell_page
 from services import job_history_service
+
+
+def _duration(created: str | None, ended: str | None) -> str:
+    """Wall-clock from enqueue to finish — the number you actually want from an archive."""
+    if not created or not ended:
+        return "—"
+    from datetime import datetime
+
+    try:
+        a = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(ended).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return "—"
+    secs = (b - a).total_seconds()
+    return format_duration(secs) if secs >= 0 else "—"
 
 
 def _opt(label: str, value: str, current: str) -> Option:
@@ -143,6 +165,7 @@ def render_history_table_fragment(
         _sort_th("Job", "name"),
         _sort_th("Created", "created_at"),
         _sort_th("Ended", "ended_at"),
+        Th("Duration", cls="no-sort"),
     )
 
     rows = []
@@ -168,6 +191,10 @@ def render_history_table_fragment(
                 Td(truncate(name, 60), title=name),
                 Td(time_ago(j.get("created_at"))),
                 Td(time_ago(j.get("ended_at")) if j.get("ended_at") else "-"),
+                Td(
+                    _duration(j.get("created_at"), j.get("ended_at")),
+                    style="font-variant-numeric:tabular-nums;color:var(--text-secondary)",
+                ),
             )
         )
 
@@ -258,9 +285,10 @@ def render_history_table_fragment(
         Div(
             Div(
                 Div(
-                    Span("Job history", cls="panel-title"),
+                    Span("Archive", cls="panel-title"),
                     Span(
-                        "Recorded jobs from Postgres (sortable columns).",
+                        "Every job ever recorded, mirrored into Postgres before Redis "
+                        "expires it. Searchable and sortable; it does not auto-refresh.",
                         cls="panel-header-subtitle",
                     ),
                     style="display:flex;flex-wrap:wrap;align-items:baseline;gap:4px",
@@ -282,11 +310,12 @@ def render_history_table_fragment(
     return ft_html(inner)
 
 
-def render_history_page() -> str:
+def render_history_page(queue: str = "all", status: str = "all", search: str = "") -> str:
+    qs = urlencode({"queue": queue or "all", "status": status or "all", "search": search or ""})
     return render_htmx_shell_page(
         document_title="IFC Pipeline — History",
         header_title="History",
-        hx_fragment_path="/htmx/history/table",
+        hx_fragment_path=f"/htmx/history/table?{qs}",
         json_href="/api/rq/history",
         json_label="JSON: /api/rq/history",
         active_nav="history",
