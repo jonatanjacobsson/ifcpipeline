@@ -80,7 +80,7 @@ S3-compatible object store so that:
 | api-gateway   | 8000 |
 | ifc-viewer    | 8001 |
 | n8n           | 5678 |
-| rq-dashboard  | 9181 |
+| dashboard     | 9181 |
 | dozzle        | 9182 |
 | SeaweedFS S3  | **8333** (compose network; published on `0.0.0.0` only with the host-lan overlay) |
 | SeaweedFS filer UI | **8443** (loopback only) |

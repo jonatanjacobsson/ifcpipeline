@@ -34,7 +34,7 @@
 - **PostgreSQL Storage**: Persistent storage for processing results
 - **API Gateway**: FastAPI-based REST API with comprehensive documentation
 - **Token-based File Sharing**: Secure temporary download links with expiry
-- **Monitoring Dashboard**: RQ Dashboard for queue monitoring
+- **Monitoring Dashboard**: server-rendered HTMX dashboard for jobs, workers, files, n8n and database
 - **Automatic Cleanup**: Scheduled cleanup of old processing results
 
 ![chrome_sDioFJ8Vvy](https://github.com/user-attachments/assets/c2336ad4-c5bd-4a1f-9346-1b710135a9c9)
@@ -94,7 +94,7 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
 4. **n8n** - Workflow automation platform with custom nodes
 5. **Redis** - Job queue and result backend
 6. **PostgreSQL** - Persistent storage for processing results
-7. **Monitoring** - RQ Dashboard and PgWeb for observability
+7. **Monitoring** - HTMX dashboard (`app/`) and PgWeb for observability
 
 ### Architecture Diagram
 <img width="1698" height="1712" alt="diagram-export-2025-10-01-13_46_57" src="https://github.com/user-attachments/assets/840f3e4e-4562-44ef-9172-71b24e9d2b38" />
@@ -186,7 +186,7 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    - **API Documentation**: http://localhost:8000/docs
    - **n8n Workflows**: http://localhost:5678
    - **IFC Viewer**: http://localhost:8001
-   - **RQ Dashboard**: http://localhost:9181
+   - **Dashboard**: http://localhost:9181
    - **PgWeb (Database)**: http://localhost:8081
 
 7. **Authorize API access**:
@@ -577,13 +577,23 @@ Returns health status of:
 - All worker queues
 - Active workers
 
-### RQ Dashboard
+### Dashboard
 
-Monitor job queues at **http://localhost:9181**:
-- Queue depths
-- Worker status
-- Failed jobs
-- Job history and results
+Server-rendered HTMX dashboard at **http://localhost:9181** (see [`app/README.md`](app/README.md)):
+
+| Page | What it shows |
+|------|---------------|
+| [Dashboard](http://localhost:9181/htmx/) | queue totals, Redis memory, recent jobs, service health |
+| [Jobs](http://localhost:9181/htmx/jobs/) | live RQ registries — filter, sort, delete, requeue |
+| [History](http://localhost:9181/htmx/history/) | finished jobs mirrored into Postgres, past RQ's result TTL |
+| [Workers](http://localhost:9181/htmx/workers/) | live workers, their queues and current job |
+| [Network Share](http://localhost:9181/htmx/network-share/) | browse `shared/uploads` + `shared/output`, edit text files, preview IFC/PDF |
+| [n8n](http://localhost:9181/htmx/n8n/) | workflows and recent executions (needs `N8N_API_KEY`) |
+| [Database](http://localhost:9181/htmx/database/) | row counts and recent tester/clash/diff results |
+
+Click any job ID for its arguments, result, traceback and log files. The same data is
+available as JSON under `/api/rq/*`, `/api/system/*`, `/api/n8n/*` and
+`/api/network-share/*`.
 
 ### Common Issues and Solutions
 
@@ -629,8 +639,8 @@ docker compose logs ifcconvert-worker -f
 # Restart specific worker
 docker compose restart ifcconvert-worker
 
-# Check worker status in RQ Dashboard
-# Visit http://localhost:9181
+# Check worker status in the dashboard
+# Visit http://localhost:9181/htmx/workers/
 ```
 
 #### 🔴 Issue: Out of memory errors
