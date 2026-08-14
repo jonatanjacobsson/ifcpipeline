@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
 
 from fasthtml.components import A, Div, P, Span, Table, Tbody, Td, Th, Thead, Tr
 
@@ -16,7 +15,7 @@ def render_workers_fragment() -> str:
     try:
         overview = rq.overview()
     except Exception as e:
-        return str(Div(P(f"Could not load workers: {escape(str(e))}", cls="error")))
+        return str(Div(P(f"Could not load workers: {str(e)}", cls="error")))
 
     workers = overview.get("workers") or []
     t = overview.get("totals") or {}
@@ -69,12 +68,12 @@ def render_workers_fragment() -> str:
             jid = w.get("current_job_id")
             rows.append(
                 Tr(
-                    Td(escape(str(w.get("name") or "")), style="font-family:var(--font-mono);font-size:12px"),
+                    Td(str(w.get("name") or ""), style="font-family:var(--font-mono);font-size:12px"),
                     Td(worker_state_badge(w.get("state"))),
                     Td(
                         Div(
                             *[
-                                Span(escape(str(q)), cls="meta-tag")
+                                Span(str(q), cls="meta-tag")
                                 for q in (w.get("queues") or [])
                             ],
                             cls="meta-tags",
@@ -83,7 +82,7 @@ def render_workers_fragment() -> str:
                     Td(
                         A(
                             short_id(jid),
-                            href=f"/htmx/jobs/{escape(jid)}",
+                            href=f"/htmx/jobs/{jid}",
                             cls="link-job",
                         )
                         if jid

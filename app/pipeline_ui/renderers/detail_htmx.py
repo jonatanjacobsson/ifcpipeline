@@ -5,7 +5,6 @@ from __future__ import annotations
 import glob
 import json
 import os
-from html import escape
 from typing import Any
 from urllib.parse import quote
 
@@ -118,7 +117,7 @@ def _fmt_cell(val) -> Any:
                 return _json_display_block(expand_embedded_json_strings(parsed))
         except (json.JSONDecodeError, TypeError):
             pass
-    return Pre(escape(str(val)), cls="detail-json")
+    return Pre(str(val), cls="detail-json")
 
 
 def _ns_link(path: str | None) -> str | None:
@@ -140,18 +139,18 @@ def _file_link_cell(path: str | None) -> Div:
     if href := _ns_link(path):
         return Div(
             A(
-                escape(label),
+                label,
                 href=href,
                 title="Open in Network Share",
                 cls="link-job",
             ),
             Span(
-                f" {escape(rel)}",
+                f" {rel}",
                 style="margin-left:6px;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary)",
             ),
         )
     return Div(
-        Span(escape(str(path)), style="font-family:var(--font-mono);font-size:12px"),
+        Span(str(path), style="font-family:var(--font-mono);font-size:12px"),
     )
 
 
@@ -169,7 +168,7 @@ def _detail_grid_from_job(job: dict) -> Div:
     cells.extend(
         [
             Div("ID", cls="detail-key"),
-            Div(escape(str(jid)), cls="detail-val", style="font-family:var(--font-mono);font-size:12px"),
+            Div(str(jid), cls="detail-val", style="font-family:var(--font-mono);font-size:12px"),
             Div("Status", cls="detail-key"),
             Div(badge(job.get("status") or ""), cls="detail-val"),
         ]
@@ -178,7 +177,7 @@ def _detail_grid_from_job(job: dict) -> Div:
         cells.extend(
             [
                 Div("Queue", cls="detail-key"),
-                Div(escape(str(job.get("queue") or "-")), cls="detail-val"),
+                Div(str(job.get("queue") or "-"), cls="detail-val"),
             ]
         )
 
@@ -186,7 +185,7 @@ def _detail_grid_from_job(job: dict) -> Div:
         [
             Div("Function", cls="detail-key"),
             Div(
-                escape(str(func_name or job.get("name") or "-")),
+                str(func_name or job.get("name") or "-"),
                 cls="detail-val",
                 style="font-family:var(--font-mono);font-size:12px",
             ),
@@ -216,11 +215,11 @@ def _detail_grid_from_job(job: dict) -> Div:
     cells.extend(
         [
             Div("Created", cls="detail-key"),
-            Div(escape(format_datetime_local(job.get("created_at"))), cls="detail-val"),
+            Div(format_datetime_local(job.get("created_at")), cls="detail-val"),
             Div("Enqueued", cls="detail-key"),
-            Div(escape(format_datetime_local(job.get("enqueued_at"))), cls="detail-val"),
+            Div(format_datetime_local(job.get("enqueued_at")), cls="detail-val"),
             Div("Ended", cls="detail-key"),
-            Div(escape(format_datetime_local(job.get("ended_at")) if job.get("ended_at") else "-"), cls="detail-val"),
+            Div(format_datetime_local(job.get("ended_at")) if job.get("ended_at") else "-", cls="detail-val"),
         ]
     )
 
@@ -238,7 +237,7 @@ def _detail_grid_from_job(job: dict) -> Div:
             Div("Exception", cls="detail-key"),
             Div(
                 Pre(
-                    escape(str(exc)[:120000]),
+                    str(exc)[:120000],
                     cls="detail-json",
                     style="color:var(--error)",
                 )
@@ -355,7 +354,7 @@ def render_job_detail_fragment(job_id: str) -> str:
                 )
             )
 
-    header_inner = [Span(f"Job {escape(short_id(jid))}", cls="panel-title")]
+    header_inner = [Span(f"Job {short_id(jid)}", cls="panel-title")]
     if actions:
         header_inner.append(Div(*actions, cls="panel-actions", style="display:flex;gap:8px"))
 
@@ -433,7 +432,7 @@ def render_history_detail_fragment(job_id: str) -> str:
     grid = _detail_grid_from_job(job)
     panel = Div(
         Div(
-            Span(f"Archived Job {escape(short_id(jid))}", cls="panel-title"),
+            Span(f"Archived Job {short_id(jid)}", cls="panel-title"),
             Span(
                 "FROM HISTORY",
                 cls="badge badge-deferred",
@@ -448,7 +447,7 @@ def render_history_detail_fragment(job_id: str) -> str:
 
 
 def render_job_detail_page(job_id: str) -> str:
-    esc = escape(job_id)
+    esc = job_id
     return render_htmx_shell_page(
         document_title=f"IFC Pipeline — Job {short_id_display(job_id)}",
         header_title=f"Job {short_id_display(job_id)}",
@@ -464,7 +463,7 @@ def render_log_view_fragment(job_id: str, filename: str) -> str:
     try:
         text = redis_service.get_log_content(job_id, filename)
     except Exception as e:
-        return str(P(f"Could not read log: {escape(str(e))}", cls="error"))
+        return str(P(f"Could not read log: {str(e)}", cls="error"))
     safe = text[:200000]
     return str(
         Div(
@@ -475,7 +474,7 @@ def render_log_view_fragment(job_id: str, filename: str) -> str:
                 onclick="var p=document.getElementById('log-pre');var c=document.getElementById('log-wrap-toggle');if(p&&c){p.style.whiteSpace=c.checked?'pre-wrap':'pre';}",
             ),
             Pre(
-                escape(safe),
+                safe,
                 id="log-pre",
                 style="white-space:pre-wrap;font-size:12px;max-height:480px;overflow:auto",
                 cls="log-content",
@@ -485,7 +484,7 @@ def render_log_view_fragment(job_id: str, filename: str) -> str:
 
 
 def render_history_detail_page(job_id: str) -> str:
-    esc = escape(job_id)
+    esc = job_id
     return render_htmx_shell_page(
         document_title=f"IFC Pipeline — History {short_id_display(job_id)}",
         header_title=f"History job {short_id_display(job_id)}",

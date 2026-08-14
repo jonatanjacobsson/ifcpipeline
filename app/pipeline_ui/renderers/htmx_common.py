@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
-
 from html import escape
 from typing import Any
 
@@ -55,7 +54,7 @@ def badge(status: str, label: str | None = None) -> Span:
     """Badge whose colour comes from *status* and whose text is *label* (default: status)."""
     raw = str(status or "unknown")
     safe = re.sub(r"[^a-zA-Z0-9_-]", "-", raw).strip("-") or "unknown"
-    return Span(escape(str(label if label is not None else raw)), cls=f"badge badge-{safe}")
+    return Span(str(label if label is not None else raw), cls=f"badge badge-{safe}")
 
 
 def worker_state_badge(state: str | None) -> Span:
@@ -75,7 +74,7 @@ def status_dot(connected: bool | None, label: str) -> Span:
         cls = "online"
     else:
         cls = "offline"
-    return Span(escape(label), cls=f"status-dot {cls}")
+    return Span(label, cls=f"status-dot {cls}")
 
 
 def format_datetime_local(iso: str | None) -> str:
@@ -89,7 +88,7 @@ def format_datetime_local(iso: str | None) -> str:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
-        return escape(str(iso)[:40])
+        return str(iso)[:40]
 
 
 def format_duration(seconds: float | int | None) -> str:
@@ -162,7 +161,10 @@ def highlight_json_html(obj: Any, max_len: int = 80000) -> str:
         json_str = json.dumps(obj, indent=2, default=str)
     if len(json_str) > max_len:
         json_str = json_str[:max_len] + "\n…"
-    s = json_str
+    # This is the one place that returns raw HTML (the caller wraps it in NotStr), so it
+    # must escape its own input — job results and tracebacks are worker-controlled.
+    # quote=False keeps the `"` the highlighting patterns below match on.
+    s = escape(json_str, quote=False)
     s = re.sub(r'("(?:\\.|[^"\\])*")\s*:', r'<span class="jh-key">\1</span>:', s)
     s = re.sub(r':\s*("(?:\\.|[^"\\])*")', r': <span class="jh-str">\1</span>', s)
     s = re.sub(r":\s*(true|false)\b", r': <span class="jh-bool">\1</span>', s)
@@ -205,8 +207,8 @@ def service_card(title: Any, rows: list[tuple[str, str]]) -> Div:
         Div(
             *[
                 Div(
-                    Span(escape(k), cls="service-card-key"),
-                    Span(escape(v), cls="service-card-val"),
+                    Span(k, cls="service-card-key"),
+                    Span(v, cls="service-card-val"),
                     cls="service-card-row",
                 )
                 for k, v in rows

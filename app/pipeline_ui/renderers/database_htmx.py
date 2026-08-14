@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
 
 from fasthtml.components import Div, P, Span, Table, Tbody, Td, Th, Thead, Tr
 
@@ -21,7 +20,7 @@ def render_database_fragment() -> str:
     try:
         stats = cache.get_or_set("db_stats", 60, db_service.get_stats)
     except Exception as e:
-        return str(Div(P(f"Could not load database info: {escape(str(e))}", cls="error")))
+        return str(Div(P(f"Could not load database info: {str(e)}", cls="error")))
 
     if not stats.get("connected"):
         return str(
@@ -67,8 +66,8 @@ def render_database_fragment() -> str:
             continue
         test_rows.append(
             Tr(
-                Td(escape(_basename(t.get("ifc_filename"))), title=escape(str(t.get("ifc_filename") or ""))),
-                Td(escape(_basename(t.get("ids_filename"))), title=escape(str(t.get("ids_filename") or ""))),
+                Td(_basename(t.get("ifc_filename")), title=str(t.get("ifc_filename") or "")),
+                Td(_basename(t.get("ids_filename")), title=str(t.get("ids_filename") or "")),
                 Td(str(t.get("pass_count", 0)), style="color:var(--success)"),
                 Td(
                     str(t.get("fail_count", 0)),
@@ -87,7 +86,7 @@ def render_database_fragment() -> str:
         cc = row.get("clash_count") or 0
         clash_rows.append(
             Tr(
-                Td(escape(str(label))),
+                Td(str(label)),
                 Td(
                     str(cc),
                     style="color:var(--warning)" if cc > 0 else "color:var(--success)",
@@ -103,8 +102,8 @@ def render_database_fragment() -> str:
             continue
         diff_rows.append(
             Tr(
-                Td(escape(_basename(row.get("old_file"))), title=escape(str(row.get("old_file") or ""))),
-                Td(escape(_basename(row.get("new_file"))), title=escape(str(row.get("new_file") or ""))),
+                Td(_basename(row.get("old_file")), title=str(row.get("old_file") or "")),
+                Td(_basename(row.get("new_file")), title=str(row.get("new_file") or "")),
                 Td(str(row.get("diff_count", 0))),
                 Td(time_ago(row.get("created_at"))),
             )

@@ -165,5 +165,48 @@ class TestRqCompat(unittest.TestCase):
         self.assertEqual(safe_status(job), "unknown")
 
 
+class TestEscaping(unittest.TestCase):
+    """FastHTML escapes text and attributes itself; escaping again corrupts output.
+
+    Job descriptions are Python reprs full of `'`, so a stray `html.escape()` renders
+    as a literal `&#x27;` on screen. The one exception is raw-HTML output wrapped in
+    NotStr, which has to escape its own input.
+    """
+
+    def test_components_are_not_double_escaped(self):
+        from fastcore.xml import to_xml
+        from fasthtml.components import Td
+
+        payload = "tasks.run_ingest({'a': 1, 'b': '<x>'})"
+        html = to_xml(Td(payload, title=payload))
+        self.assertNotIn("&amp;#x27;", html)
+        self.assertNotIn("&amp;lt;", html)
+        self.assertIn("{'a': 1", html)      # apostrophes survive verbatim
+        self.assertIn("&lt;x&gt;", html)    # angle brackets still neutralised
+
+    def test_renderers_do_not_hand_escape(self):
+        """Only the network-share page builds raw HTML by hand and may call escape()."""
+        import pathlib
+
+        renderers = pathlib.Path(__file__).resolve().parents[1] / "pipeline_ui" / "renderers"
+        allowed = {"network_share_htmx.py", "htmx_common.py"}
+        offenders = [
+            p.name
+            for p in renderers.glob("*.py")
+            if p.name not in allowed and "escape(" in p.read_text()
+        ]
+        self.assertEqual(offenders, [], f"hand-escaping re-introduced in {offenders}")
+
+    def test_json_block_escapes_its_input(self):
+        """highlight_json_html returns raw HTML for NotStr, so it must escape."""
+        from pipeline_ui.renderers.htmx_common import highlight_json_html
+
+        out = highlight_json_html({"note": "<script>alert(1)</script>", "n": 3})
+        self.assertNotIn("<script>", out)
+        self.assertIn("&lt;script&gt;", out)
+        self.assertIn('<span class="jh-key">', out)  # highlighting still applied
+        self.assertIn('<span class="jh-num">', out)
+
+
 if __name__ == "__main__":
     unittest.main()

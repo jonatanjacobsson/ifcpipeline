@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from html import escape
 
 from fasthtml.components import Div, P, Span, Strong, Table, Tbody, Td, Th, Thead, Tr
 
@@ -17,7 +16,7 @@ def render_n8n_fragment() -> str:
         wf = cache.get_or_set("n8n_workflows", 120, n8n_service.get_workflows)
         ex = cache.get_or_set("n8n_executions_30_None", 60, n8n_service.get_executions, 30, None)
     except Exception as e:
-        return str(Div(P(f"Could not load n8n: {escape(str(e))}", cls="error")))
+        return str(Div(P(f"Could not load n8n: {str(e)}", cls="error")))
 
     workflows = wf if isinstance(wf, list) else []
     active_ct = sum(1 for w in workflows if isinstance(w, dict) and w.get("active"))
@@ -43,10 +42,10 @@ def render_n8n_fragment() -> str:
         if not isinstance(w, dict):
             continue
         tags = w.get("tags") or []
-        tag_spans = [Span(escape(str(t)), cls="meta-tag") for t in tags] if tags else [Span("-")]
+        tag_spans = [Span(str(t), cls="meta-tag") for t in tags] if tags else [Span("-")]
         wf_rows.append(
             Tr(
-                Td(Strong(escape(str(w.get("name") or w.get("id") or "?")))),
+                Td(Strong(str(w.get("name") or w.get("id") or "?"))),
                 Td(badge("active" if w.get("active") else "inactive")),
                 Td(Div(*tag_spans, cls="meta-tags")),
             )
@@ -59,11 +58,11 @@ def render_n8n_fragment() -> str:
             continue
         ex_rows.append(
             Tr(
-                Td(escape(str(e.get("id") or "-")), style="font-family:var(--font-mono);font-size:12px"),
-                Td(escape(truncate(str(e.get("workflowName") or e.get("workflowId") or "-"), 25))),
+                Td(str(e.get("id") or "-"), style="font-family:var(--font-mono);font-size:12px"),
+                Td(truncate(str(e.get("workflowName") or e.get("workflowId") or "-"), 25)),
                 Td(badge(str(e.get("status") or "unknown"))),
                 Td(time_ago(e.get("startedAt") or e.get("stoppedAt"))),
-                Td(escape(str(e.get("mode") or "-"))),
+                Td(str(e.get("mode") or "-")),
             )
         )
 
