@@ -122,16 +122,15 @@ def render_htmx_shell_page(
 
     head_children = [
         Title(document_title),
-        Link(rel="stylesheet", href="/static/style.css?v=htmx10"),
+        Link(rel="stylesheet", href="/static/style.css?v=1"),
         Link(rel="preconnect", href="https://fonts.googleapis.com"),
         Link(
             rel="stylesheet",
             href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
         ),
         Script(src="https://unpkg.com/htmx.org@2.0.4"),
-        Script(src="/static/htmx-loader.js?v=3", defer=True),
-        Script(src="/static/htmx-tables.js?v=htmx2", defer=True),
-        Script(src="/static/htmx-insights-tabs.js?v=1", defer=True),
+        Script(src="/static/htmx-loader.js?v=1", defer=True),
+        Script(src="/static/htmx-tables.js?v=1", defer=True),
     ]
     if extra_head:
         head_children.extend(extra_head)

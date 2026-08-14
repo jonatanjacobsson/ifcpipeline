@@ -33,7 +33,7 @@ def _network_share_extra_head() -> tuple:
         Script(src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/foldcode.min.js"),
         Script(src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/foldgutter.min.js"),
         Script(src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/fold/xml-fold.min.js"),
-        Script(src="/static/htmx-network-share.js?v=3", defer=True),
+        Script(src="/static/htmx-network-share.js?v=1", defer=True),
     )
 
 
