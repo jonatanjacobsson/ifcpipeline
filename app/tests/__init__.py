@@ -1,1 +1,1 @@
-# Tests for pipeline-app (run with PYTHONPATH=../dashboard:.)
+# Tests for the HTMX dashboard (run with PYTHONPATH=../dashboard:.)
