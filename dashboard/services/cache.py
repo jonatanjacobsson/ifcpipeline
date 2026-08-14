@@ -35,9 +35,19 @@ def get_or_set(key: str, ttl: int, fn, *args, **kwargs):
 
     if not is_leader:
         event.wait()
-        if flight_key in _inflight_errors:
-            raise _inflight_errors[flight_key]
-        return _inflight_results.get(flight_key)
+        with _lock:
+            if flight_key in _inflight_errors:
+                raise _inflight_errors[flight_key]
+            # Read the cache first: the leader writes it *before* setting the event and
+            # drops _inflight_results immediately after, so a follower that wakes late
+            # would otherwise get None — which is not a value fn() ever returned.
+            cache = _caches.get(ttl)
+            if cache is not None and key in cache:
+                return cache[key]
+            if flight_key in _inflight_results:
+                return _inflight_results[flight_key]
+        # Entry already expired again; compute rather than hand back a bogus None.
+        return fn(*args, **kwargs)
 
     try:
         result = fn(*args, **kwargs)

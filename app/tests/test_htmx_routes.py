@@ -208,5 +208,69 @@ class TestEscaping(unittest.TestCase):
         self.assertIn('<span class="jh-num">', out)
 
 
+class TestCacheSingleflight(unittest.TestCase):
+    """A follower must never receive None: it produced a 500 on the overview page."""
+
+    def test_followers_get_the_leaders_value(self):
+        import threading
+
+        from services import cache
+
+        started = threading.Barrier(8)
+        calls = []
+
+        def slow():
+            calls.append(1)
+            import time
+
+            time.sleep(0.05)
+            return {"ok": True}
+
+        results = [None] * 8
+
+        def worker(i):
+            started.wait()
+            results[i] = cache.get_or_set("sf_test", 30, slow)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        cache.invalidate("sf_test", 30)
+        self.assertEqual(len(calls), 1, "singleflight should call fn once")
+        self.assertTrue(all(r == {"ok": True} for r in results), results)
+
+    def test_follower_error_propagates(self):
+        import threading
+
+        from services import cache
+
+        started = threading.Barrier(4)
+        errors = [None] * 4
+
+        def boom():
+            import time
+
+            time.sleep(0.05)
+            raise RuntimeError("upstream down")
+
+        def worker(i):
+            started.wait()
+            try:
+                cache.get_or_set("sf_err", 30, boom)
+            except Exception as e:
+                errors[i] = str(e)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertTrue(all(e == "upstream down" for e in errors), errors)
+
+
 if __name__ == "__main__":
     unittest.main()
