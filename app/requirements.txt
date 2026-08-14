@@ -1,0 +1,2 @@
+# Extra deps for the HTMX app (merged in Docker after dashboard/requirements.txt).
+python-fasthtml>=0.12.0
