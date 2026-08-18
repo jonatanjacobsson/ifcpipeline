@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace RevitWorkerApp;
@@ -5,6 +6,12 @@ namespace RevitWorkerApp;
 static class Program
 {
     private const string MutexName = "RevitWorkerApp.SingleInstance";
+
+    public static string Version { get; } =
+        Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion?.Split('+')[0]
+        ?? "0.0.0";
 
     private static bool IsRuntimeAvailable()
     {
@@ -63,7 +70,7 @@ static class Program
                 return;
             }
 
-            AppLog.Info($"Application starting. Base: {AppContext.BaseDirectory} Log: {AppLog.LogFilePath}");
+            AppLog.Info($"RevitWorkerApp v{Version} starting. Base: {AppContext.BaseDirectory} Log: {AppLog.LogFilePath}");
 
             var context = new TrayApplicationContext();
             context.RunWithSettingsShown();

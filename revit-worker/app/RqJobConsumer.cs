@@ -160,6 +160,7 @@ public sealed class RqJobConsumer
             new HashEntry("state", "idle"),
             new HashEntry("queues", _queueName),
             new HashEntry("current_job", ""),
+            new HashEntry("version", Program.Version),
         ]);
     }
 
