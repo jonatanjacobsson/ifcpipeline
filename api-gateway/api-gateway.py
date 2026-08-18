@@ -2039,7 +2039,7 @@ async def upload_revit_log(
 
     Args:
         job_id (str): The job ID to associate with the log file.
-        log_type (str): The type of log (journal, pyrevit, rtv, worker, ddc).
+        log_type (str): The type of log (journal, pyrevit, rtv, worker).
         file (UploadFile): The log file to upload.
 
     Returns:
