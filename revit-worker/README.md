@@ -45,6 +45,13 @@ revit-worker/
 │   ├── RevitWorkerApp.csproj     # .NET 8 WinForms project (win-x64)
 │   ├── build.sh                  # Tests + publish (cross-compile from Linux)
 │   └── build-publish-only.sh     # Publish only
+├── examples/
+│   ├── README.md                 # Enqueue payloads for the sample RBP jobs
+│   ├── Run-RBPDetachRepath.ps1   # Detach + audit + SaveAs
+│   ├── Run-RBPModelAudit.ps1     # Audit only
+│   ├── Run-RBPIfcExport.ps1      # IFC4 Reference View export
+│   ├── detach_repath*.py / model_audit.py / ifc_export_rbp.py
+│   └── RevitBackupCleanup.ps1
 ├── tests/
 │   ├── ParseSentinelTests.cs     # RW_RESULT sentinel parsing tests
 │   ├── LogFinderTests.cs         # Log file discovery tests
@@ -69,6 +76,7 @@ revit-worker/
 | Revit (e.g. 2024/2025) | Installed on the Windows machine |
 | PyRevit | Required for `pyrevit` command type jobs |
 | RTV Tools (Xporter Pro) | Required for `rtv` command type jobs |
+| Revit Batch Processor | Required for the `examples/` RBP jobs (`BatchRvt.exe`) |
 | Network access to Redis | Machine must reach Redis on the pipeline host (default port 6379) |
 
 ## Installation & Configuration
@@ -264,6 +272,18 @@ Runs a PowerShell script on the Windows machine (e.g. file copy, model preparati
 | `working_directory` | `C:\Temp` |
 
 **Flow:** Manual trigger → Config node → POST `/revit/execute` → Wait 5 s → GET `/jobs/{id}/status` → loop until `finished` or `failed`.
+
+### RBP example scripts (`revit-worker/examples/`)
+
+PowerShell launchers that call Revit Batch Processor. Copy `examples/` onto the Windows host and point `script_path` at the `.ps1`. See [`examples/README.md`](examples/README.md).
+
+| Job | `script_path` | Extra `arguments` |
+|-----|---------------|-------------------|
+| Detach + audit + SaveAs | `...\examples\Run-RBPDetachRepath.ps1` | — |
+| Model audit only | `...\examples\Run-RBPModelAudit.ps1` | — |
+| IFC4 RV export | `...\examples\Run-RBPIfcExport.ps1` | `["-ExportDir", "C:\\Output\\ifc"]` |
+
+`command_type` is `powershell`; set `model_path` and `revit_version` as usual.
 
 ### Interaxo Upload Triggers
 
