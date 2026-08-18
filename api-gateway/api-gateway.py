@@ -1975,6 +1975,23 @@ async def list_patch_recipes(
         logger.error(f"Error listing recipes: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+def _revit_job_meta(request: RevitExecuteRequest) -> dict:
+    """RQ ``meta`` for job_history / dashboard: always set model_name + commandtype when possible.
+
+    Callers (n8n) often send only ``model_path``; Postgres sync reads ``meta`` fields.
+    """
+    rq_meta = dict(request.meta or {})
+    mp = (request.model_path or "").strip()
+    if mp:
+        base = os.path.basename(mp.replace("\\", "/"))
+        if base:
+            rq_meta.setdefault("model_name", base)
+            rq_meta.setdefault("model_path", mp)
+    ct = request.command_type.value if hasattr(request.command_type, "value") else str(request.command_type)
+    rq_meta.setdefault("commandtype", ct)
+    return rq_meta
+
+
 @app.post("/revit/execute", tags=["Revit"])
 async def execute_revit_command(request: RevitExecuteRequest, _: str = Depends(verify_access)):
     """
@@ -1992,14 +2009,19 @@ async def execute_revit_command(request: RevitExecuteRequest, _: str = Depends(v
     try:
         job_timeout = f"{request.timeout_seconds + 300}s"
         job_data = json.loads(request.json())
+        rq_meta = _revit_job_meta(request)
         job = revit_queue.enqueue(
             "tasks.run_revit_command",
             job_data,
             job_timeout=job_timeout,
             result_ttl=JOB_RESULT_TTL,
+            meta=rq_meta,
         )
 
-        logger.info(f"Enqueued revit job with ID: {job.id} (type={request.command_type}, script={request.script_path})")
+        logger.info(
+            f"Enqueued revit job with ID: {job.id} (type={request.command_type}, "
+            f"script={request.script_path}, model_path={request.model_path})"
+        )
         return {"job_id": job.id}
     except Exception as e:
         logger.error(f"Error enqueueing revit job: {str(e)}")
@@ -2017,7 +2039,7 @@ async def upload_revit_log(
 
     Args:
         job_id (str): The job ID to associate with the log file.
-        log_type (str): The type of log (journal, pyrevit, rtv, worker).
+        log_type (str): The type of log (journal, pyrevit, rtv, worker, ddc).
         file (UploadFile): The log file to upload.
 
     Returns:

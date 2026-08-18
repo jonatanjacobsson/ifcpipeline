@@ -111,4 +111,20 @@ Done.";
         Assert.Equal("sentinel_value", result["custom_field"]); // Overridden by sentinel
         Assert.Equal("new_value", result["new_field"]); // New field added
     }
+
+    [Fact]
+    public void ParseSentinel_WithJsonArraysAndObjects_PreservesStructure()
+    {
+        var baseResult = new Dictionary<string, object?> { ["success"] = true };
+        var stdout = @"RW_RESULT:{""warnings_total"":0,""families_names"":[""A"",""Project Base Point""],""coord_family_instances"":{""project_base_point"":[],""survey_point"":[]}}";
+
+        var (result, _) = TaskRunner.ParseSentinel(baseResult, stdout);
+
+        Assert.Equal(0, result["warnings_total"]);
+        Assert.True(result["families_names"] is List<object?>);
+        var names = (List<object?>)result["families_names"]!;
+        Assert.Equal(2, names.Count);
+        Assert.Equal("Project Base Point", names[1]?.ToString());
+        Assert.True(result["coord_family_instances"] is Dictionary<string, object?>);
+    }
 }
