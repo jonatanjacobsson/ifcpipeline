@@ -47,13 +47,21 @@ public sealed class AppSettings
         try
         {
             var json = File.ReadAllText(path);
-            var settings = JsonSerializer.Deserialize<AppSettings>(json);
-            return settings ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            settings.BackfillDefaults();
+            return settings;
         }
         catch
         {
             return new AppSettings();
         }
+    }
+
+    private void BackfillDefaults()
+    {
+        if (string.IsNullOrWhiteSpace(RedisUrl)) RedisUrl = DefaultRedisUrl;
+        if (string.IsNullOrWhiteSpace(QueueNames)) QueueNames = DefaultQueueNames;
+        if (WorkerCount < MinWorkerCount) WorkerCount = DefaultWorkerCount;
     }
 
     public void Save()
@@ -63,5 +71,6 @@ public sealed class AppSettings
         File.WriteAllText(path, json);
     }
 
+    [JsonIgnore]
     public int ClampedWorkerCount => Math.Clamp(WorkerCount, MinWorkerCount, MaxWorkerCount);
 }

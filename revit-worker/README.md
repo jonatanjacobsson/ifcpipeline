@@ -112,7 +112,8 @@ The app starts with the settings window visible on first launch. All settings ar
 
 ### Docker cross-compile (recommended)
 
-Build from Linux using the .NET 8 SDK Docker image — avoids local SDK version issues:
+Build from Linux using the .NET 8 SDK Docker image — avoids local SDK version issues.
+The published exe is **v1.4.5** (`<Version>` in `RevitWorkerApp.csproj`; shown in the window title, tray tooltip, and Redis worker hash).
 
 ```bash
 cd revit-worker
@@ -154,6 +155,7 @@ cp revit-worker/RevitWorkerApp.exe /home/jonatan/INTERAXO/RevitWorkerApp.exe
 | `pyrevit` | Runs `pyrevit run <script_path> [model_path] [--revit=YYYY] [arguments...]` |
 | `rtv` | Runs `powershell -ExecutionPolicy Bypass -NonInteractive -File <script_path> [-BatchFile ...] [-JobId ...] [arguments...]` |
 | `powershell` | Runs `powershell -ExecutionPolicy Bypass -NonInteractive -File <script_path> [-ModelPath ...] [-RevitVersion ...] [arguments...]` |
+| `ddc` | Runs **DDC** RVT→IFC converter (standalone, no Revit). Exe path: `script_path`, or env `DDC_EXPORTER_PATH`, or first existing of `B:\INTERAXO\DDC\DDC_REVIT2IFC_CONVERTER\RVT2IFCconverter.exe`, `C:\DDC\RvtExporter.exe`. **Requires** `model_path`. Optional `output_dir` (otherwise writes `.ifc` next to the `.rvt`). |
 
 The `-JobId` parameter on RTV jobs ensures unique schedule XML filenames when multiple jobs run concurrently.
 
@@ -172,13 +174,14 @@ Request body (`RevitExecuteRequest`):
 
 ```json
 {
-  "command_type": "pyrevit | rtv | powershell",
+  "command_type": "pyrevit | rtv | powershell | ddc",
   "script_path": "C:\\Scripts\\my_script.py",
   "model_path": "C:\\Models\\project.rvt",
   "revit_version": "2025",
   "batch_file": "C:\\Batches\\export.rbxml",
   "arguments": [],
   "timeout_seconds": 3600,
+  "output_dir": "C:\\Output\\ifc",
   "working_directory": "C:\\Output",
   "meta": { "project": "Example", "model_name": "project.rvt" }
 }
@@ -186,13 +189,14 @@ Request body (`RevitExecuteRequest`):
 
 | Field | Required | Used by | Description |
 |-------|----------|---------|-------------|
-| `command_type` | Yes | all | `pyrevit`, `rtv`, or `powershell` |
-| `script_path` | Yes | all | Path to script on the Windows machine |
-| `model_path` | No | pyrevit | `.rvt` model file |
+| `command_type` | Yes | all | `pyrevit`, `rtv`, `powershell`, or `ddc` |
+| `script_path` | Yes except `ddc` | all | Path to script on the Windows machine. Optional for `ddc` (falls back to `DDC_EXPORTER_PATH` or default installer paths). |
+| `model_path` | Required for `ddc` | pyrevit, ddc | `.rvt` model file |
 | `revit_version` | No | pyrevit | e.g. `"2025"` → `--revit=2025` |
 | `batch_file` | No | rtv | `.rbxml` batch file → `-BatchFile` arg |
 | `arguments` | No | all | Additional CLI arguments |
 | `timeout_seconds` | No | all | Max execution time (default 3600, range 10–86400) |
+| `output_dir` | No | ddc | Directory for the exported `.ifc` (default: next to the `.rvt`) |
 | `working_directory` | No | all | Working directory for the subprocess |
 | `meta` | No | all | Arbitrary metadata stored in RQ job meta (visible in dashboard) |
 

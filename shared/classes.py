@@ -561,17 +561,36 @@ class RevitCommandType(str, Enum):
     PYREVIT = "pyrevit"
     RTV = "rtv"
     POWERSHELL = "powershell"
+    DDC = "ddc"
 
 class RevitExecuteRequest(BaseModel):
     """Request to execute a Revit/PyRevit command on the Windows worker."""
-    command_type: RevitCommandType = Field(..., description="Type of command: pyrevit, rtv, or powershell")
-    script_path: str = Field(..., description="Path to the script, executable, or PS1 wrapper on the Windows machine")
+    command_type: RevitCommandType = Field(
+        ...,
+        description="Type of command: pyrevit, rtv, powershell, or ddc (standalone RVT→IFC via DDC)",
+    )
+    script_path: Optional[str] = Field(
+        default=None,
+        description="Path to the script, executable, or PS1 wrapper. Not required for ddc (uses DDC_EXPORTER_PATH or default installer paths).",
+    )
     model_path: Optional[str] = Field(default=None, description="Path to the .rvt model (passed as positional arg for pyrevit)")
     revit_version: Optional[str] = Field(default=None, description="Revit year to launch, e.g. '2025'. Adds --revit=YYYY for pyrevit")
     batch_file: Optional[str] = Field(default=None, description="RTV batch file path (.rbxml). Passed as -BatchFile arg to the RTV wrapper script")
     arguments: Optional[List[str]] = Field(default=[], description="Additional command-line arguments")
     timeout_seconds: int = Field(default=3600, ge=10, le=86400, description="Max execution time in seconds")
+    output_dir: Optional[str] = Field(default=None, description="Output directory for DDC IFC export (if not set, writes next to the .rvt)")
     working_directory: Optional[str] = Field(default=None, description="Working directory (local or UNC path)")
+    meta: Optional[dict] = Field(default=None, description="Arbitrary metadata attached to the RQ job (visible in dashboard)")
+
+    @model_validator(mode="after")
+    def validate_paths_for_command_type(self):
+        if self.command_type == RevitCommandType.DDC:
+            if not self.model_path or not str(self.model_path).strip():
+                raise ValueError("model_path is required for command_type ddc")
+        else:
+            if not self.script_path or not str(self.script_path).strip():
+                raise ValueError("script_path is required unless command_type is ddc")
+        return self
 
     class Config:
         json_schema_extra = {
@@ -588,6 +607,12 @@ class RevitExecuteRequest(BaseModel):
                     "script_path": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\Discipline\\Batch\\Run-RTVXporterBatch.ps1",
                     "batch_file": "\\\\bim-host.example.internal\\Client\\INTERAXO\\Project-Phase\\Discipline\\Batch\\sample.rbxml",
                     "timeout_seconds": 7200
+                },
+                {
+                    "command_type": "ddc",
+                    "model_path": "C:\\Models\\project.rvt",
+                    "output_dir": "C:\\Output\\ifc",
+                    "timeout_seconds": 3600
                 }
             ]
         }
