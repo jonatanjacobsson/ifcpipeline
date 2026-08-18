@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace RevitWorkerApp;
 
@@ -11,12 +12,38 @@ namespace RevitWorkerApp;
 public static class TaskRunner
 {
     private static readonly HashSet<string> AllowedCommandTypes = new(StringComparer.OrdinalIgnoreCase)
-        { "pyrevit", "rtv", "powershell" };
+        { "pyrevit", "rtv", "powershell", "ddc" };
 
     private const int MaxOutputBytes = 64 * 1024;
 
-    public static async Task<Dictionary<string, object?>> RunRevitCommand(Dictionary<string, object?> jobData)
+    /// <summary>
+    /// Tracks active child processes by job ID for graceful-redeploy handoff.
+    /// </summary>
+    internal static System.Collections.Concurrent.ConcurrentDictionary<string, ActiveJob> ActiveProcesses { get; } = new();
+
+    /// <summary>
+    /// When true, cancellation callbacks log but do NOT kill child processes.
+    /// Set by WorkerProcessManager before a graceful shutdown so processes can be
+    /// handed off to the next instance.
+    /// </summary>
+    public static bool SuppressKillOnCancel { get; set; }
+
+    internal record ActiveJob(
+        int Pid,
+        string WorkerName,
+        string CommandType,
+        string? ModelPath,
+        int TimeoutSeconds,
+        DateTime StartedAt,
+        string? ScriptPath = null);
+
+    public static async Task<Dictionary<string, object?>> RunRevitCommand(
+        Dictionary<string, object?> jobData,
+        CancellationToken cancellationToken = default,
+        string? workerName = null)
     {
+        var tag = workerName != null ? $"[{workerName}]" : "[TaskRunner]";
+
         var jobId = GetString(jobData, "job_id");
         var commandType = GetString(jobData, "command_type")?.ToLowerInvariant() ?? "";
         var scriptPath = GetString(jobData, "script_path") ?? "";
@@ -25,6 +52,7 @@ public static class TaskRunner
         var batchFile = GetString(jobData, "batch_file");
         var arguments = GetStringList(jobData, "arguments");
         var timeoutSeconds = GetInt(jobData, "timeout_seconds", 3600);
+        var outputDir = GetString(jobData, "output_dir");
         var workingDirectory = GetString(jobData, "working_directory");
 
         var startedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ");
@@ -34,7 +62,7 @@ public static class TaskRunner
             return new Dictionary<string, object?>
             {
                 ["success"] = false,
-                ["error"] = $"Invalid command_type '{commandType}'. Must be one of: pyrevit, rtv, powershell",
+                ["error"] = $"Invalid command_type '{commandType}'. Must be one of: pyrevit, rtv, powershell, ddc",
                 ["exit_code"] = null,
                 ["started_at"] = startedAt,
                 ["finished_at"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ"),
@@ -44,7 +72,7 @@ public static class TaskRunner
         List<string> cmd;
         try
         {
-            cmd = BuildCommand(commandType, scriptPath, arguments, modelPath, revitVersion, batchFile, jobId);
+            cmd = BuildCommand(commandType, scriptPath, arguments, modelPath, revitVersion, batchFile, jobId, outputDir);
         }
         catch (Exception ex)
         {
@@ -61,6 +89,16 @@ public static class TaskRunner
         var cwd = !string.IsNullOrEmpty(workingDirectory) && Directory.Exists(workingDirectory)
             ? workingDirectory
             : null;
+        if (cwd == null && commandType.Equals("ddc", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(modelPath))
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(modelPath);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    cwd = dir;
+            }
+            catch { /* ignore */ }
+        }
 
         Process? process = null;
         try
@@ -78,69 +116,132 @@ public static class TaskRunner
             if (cwd != null)
                 psi.WorkingDirectory = cwd;
 
-            AppLog.Info($"[TaskRunner] Launching: {psi.FileName} {string.Join(" ", cmd.Skip(1))}");
+            AppLog.Info($"{tag} Launching: {psi.FileName} {string.Join(" ", cmd.Skip(1))}");
             process = Process.Start(psi);
             if (process == null)
                 throw new InvalidOperationException("Failed to start process");
-            AppLog.Info($"[TaskRunner] Process started PID={process.Id}, waiting up to {timeoutSeconds}s...");
+            AppLog.Info($"{tag} Process started PID={process.Id}, waiting up to {timeoutSeconds}s...");
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-
-            var exited = process.WaitForExit(timeoutSeconds * 1000);
-            if (!exited)
+            if (jobId != null)
             {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                return new Dictionary<string, object?>
+                ActiveProcesses[jobId] = new ActiveJob(
+                    process.Id,
+                    workerName ?? "",
+                    commandType,
+                    modelPath,
+                    timeoutSeconds,
+                    DateTime.UtcNow);
+            }
+
+            using (cancellationToken.Register(() =>
+                   {
+                       try
+                       {
+                           if (!process.HasExited)
+                           {
+                               if (SuppressKillOnCancel)
+                               {
+                                   AppLog.Info($"{tag} Graceful shutdown — leaving PID={process.Id} running for handoff");
+                               }
+                               else
+                               {
+                                   AppLog.Info($"{tag} Cancellation requested — killing process tree PID={process.Id}");
+                                   process.Kill(entireProcessTree: true);
+                               }
+                           }
+                       }
+                       catch (Exception ex)
+                       {
+                           AppLog.Warning($"{tag} Kill on cancel failed: {ex.Message}");
+                       }
+                   }))
+            {
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+
+                var exited = process.WaitForExit(timeoutSeconds * 1000);
+                if (!exited)
                 {
-                    ["success"] = false,
-                    ["error"] = $"Process timed out after {timeoutSeconds} seconds and was killed",
-                    ["exit_code"] = null,
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    return new Dictionary<string, object?>
+                    {
+                        ["success"] = false,
+                        ["error"] = $"Process timed out after {timeoutSeconds} seconds and was killed",
+                        ["exit_code"] = null,
+                        ["started_at"] = startedAt,
+                        ["finished_at"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ"),
+                    };
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    var finishedCancelled = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ");
+                    // Drain streams after kill so process can fully exit
+                    _ = stdoutTask.GetAwaiter().GetResult();
+                    _ = stderrTask.GetAwaiter().GetResult();
+                    return new Dictionary<string, object?>
+                    {
+                        ["success"] = false,
+                        ["cancelled"] = true,
+                        ["error"] = "Worker stopped -- process killed",
+                        ["exit_code"] = process.ExitCode,
+                        ["started_at"] = startedAt,
+                        ["finished_at"] = finishedCancelled,
+                    };
+                }
+
+                var rawStdout = stdoutTask.GetAwaiter().GetResult();
+                var stderr = Truncate(stderrTask.GetAwaiter().GetResult());
+                var exitCode = process.ExitCode;
+                var finishedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ");
+
+                // Parse sentinel data from stdout and merge into result
+                var baseResult = new Dictionary<string, object?>
+                {
+                    ["success"] = exitCode == 0,
+                    ["exit_code"] = exitCode,
                     ["started_at"] = startedAt,
-                    ["finished_at"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ"),
+                    ["finished_at"] = finishedAt,
+                    ["error"] = exitCode != 0 ? $"Process exited with code {exitCode}" : null,
                 };
+
+                var (parsedResult, cleanedStdout) = ParseSentinel(baseResult, rawStdout);
+
+                // Upload log files (use raw stdout/stderr locally for log discovery, but don't store them in the result)
+                var startedAtParsed = DateTime.Parse(startedAt);
+                var finishedAtParsed = DateTime.Parse(finishedAt);
+                var logFiles = FindLogFiles(commandType, startedAtParsed, finishedAtParsed, process?.Id ?? 0, jobId);
+
+                // DDC: capture stdout+stderr as a dedicated log file
+                if (commandType == "ddc" && (!string.IsNullOrEmpty(rawStdout) || !string.IsNullOrEmpty(stderr)))
+                {
+                    var ddcLogPath = WriteDdcLog(jobId, rawStdout, stderr);
+                    if (ddcLogPath != null)
+                        logFiles["ddc"] = ddcLogPath;
+                }
+
+                var stdoutLogs = FindLogsFromStdout(cleanedStdout, startedAtParsed, finishedAtParsed);
+                foreach (var kv in stdoutLogs)
+                    logFiles.TryAdd(kv.Key, kv.Value);
+
+                var settings = AppSettings.Load();
+                var workerLogTemp = logFiles.GetValueOrDefault("worker");
+                var uploadedLogPaths = await UploadLogs(jobId ?? "", settings.ApiGatewayUrl, settings.ApiKey, logFiles, tag);
+
+                // Clean up temp log extracts
+                if (workerLogTemp != null && workerLogTemp.StartsWith(Path.GetTempPath()))
+                    try { File.Delete(workerLogTemp); } catch { }
+                var ddcLogTemp = logFiles.GetValueOrDefault("ddc");
+                if (ddcLogTemp != null && ddcLogTemp.StartsWith(Path.GetTempPath()))
+                    try { File.Delete(ddcLogTemp); } catch { }
+
+                if (uploadedLogPaths.Count > 0)
+                {
+                    parsedResult["log_files"] = uploadedLogPaths;
+                }
+
+                return parsedResult;
             }
-
-            var rawStdout = stdoutTask.GetAwaiter().GetResult();
-            var stderr = Truncate(stderrTask.GetAwaiter().GetResult());
-            var exitCode = process.ExitCode;
-            var finishedAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ");
-
-            // Parse sentinel data from stdout and merge into result
-            var baseResult = new Dictionary<string, object?>
-            {
-                ["success"] = exitCode == 0,
-                ["exit_code"] = exitCode,
-                ["started_at"] = startedAt,
-                ["finished_at"] = finishedAt,
-                ["error"] = exitCode != 0 ? $"Process exited with code {exitCode}" : null,
-            };
-
-            var (parsedResult, cleanedStdout) = ParseSentinel(baseResult, rawStdout);
-
-            // Upload log files (use raw stdout/stderr locally for log discovery, but don't store them in the result)
-            var startedAtParsed = DateTime.Parse(startedAt);
-            var finishedAtParsed = DateTime.Parse(finishedAt);
-            var logFiles = FindLogFiles(commandType, startedAtParsed, finishedAtParsed, process?.Id ?? 0, jobId);
-
-            var stdoutLogs = FindLogsFromStdout(cleanedStdout, startedAtParsed, finishedAtParsed);
-            foreach (var kv in stdoutLogs)
-                logFiles.TryAdd(kv.Key, kv.Value);
-
-            var settings = AppSettings.Load();
-            var workerLogTemp = logFiles.GetValueOrDefault("worker");
-            var uploadedLogPaths = await UploadLogs(jobId ?? "", settings.ApiGatewayUrl, settings.ApiKey, logFiles);
-
-            // Clean up temp worker log extract
-            if (workerLogTemp != null && workerLogTemp.StartsWith(Path.GetTempPath()))
-                try { File.Delete(workerLogTemp); } catch { }
-
-            if (uploadedLogPaths.Count > 0)
-            {
-                parsedResult["log_files"] = uploadedLogPaths;
-            }
-
-            return parsedResult;
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
@@ -166,6 +267,7 @@ public static class TaskRunner
         }
         finally
         {
+            if (jobId != null) ActiveProcesses.TryRemove(jobId, out _);
             process?.Dispose();
         }
     }
@@ -227,8 +329,26 @@ public static class TaskRunner
             JsonValueKind.True => true,
             JsonValueKind.False => false,
             JsonValueKind.Null => null,
+            JsonValueKind.Array => JsonElementToList(el),
+            JsonValueKind.Object => JsonElementToDict(el),
             _ => el.GetRawText()
         };
+    }
+
+    private static List<object?> JsonElementToList(JsonElement el)
+    {
+        var list = new List<object?>();
+        foreach (var item in el.EnumerateArray())
+            list.Add(JsonElementToObject(item));
+        return list;
+    }
+
+    private static Dictionary<string, object?> JsonElementToDict(JsonElement el)
+    {
+        var dict = new Dictionary<string, object?>();
+        foreach (var prop in el.EnumerateObject())
+            dict[prop.Name] = JsonElementToObject(prop.Value);
+        return dict;
     }
 
     /// <summary>
@@ -430,6 +550,32 @@ public static class TaskRunner
         }
     }
 
+    private static string? WriteDdcLog(string? jobId, string stdout, string stderr)
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            if (!string.IsNullOrEmpty(stdout))
+            {
+                sb.AppendLine("=== DDC stdout ===");
+                sb.AppendLine(stdout);
+            }
+            if (!string.IsNullOrEmpty(stderr))
+            {
+                sb.AppendLine("=== DDC stderr ===");
+                sb.AppendLine(stderr);
+            }
+            if (sb.Length == 0) return null;
+            var tempPath = Path.Combine(Path.GetTempPath(), $"ddc-{jobId ?? "unknown"}.log");
+            File.WriteAllText(tempPath, sb.ToString());
+            return tempPath;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static readonly System.Text.RegularExpressions.Regex QuotedFilePathRegex =
         new(@"""([A-Za-z]:\\[^""]+\.(log|txt))""", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
@@ -525,13 +671,13 @@ public static class TaskRunner
     /// <summary>
     /// Uploads log files to the API gateway and returns their paths.
     /// </summary>
-    internal static async Task<List<string>> UploadLogs(string jobId, string? apiGatewayUrl, string? apiKey, Dictionary<string, string?> logFiles)
+    internal static async Task<List<string>> UploadLogs(string jobId, string? apiGatewayUrl, string? apiKey, Dictionary<string, string?> logFiles, string tag = "[TaskRunner]")
     {
         var uploadedPaths = new List<string>();
 
         if (string.IsNullOrEmpty(apiGatewayUrl) || string.IsNullOrEmpty(apiKey))
         {
-            AppLog.Info("[TaskRunner] Skipping log upload - API gateway URL or key not configured");
+            AppLog.Info($"{tag} Skipping log upload - API gateway URL or key not configured");
             return uploadedPaths;
         }
 
@@ -566,17 +712,17 @@ public static class TaskRunner
                     if (responseData != null && responseData.TryGetValue("file_path", out var pathObj))
                     {
                         uploadedPaths.Add(pathObj?.ToString() ?? "");
-                        AppLog.Info($"[TaskRunner] Uploaded {logType} log to {pathObj}");
+                        AppLog.Info($"{tag} Uploaded {logType} log to {pathObj}");
                     }
                 }
                 else
                 {
-                    AppLog.Warning($"[TaskRunner] Failed to upload {logType} log: {response.StatusCode}");
+                    AppLog.Warning($"{tag} Failed to upload {logType} log: {response.StatusCode}");
                 }
             }
             catch (Exception ex)
             {
-                AppLog.Warning($"[TaskRunner] Error uploading {logType} log: {ex.Message}");
+                AppLog.Warning($"{tag} Error uploading {logType} log: {ex.Message}");
             }
         }
 
@@ -584,7 +730,7 @@ public static class TaskRunner
     }
 
     private static List<string> BuildCommand(string commandType, string scriptPath,
-        List<string> arguments, string? modelPath, string? revitVersion, string? batchFile, string? jobId)
+        List<string> arguments, string? modelPath, string? revitVersion, string? batchFile, string? jobId, string? outputDir = null)
     {
         var cmd = new List<string>();
         switch (commandType)
@@ -605,12 +751,75 @@ public static class TaskRunner
                 cmd.AddRange(["powershell.exe", "-ExecutionPolicy", "Bypass", "-NonInteractive", "-File", scriptPath]);
                 if (!string.IsNullOrEmpty(modelPath)) cmd.AddRange(["-ModelPath", modelPath]);
                 if (!string.IsNullOrEmpty(revitVersion)) cmd.AddRange(["-RevitVersion", revitVersion]);
+                if (!string.IsNullOrEmpty(jobId)) cmd.AddRange(["-JobId", jobId]);
+                cmd.AddRange(arguments);
+                break;
+            case "ddc":
+                if (string.IsNullOrWhiteSpace(modelPath))
+                    throw new ArgumentException("model_path is required for command_type ddc");
+                var ddcExe = ResolveDdcExporterPath(scriptPath);
+                var ifcFileName = System.Text.RegularExpressions.Regex.Replace(
+                    Path.GetFileName(modelPath.Trim()), @"\.rvt$", ".ifc",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var outputIfc = !string.IsNullOrWhiteSpace(outputDir)
+                    ? Path.Combine(outputDir.Trim(), ifcFileName)
+                    : Path.Combine(Path.GetDirectoryName(modelPath.Trim()) ?? ".", ifcFileName);
+                var ifcDir = Path.GetDirectoryName(outputIfc);
+                if (!string.IsNullOrWhiteSpace(ifcDir) && !Directory.Exists(ifcDir))
+                    Directory.CreateDirectory(ifcDir);
+                cmd.Add(ddcExe);
+                cmd.Add(modelPath);
+                cmd.Add(outputIfc);
+                cmd.AddRange([
+                    "mode=custom",
+                    "FileVersion=\"ifc4rv\"",
+                    "FileType=\"ifc\"",
+                    "LevelOfDetail=\"medium\"",
+                    "IfcCommonPropSets=\"y\"",
+                    "BimRvPropSets=\"y\"",
+                    "BaseQuantities=\"y\"",
+                    "ProjOrigin=\"currentshared\"",
+                ]);
                 cmd.AddRange(arguments);
                 break;
             default:
                 throw new ArgumentException($"Unknown command_type: {commandType}");
         }
         return cmd;
+    }
+
+    /// <summary>
+    /// DDC / RVT→IFC standalone converter: optional script_path override, then DDC_EXPORTER_PATH,
+    /// then first existing default path (INTERAXO install vs legacy C:\DDC\RvtExporter.exe).
+    /// </summary>
+    private static string ResolveDdcExporterPath(string? scriptPath)
+    {
+        if (!string.IsNullOrWhiteSpace(scriptPath))
+            return scriptPath.Trim();
+
+        var env = Environment.GetEnvironmentVariable("DDC_EXPORTER_PATH");
+        if (!string.IsNullOrWhiteSpace(env))
+            return env.Trim();
+
+        var defaults = new[]
+        {
+            @"B:\INTERAXO\DDC\DDC_REVIT2IFC_CONVERTER\RVT2IFCconverter.exe",
+            @"C:\DDC\RvtExporter.exe",
+        };
+        foreach (var p in defaults)
+        {
+            try
+            {
+                if (File.Exists(p))
+                    return p;
+            }
+            catch
+            {
+                /* ignore path probe errors */
+            }
+        }
+
+        return defaults[0];
     }
 
     private static string Truncate(string text)

@@ -75,11 +75,41 @@ public static class AppLog
             {
                 var dir = Path.GetDirectoryName(path)!;
                 if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+                // Seed buffer from the tail of the previous log session
+                if (File.Exists(path))
+                    SeedFromExistingLog(path);
+
                 File.AppendAllText(path, $"--- Log started {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC ---{Environment.NewLine}");
                 return path;
             }
             catch { }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Reads the last ~200 lines of the existing log file into the buffer so the UI
+    /// shows previous session context immediately after a redeploy.
+    /// </summary>
+    private static void SeedFromExistingLog(string path, int tailLines = 200)
+    {
+        try
+        {
+            var allLines = File.ReadAllLines(path);
+            var tail = allLines.Length > tailLines
+                ? allLines[^tailLines..]
+                : allLines;
+
+            lock (Lock)
+            {
+                foreach (var line in tail)
+                    Buffer.Add(line);
+                // Trim to max if we somehow exceed it
+                while (Buffer.Count > 2000)
+                    Buffer.RemoveAt(0);
+            }
+        }
+        catch { }
     }
 }

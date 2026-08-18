@@ -572,6 +572,7 @@ class RevitExecuteRequest(BaseModel):
     arguments: Optional[List[str]] = Field(default=[], description="Additional command-line arguments")
     timeout_seconds: int = Field(default=3600, ge=10, le=86400, description="Max execution time in seconds")
     working_directory: Optional[str] = Field(default=None, description="Working directory (local or UNC path)")
+    meta: Optional[dict] = Field(default=None, description="Arbitrary metadata attached to the RQ job (visible in dashboard)")
 
     class Config:
         json_schema_extra = {

@@ -112,7 +112,8 @@ The app starts with the settings window visible on first launch. All settings ar
 
 ### Docker cross-compile (recommended)
 
-Build from Linux using the .NET 8 SDK Docker image — avoids local SDK version issues:
+Build from Linux using the .NET 8 SDK Docker image — avoids local SDK version issues.
+The published exe is **v1.4.5** (`<Version>` in `RevitWorkerApp.csproj`; shown in the window title, tray tooltip, and Redis worker hash).
 
 ```bash
 cd revit-worker
