@@ -4,13 +4,13 @@ import json
 import tempfile
 import shutil
 from multiprocessing import get_context
-from queue import Empty
 
 import ifcopenshell
 from ifcdiff import IfcDiff
 from shared.classes import IfcDiffRequest
 from shared.db_client import save_diff_result
 from shared import object_storage as s3
+from shared.spawn_isolation import drain_and_join
 from collections.abc import Set, Sequence
 
 # Set up logging
@@ -400,24 +400,18 @@ def _run_ifcdiff_in_spawn_isolation(job_data: dict) -> dict:
     result_queue = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=_isolated_ifcdiff_worker, args=(result_queue, job_data))
     proc.start()
-    proc.join()
+    got, status, data = drain_and_join(
+        proc, result_queue, result_timeout=60, operation="ifcdiff"
+    )
 
     if proc.exitcode == 0:
-        try:
-            status, data = result_queue.get(timeout=60)
-        except Empty as e:
-            raise RuntimeError("ifcdiff child exited 0 but sent no result") from e
+        if not got:
+            raise RuntimeError("ifcdiff child exited 0 but sent no result")
         if status == "ok":
             return data
         raise RuntimeError(f"ifcdiff isolated worker: {data}")
 
-    child_err = None
-    try:
-        status, data = result_queue.get_nowait()
-        if status == "err":
-            child_err = data
-    except Empty:
-        pass
+    child_err = data if (got and status == "err") else None
 
     # Negative exit codes are signal numbers on Linux (-11 = SIGSEGV).
     sig_hint = ""
