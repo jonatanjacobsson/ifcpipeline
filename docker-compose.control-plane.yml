@@ -10,6 +10,8 @@ x-default-logging: &default-logging
 services:
   api-gateway:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-api-gateway:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
@@ -252,6 +254,8 @@ services:
 
   ifc-classifier:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifc-classifier:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifc-classifier-service/Dockerfile

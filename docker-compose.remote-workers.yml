@@ -10,6 +10,12 @@
 #     --env-file .env.remote up -d ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker
 #
 # Or: ./scripts/start-remote-workers.sh
+#
+# Images: the public workers inherit `image:` + `pull_policy:` from
+# docker-compose.workers.yml (GHCR). Set IFCPIPELINE_PULL_POLICY=missing in
+# .env.remote to pull them straight from the registry instead of streaming
+# tarballs with scripts/push-worker-images-to-remote.sh. With the var unset the
+# policy is `build`, which on this host means "use the already-loaded image".
 
 # Container prefix: ifcpipeline-w1-<service>-1 (override per worker VM in .env.remote)
 name: ${REMOTE_COMPOSE_PROJECT:-ifcpipeline-w1}
@@ -50,7 +56,6 @@ x-remote-worker-env: &remote-worker-env
 services:
   ifctester-worker:
     profiles: [remote]
-    image: ifcpipeline-ifctester-worker:latest
     depends_on: !reset []
     environment:
       <<: *remote-worker-env
@@ -66,7 +71,6 @@ services:
 
   ifcpatch-worker:
     profiles: [remote]
-    image: ifcpipeline-ifcpatch-worker:latest
     depends_on: !reset []
     volumes:
       - ./ifcpatch-worker/custom_recipes:/app/custom_recipes
@@ -89,7 +93,6 @@ services:
 
   ifcclash-worker:
     profiles: [remote]
-    image: ifcpipeline-ifcclash-worker:latest
     depends_on: !reset []
     environment:
       <<: *remote-worker-env
@@ -115,7 +118,6 @@ services:
 
   ifcdiff-worker:
     profiles: [remote]
-    image: ifcpipeline-ifcdiff-worker:latest
     depends_on: !reset []
     environment:
       <<: *remote-worker-env
@@ -160,7 +162,6 @@ services:
 
   topologicpy-worker:
     profiles: [remote]
-    image: ifcpipeline-topologicpy-worker:latest
     user: "1000:1000"
     depends_on: !reset []
     networks: !reset []
