@@ -107,11 +107,11 @@ import tempfile
 import shutil
 import signal
 from multiprocessing import get_context
-from queue import Empty
 from pathlib import Path
 from typing import List, Dict, Any, Optional, get_type_hints, get_origin, get_args
 from shared.classes import IfcPatchRequest, IfcPatchListRecipesRequest
 from shared import object_storage as s3
+from shared.spawn_isolation import drain_and_join
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -590,27 +590,21 @@ def _run_recipe_in_spawn_isolation(
     q = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=_isolated_recipe_worker, args=(q, payload))
     proc.start()
-    proc.join()
+    got, status, data = drain_and_join(
+        proc, q, result_timeout=60, operation=f"ifcpatch recipe {request.recipe!r}"
+    )
     if proc.exitcode == 0:
-        try:
-            status, data = q.get(timeout=60)
-        except Empty as e:
+        if not got:
             raise RuntimeError(
                 f"ifcpatch recipe {request.recipe!r} child exited 0 but sent no result"
-            ) from e
+            )
         if status == "ok":
             return data
         raise RuntimeError(
             f"ifcpatch recipe {request.recipe!r} isolated worker: {data}"
         )
-    # Non-zero exit: try to collect any err message the child sent before dying.
-    child_err: Optional[str] = None
-    try:
-        status, data = q.get_nowait()
-        if status == "err":
-            child_err = data
-    except Empty:
-        pass
+    # Non-zero exit: surface any err message the child sent before dying.
+    child_err: Optional[str] = data if (got and status == "err") else None
     raise RuntimeError(
         f"ifcpatch recipe {request.recipe!r} crashed in isolated subprocess "
         f"(strategy={label!r}, exit={proc.exitcode}"

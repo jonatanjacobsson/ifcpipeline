@@ -2,15 +2,14 @@ import logging
 import os
 import json
 import tempfile
-import time
 from multiprocessing import get_context
-from queue import Empty
 from typing import Any, Optional
 
 from shared.classes import IfcTesterRequest
 from shared.db_client import save_tester_result
 from shared import audit_db
 from shared import object_storage as s3
+from shared.spawn_isolation import drain_and_join
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -121,41 +120,14 @@ def _run_in_spawn_isolation(
     q = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=worker_target, args=(q, payload))
     proc.start()
-    deadline = time.monotonic() + result_timeout
-    status_data: Optional[tuple] = None
-    while status_data is None:
-        try:
-            status_data = q.get(timeout=2.0)
-        except Empty:
-            if not proc.is_alive():
-                # Child exited; drain any result it flushed before dying so a
-                # successful ("ok", ...) put is not misreported as a crash.
-                try:
-                    status_data = q.get_nowait()
-                except Empty:
-                    status_data = None
-                break
-            if time.monotonic() >= deadline:
-                proc.terminate()
-                proc.join(timeout=15)
-                raise RuntimeError(
-                    f"{operation} timed out after {result_timeout}s "
-                    f"(label={label!r})"
-                )
-    proc.join(timeout=60)
-    if status_data is None:
-        # The feeder thread can flush the pipe only after is_alive() flips to
-        # False, so try once more after join() before declaring a crash.
-        try:
-            status_data = q.get_nowait()
-        except Empty:
-            status_data = None
-    if status_data is None:
+    got, status, data = drain_and_join(
+        proc, q, result_timeout=result_timeout, operation=operation
+    )
+    if not got:
         raise RuntimeError(
             f"{operation} crashed in isolated subprocess "
             f"(label={label!r}, exit={proc.exitcode})"
         )
-    status, data = status_data
     if status == "ok":
         return data
     raise RuntimeError(f"{operation} isolated worker: {data}")
