@@ -1819,6 +1819,32 @@ def _get_or_create_pset(model: Any, element: Any, pset_name: str) -> Any:
     return ifcopenshell.api.run("pset.add_pset", model, product=element, name=pset_name)
 
 
+_SPACE_ATTRIBUTE_FIELDS = {"Name": "name", "LongName": "long_name"}
+
+
+def _space_attribute(space: SpaceCandidate, attribute: str) -> str:
+    """Read an IfcSpace attribute ("Name"/"LongName") off a collected candidate."""
+    field = _SPACE_ATTRIBUTE_FIELDS.get(attribute, "name")
+    value = getattr(space, field, None)
+    return "" if value is None else str(value)
+
+
+def _simple_stamp_properties(
+    space: SpaceCandidate,
+    space_number_attribute: str,
+    space_name_attribute: str,
+) -> Dict[str, str]:
+    """report_detail=simple pset: room identity only, no match diagnostics.
+
+    By convention the IfcSpace ``Name`` holds the room number and ``LongName``
+    the room name, so the defaults invert the attribute names on purpose.
+    """
+    return {
+        "SpaceNumber": _space_attribute(space, space_number_attribute),
+        "SpaceName": _space_attribute(space, space_name_attribute),
+    }
+
+
 def _stamp_element(
     model: Any,
     element: Any,
@@ -1827,29 +1853,38 @@ def _stamp_element(
     pset_name: str,
     selected_engine: str,
     pset_cache: Optional[_PsetCache] = None,
+    report_detail: str = "summary",
+    space_number_attribute: str = "Name",
+    space_name_attribute: str = "LongName",
 ) -> None:
     import ifcopenshell.api
 
-    zone_names = [zone.get("name") for zone in space.zones if zone.get("name")]
-    zone_ids = [zone.get("global_id") for zone in space.zones if zone.get("global_id")]
-    properties = {
-        "SpatialMatchStatus": resolution.status,
-        "SpatialMatchMethod": resolution.method,
-        "SpatialMatchConfidence": f"{resolution.confidence:.4f}",
-        "SpatialMatchCount": str(max(resolution.candidate_count, 1)),
-        "SpatialSourceFile": space.source_file,
-        "SpatialRelationshipEngine": selected_engine,
-        "SpaceGlobalId": space.global_id,
-        "SpaceName": space.name or "",
-        "SpaceLongName": space.long_name or "",
-        "RoomGlobalId": space.global_id,
-        "RoomName": space.name or "",
-        "RoomLongName": space.long_name or "",
-        "BuildingStoreyName": space.storey or "",
-        "ZoneNames": ", ".join(zone_names),
-        "ZoneGlobalIds": ", ".join(zone_ids),
-        "StampedBy": "topologicpy-worker",
-    }
+    if report_detail == "simple":
+        properties = _simple_stamp_properties(
+            space, space_number_attribute, space_name_attribute
+        )
+    else:
+        zone_names = [zone.get("name") for zone in space.zones if zone.get("name")]
+        zone_ids = [zone.get("global_id") for zone in space.zones if zone.get("global_id")]
+        properties = {
+            "SpatialMatchStatus": resolution.status,
+            "SpatialMatchMethod": resolution.method,
+            "SpatialMatchConfidence": f"{resolution.confidence:.4f}",
+            "SpatialMatchCount": str(max(resolution.candidate_count, 1)),
+            "SpatialSourceFile": space.source_file,
+            "SpatialRelationshipEngine": selected_engine,
+            "SpaceGlobalId": space.global_id,
+            "SpaceName": space.name or "",
+            "SpaceLongName": space.long_name or "",
+            "RoomGlobalId": space.global_id,
+            "RoomName": space.name or "",
+            "RoomLongName": space.long_name or "",
+            "BuildingStoreyName": space.storey or "",
+            "ZoneNames": ", ".join(zone_names),
+            "ZoneGlobalIds": ", ".join(zone_ids),
+            "StampedBy": "topologicpy-worker",
+        }
+
     if pset_cache is not None:
         pset = pset_cache.get_or_create(element)
     else:
@@ -2001,6 +2036,9 @@ def _roomstamp_arguments_used(request: TopologicpyRequest) -> List[str]:
             {
                 "stamp_ambiguous": request.stamp_ambiguous,
                 "pset_name": request.pset_name,
+                "report_detail": request.report_detail,
+                "space_number_attribute": request.space_number_attribute,
+                "space_name_attribute": request.space_name_attribute,
                 "element_query": request.element_query,
                 "space_query": request.space_query,
             },
@@ -2560,6 +2598,9 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
                                 request.pset_name,
                                 selected_engine,
                                 pset_cache=pset_cache,
+                                report_detail=request.report_detail,
+                                space_number_attribute=request.space_number_attribute,
+                                space_name_attribute=request.space_name_attribute,
                             )
                             file_stamped += 1
                             stamped_count += 1
@@ -2684,6 +2725,12 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
             "matches_per_second": round(total_elements / match_seconds, 2) if match_seconds else total_elements,
             "stamp": request.stamp,
             "stamp_ambiguous": request.stamp_ambiguous,
+            "report_detail": request.report_detail,
+            "stamped_properties": (
+                ["SpaceNumber", "SpaceName"]
+                if request.report_detail == "simple"
+                else "full"
+            ),
             "stamped_count": stamped_count,
             "skipped_ambiguous_count": skipped_ambiguous_count,
             "skipped_unmatched_count": skipped_unmatched_count,

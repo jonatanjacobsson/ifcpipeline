@@ -25,6 +25,7 @@ Example request:
   "sample_strategy": "bbox_centroid",
   "stamp": false,
   "stamp_ambiguous": false,
+  "report_detail": "simple",
   "tolerance": 0.01
 }
 ```
@@ -33,6 +34,35 @@ Run with `stamp=false` first to review the match report. Set `stamp=true` to
 write a new stamped IFC for each target model. By default, ambiguous matches
 are skipped and reported; set `stamp_ambiguous=true` only if your workflow
 accepts choosing the smallest matching space.
+
+## Report detail levels
+
+`report_detail` is one dial over both the stamped property set and the JSON
+report:
+
+| Value | Stamped pset (`pset_name`) | JSON report |
+|-------|----------------------------|-------------|
+| `simple` (default) | `SpaceNumber`, `SpaceName` only | summary + sample unmatched/ambiguous ids |
+| `summary` | full `SpatialMatch*` diagnostic set (below) | summary + sample unmatched/ambiguous ids |
+| `full` | full `SpatialMatch*` diagnostic set (below) | adds per-element `elements[]` rows |
+
+### `simple`
+
+Writes just the room identity, for models that only need a room stamp on each
+element:
+
+- `SpaceNumber` — the IfcSpace `Name` attribute
+- `SpaceName` — the IfcSpace `LongName` attribute
+
+The defaults follow the usual convention that `Name` carries the room number and
+`LongName` the room name. Flip or override them per job with
+`space_number_attribute` / `space_name_attribute` (each `Name` or `LongName`).
+
+Note that a `simple` stamp carries no space GlobalId, so the `ExtractRoomStamp`
+ingest script cannot build `contained_in_space` edges from it — use
+`report_detail=summary` when the stamped model feeds the graph.
+
+### `summary` / `full`
 
 Stamping writes `Pset_IfcPipelineRoomStamp` to matched target elements with:
 
