@@ -2,6 +2,7 @@ import logging
 import os
 import json
 import tempfile
+import time
 from multiprocessing import get_context
 from queue import Empty
 from typing import Any, Optional
@@ -40,7 +41,6 @@ def _validate_and_report(ifc_path: str, ids_path: str, output_path: str, report_
             "total_specifications": total,
             "passed_specifications": passed,
             "failed_specifications": failed,
-            "report": json_reporter.to_string(),
         }
     elif report_type == "html":
         html_reporter = reporter.Html(my_ids)
@@ -87,7 +87,6 @@ def _isolated_validate_worker(result_queue, payload: dict) -> None:
         )
         result_queue.put(("ok", {
             "payload": result_payload,
-            "test_results": test_results,
             "passed": passed,
             "failed": failed,
         }))
@@ -111,35 +110,55 @@ def _run_in_spawn_isolation(
     operation: str = "ifctester",
     result_timeout: int = 3600,
 ) -> dict[str, Any]:
-    """Run ifcopenshell work in a spawn subprocess."""
+    """Run ifcopenshell work in a spawn subprocess.
+
+    Read the result queue *before* ``join()``. A large ``Queue.put`` (IDS JSON
+    report) deadlocks if the parent is blocked in ``join`` and never drains the
+    pipe — the child never exits, the RQ worker looks idle, and CDE polls until
+    timeout.
+    """
     ctx = get_context("spawn")
     q = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=worker_target, args=(q, payload))
     proc.start()
-    proc.join()
-    if proc.exitcode == 0:
+    deadline = time.monotonic() + result_timeout
+    status_data: Optional[tuple] = None
+    while status_data is None:
         try:
-            status, data = q.get(timeout=result_timeout)
-        except Empty as e:
-            raise RuntimeError(
-                f"{operation} child exited 0 but sent no result"
-            ) from e
-        if status == "ok":
-            return data
-        raise RuntimeError(f"{operation} isolated worker: {data}")
-    child_err: Optional[str] = None
-    try:
-        status, data = q.get_nowait()
-        if status == "err":
-            child_err = data
-    except Empty:
-        pass
-    raise RuntimeError(
-        f"{operation} crashed in isolated subprocess "
-        f"(label={label!r}, exit={proc.exitcode}"
-        + (f", child={child_err!r}" if child_err else "")
-        + ")"
-    )
+            status_data = q.get(timeout=2.0)
+        except Empty:
+            if not proc.is_alive():
+                # Child exited; drain any result it flushed before dying so a
+                # successful ("ok", ...) put is not misreported as a crash.
+                try:
+                    status_data = q.get_nowait()
+                except Empty:
+                    status_data = None
+                break
+            if time.monotonic() >= deadline:
+                proc.terminate()
+                proc.join(timeout=15)
+                raise RuntimeError(
+                    f"{operation} timed out after {result_timeout}s "
+                    f"(label={label!r})"
+                )
+    proc.join(timeout=60)
+    if status_data is None:
+        # The feeder thread can flush the pipe only after is_alive() flips to
+        # False, so try once more after join() before declaring a crash.
+        try:
+            status_data = q.get_nowait()
+        except Empty:
+            status_data = None
+    if status_data is None:
+        raise RuntimeError(
+            f"{operation} crashed in isolated subprocess "
+            f"(label={label!r}, exit={proc.exitcode})"
+        )
+    status, data = status_data
+    if status == "ok":
+        return data
+    raise RuntimeError(f"{operation} isolated worker: {data}")
 
 
 def _run_validate_in_spawn_isolation(
@@ -246,9 +265,15 @@ def _run_s3(request: IfcTesterRequest) -> dict:
                 ifc_tmp, ids_tmp, out_tmp, request.report_type
             )
             payload = isolated["payload"]
-            test_results = isolated["test_results"]
             passed = isolated["passed"]
             failed = isolated["failed"]
+            test_results: Any = isolated.get("test_results")
+            if test_results is None and request.report_type == "json":
+                try:
+                    with open(out_tmp, encoding="utf-8") as fh:
+                        test_results = json.load(fh)
+                except Exception:
+                    test_results = {}
             parent_pins = {}
             if ifc_pin:
                 parent_pins[ifc_key] = ifc_pin
@@ -327,9 +352,15 @@ def _run_filesystem(request: IfcTesterRequest) -> dict:
         ifc_path, ids_path, output_path, request.report_type
     )
     payload = isolated["payload"]
-    test_results = isolated["test_results"]
     passed = isolated["passed"]
     failed = isolated["failed"]
+    test_results: Any = isolated.get("test_results")
+    if test_results is None and request.report_type == "json":
+        try:
+            with open(output_path, encoding="utf-8") as fh:
+                test_results = json.load(fh)
+        except Exception:
+            test_results = {}
     payload.update({
         "storage": "filesystem",
         "output_path": output_path,
