@@ -358,8 +358,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 1G
+          cpus: '1.0'
+          memory: 4G
 
   # ifc-gherkin-worker and beast-pdf-gherkin-worker have moved to
   # cde/ifc-gherkin-worker and cde/beast-pdf-gherkin-worker (2026-05).
