@@ -69,3 +69,22 @@ not on `main`:
 - **IfcOpenShell hunt (May 2026)** —
   [`ifcpipeline-ifcopenshell-hunt-archive`](https://github.com/jonatanjacobsson/ifcpipeline-ifcopenshell-hunt-archive)
   (GitHub; clone to `../ifcpipeline-ifcopenshell-hunt-archive/` on dev hosts)
+
+## Images
+
+The 10 public workers, `api-gateway` and `ifc-classifier` carry **both**
+`image:` (GHCR) and `build:`. `pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}`
+decides which wins — the default is `build`, so an existing deployment never
+starts pulling by surprise; `.env.example` sets `missing` for fresh clones. See
+DEPLOYMENT.md "Images".
+
+Consequences when working here:
+- A Dockerfile change is live for other people only after it merges to `main`
+  and `.github/workflows/publish-images.yml` republishes. Locally, rebuild with
+  `docker compose up -d --build <service>` (or `make rebuild-ifc SVC=<service>`).
+- Built images are now tagged `ghcr.io/jonatanjacobsson/ifcpipeline-<service>:latest`,
+  not `ifcpipeline-<service>:latest`. Scripts must get the name from
+  `scripts/lib/images.sh` (`image_ref <service>`), never hardcode it.
+- `ifccoord-worker` is the exception: no `image:` key, still profile-gated on
+  `ifccoord`, still built from the private `ifc-coord` submodule, still tagged
+  `ifcpipeline-ifccoord-worker:latest`.

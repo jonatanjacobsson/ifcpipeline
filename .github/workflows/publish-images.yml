@@ -1,0 +1,172 @@
+# Build and publish the public ifcpipeline images to GHCR.
+#
+# Published: the 10 public workers + api-gateway + ifc-classifier, as
+# ghcr.io/<owner>/ifcpipeline-<service>. NOT published:
+#   - ifccoord-worker — needs the private `ifc-coord` submodule (checkout below
+#     is deliberately submodule-free, and CI has no access to that repo).
+#   - ifc-viewer     — its API base URL is baked in at build time via the
+#     VITE_API_BASE build arg, so one prebuilt image cannot serve every
+#     deployment. Needs runtime config before it can be published.
+#
+# linux/amd64 only, matching the `platform: linux/amd64` pin every service
+# already carries (ifcopenshell wheels; ifc2json is a .NET image). Apple Silicon
+# keeps emulating, exactly as it does when building locally.
+name: Publish images
+
+# Two modes, decided by `env.PUSH` below:
+#   publish    — push to main or a v* tag: build and push to GHCR.
+#   build test — pull request, or manual run with dry_run: build only, never
+#                push. This is what catches a broken Dockerfile BEFORE it
+#                becomes someone's `latest`, since a fresh clone now pulls
+#                instead of building and would inherit the breakage.
+#
+# The `push` trigger deliberately has no `paths:` filter: GitHub applies one
+# trigger to branches and tags alike, so a filter that skips untouched services
+# on main would also skip them on a release tag and leave the version
+# incomplete. Every service builds on every publish and the type=gha cache makes
+# the untouched ones near-instant no-op rebuilds that re-push an identical
+# digest. `pull_request` is a separate trigger, so it can safely carry a paths
+# filter and stay off docs-only PRs.
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    paths:
+      - "api-gateway/**"
+      - "ifc-classifier-service/**"
+      - "ifc*-worker/**"
+      - "topologicpy-worker/**"
+      - "shared/**"
+      - ".dockerignore"
+      - ".github/workflows/publish-images.yml"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Build a single service (e.g. api-gateway). Blank = all."
+        required: false
+        default: ""
+      dry_run:
+        description: "Build only, do not push to GHCR"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Publish from main / a release tag, or from a manual run that is not a
+      # dry run. A pull_request is ALWAYS build-only — a fork PR's token is
+      # read-only anyway, and PR code must never reach `latest`.
+      PUSH: ${{ github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true' }}
+    # Each job builds exactly one image, so the runner's ~14 GB of disk is only
+    # ever holding one build's layers. If the heavy workers (ifcclash,
+    # topologicpy, ifc2json) start failing on disk or the 6h limit, move just
+    # those matrix entries to a self-hosted runner rather than restructuring.
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        service:
+          - ifc5d-worker
+          - ifcpatch-worker
+          - ifcconvert-worker
+          - ifcclash-worker
+          - ifccsv-worker
+          - ifcfast-worker
+          - ifctester-worker
+          - ifcdiff-worker
+          - ifc2json-worker
+          - topologicpy-worker
+          - api-gateway
+          - ifc-classifier
+    steps:
+      - name: Skip unselected service
+        id: gate
+        run: |
+          only='${{ github.event.inputs.only }}'
+          if [[ -n "$only" && "$only" != "${{ matrix.service }}" ]]; then
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      # No submodules: ifc-coord is private and is not needed by any published image.
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip == 'false'
+
+      # api-gateway and ifc-classifier live in ifc-classifier-service/ and
+      # api-gateway/; the workers' Dockerfile path is <service>/Dockerfile.
+      - name: Resolve Dockerfile
+        if: steps.gate.outputs.skip == 'false'
+        id: df
+        run: |
+          case "${{ matrix.service }}" in
+            ifc-classifier) echo "path=ifc-classifier-service/Dockerfile" >>"$GITHUB_OUTPUT" ;;
+            *)              echo "path=${{ matrix.service }}/Dockerfile"   >>"$GITHUB_OUTPUT" ;;
+          esac
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.gate.outputs.skip == 'false'
+
+      - uses: docker/login-action@v3
+        if: steps.gate.outputs.skip == 'false' && env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        if: steps.gate.outputs.skip == 'false'
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/ifcpipeline-${{ matrix.service }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          # Links the GHCR package to this repo in the UI.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - uses: docker/build-push-action@v6
+        if: steps.gate.outputs.skip == 'false'
+        with:
+          # Repo root: every Dockerfile COPYs shared/ from the root context.
+          context: .
+          file: ${{ steps.df.outputs.path }}
+          platforms: linux/amd64
+          # Build test: load into the local docker so the smoke test can run it.
+          push: ${{ env.PUSH == 'true' }}
+          load: ${{ env.PUSH != 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          provenance: false
+
+      # Cheap guard so a broken `latest` never reaches a fresh clone.
+      - name: Smoke test
+        if: steps.gate.outputs.skip == 'false'
+        run: |
+          ref="$(echo '${{ steps.meta.outputs.tags }}' | head -1)"
+          # On a publish the image only exists in the registry; on a build test
+          # it was loaded locally by the step above.
+          if [[ "${PUSH}" == "true" ]]; then docker pull "$ref"; fi
+          case "${{ matrix.service }}" in
+            ifc2json-worker)
+              docker run --rm --entrypoint sh "$ref" -c 'ls /app >/dev/null' ;;
+            *)
+              docker run --rm --entrypoint python "$ref" -c 'import sys; print(sys.version)' ;;
+          esac
