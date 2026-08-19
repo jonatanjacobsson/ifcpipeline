@@ -14,6 +14,10 @@ Date: 2025-01-08
     op1 = '{"selector": "IfcWall", "property": "Pset_WallCommon.Status", "data_type": "IfcText", "value": "Approved"}'
     op2 = '{"selector": ".IfcDoor", "property": "Pset_DoorCommon.FireRating", "data_type": "IfcLabel", "value": "FD60"}'
     
+    Example Usage (Measure types + numeric formatting):
+    op1 = '{"selector": "IfcProduct, BaseQuantities.Area != NULL", "property": "BIP.Area", "data_type": "IfcAreaMeasure", "from": "BaseQuantities.Area"}'
+    op2 = '{"selector": "IfcProduct, BaseQuantities.Length != NULL", "property": "BIP.Length", "data_type": "IfcText", "from": "BaseQuantities.Length", "scale": 1000, "decimals": 0}'
+
     Example Usage (Extract from Source):
     op1 = '{"selector": "IfcWall", "property": "Pset_Custom.TypeName", "data_type": "IfcLabel", "from": "type.Name"}'
     op2 = '{"selector": "IfcElement", "property": "BIP.SteelGrade", "data_type": "IfcLabel", "from": "material.Name=/S[0-9]{3}[A-Za-z0-9]*/"}'
@@ -32,6 +36,11 @@ import ifcopenshell.util.element
 import ifcopenshell.util.selector
 
 logger = logging.getLogger(__name__)
+
+
+def _to_bool(x):
+    """Coerce a JSON/IFC scalar to bool for IfcBoolean / IfcLogical."""
+    return x if isinstance(x, bool) else str(x).lower() in ('true', '1', 'yes')
 
 # Valid IFC instances only; avoids C++ binding errors / segfaults from bad inverses
 _EI = ifcopenshell.entity_instance
@@ -69,6 +78,8 @@ class Patcher:
     Each operation requires:
         - selector: IfcOpenShell selector syntax string
         - property: PropertySetName.PropertyName (e.g., "Pset_Custom.Status")
+        - scale: (optional) multiplier applied to numeric values before typing (e.g. 1000 for m -> mm)
+        - decimals: (optional) rounding applied after scale; 0 yields an int, so text reads '5393' not '5393.0'
         - data_type: (optional) IFC data type; if omitted, inferred from the source property /
           quantity (for ``from`` on a pset/qto path) or from the literal / extracted string
         - value: (optional) Literal value to set
@@ -100,8 +111,50 @@ class Patcher:
         'IfcIdentifier': str,
         'IfcInteger': int,
         'IfcReal': float,
-        'IfcBoolean': lambda x: x if isinstance(x, bool) else str(x).lower() in ('true', '1', 'yes')
+        'IfcBoolean': _to_bool,
     }
+
+    # EXPRESS primitive -> Python converter. Any type declaration the model's
+    # schema knows (IfcAreaMeasure, IfcVolumeMeasure, IfcLengthMeasure, ...)
+    # resolves to one of these, so measure types are writable without being
+    # enumerated here. IDS files routinely require them.
+    PRIMITIVE_CONVERTERS = {
+        'string': str,
+        'real': float,
+        'number': float,
+        'integer': int,
+        'boolean': _to_bool,
+        'logical': _to_bool,
+    }
+
+    def _schema_primitive(self, data_type: str) -> str | None:
+        """Resolve an IFC type declaration to its EXPRESS primitive, or None.
+
+        Entities and select types (IfcWall, IfcValue) return None — they are not
+        writable as an IfcPropertySingleValue NominalValue.
+        """
+        try:
+            from ifcopenshell import ifcopenshell_wrapper
+
+            declaration = ifcopenshell_wrapper.schema_by_name(
+                self.file.schema
+            ).declaration_by_name(data_type)
+        except Exception:
+            return None
+        if type(declaration).__name__ != 'type_declaration':
+            return None
+        # str() nests the alias chain, e.g. IfcPositiveLengthMeasure ->
+        # '<type IfcPositiveLengthMeasure: <type IfcLengthMeasure: <real>>>'.
+        # The innermost bare token is the primitive.
+        primitives = re.findall(r'<([a-z]+)>', str(declaration))
+        return primitives[-1] if primitives else None
+
+    def _resolve_converter(self, data_type: str):
+        """Python converter for a data type, or None when it is not writable."""
+        if data_type in self.SUPPORTED_DATA_TYPES:
+            return self.SUPPORTED_DATA_TYPES[data_type]
+        primitive = self._schema_primitive(data_type)
+        return self.PRIMITIVE_CONVERTERS.get(primitive) if primitive else None
 
     @staticmethod
     def _map_schema_type_to_supported(ifc_type: str) -> str | None:
@@ -224,26 +277,70 @@ class Patcher:
             
             dt = op.get('data_type')
             if dt is not None and dt != '':
-                if dt not in self.SUPPORTED_DATA_TYPES:
+                if self._resolve_converter(dt) is None:
                     self.logger.warning(
-                        f"Argument {idx + 1}: unsupported data type '{dt}', skipping. "
-                        f"Supported: {list(self.SUPPORTED_DATA_TYPES.keys())}"
+                        f"Argument {idx + 1}: data type '{dt}' is not writable in schema "
+                        f"{self.file.schema}, skipping. Supported: "
+                        f"{list(self.SUPPORTED_DATA_TYPES.keys())} plus any measure type "
+                        f"the schema declares (IfcAreaMeasure, IfcVolumeMeasure, ...)"
                     )
                     continue
             else:
                 op['data_type'] = None  # normalized: infer in _execute_operation
-            
+
+            # Optional numeric formatting, applied before typing. Needed when a
+            # float quantity has to land in a text-typed IDS property.
+            bad_format = False
+            for key, caster in (('scale', float), ('decimals', int)):
+                raw = op.get(key)
+                if raw is None or raw == '':
+                    op[key] = None
+                    continue
+                try:
+                    op[key] = caster(raw)
+                except (TypeError, ValueError):
+                    self.logger.warning(
+                        f"Argument {idx + 1}: '{key}' must be a number, got {raw!r}, skipping"
+                    )
+                    bad_format = True
+                    break
+            if bad_format:
+                continue
+
             validated_operations.append(op)
         
         return validated_operations
     
-    def _convert_value(self, value, data_type: str):
+    @staticmethod
+    def _apply_numeric_format(value, scale, decimals):
+        """Scale and/or round a numeric value before it is typed.
+
+        ``decimals=0`` yields an int so a text target reads '5393', not '5393.0'.
+        Non-numeric values pass through untouched.
+        """
+        if scale is None and decimals is None:
+            return value
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return value
+        if scale is not None:
+            number *= scale
+        if decimals is not None:
+            number = round(number, decimals)
+            if decimals <= 0:
+                return int(number)
+        return number
+
+    def _convert_value(self, value, data_type: str, scale=None, decimals=None):
         """
         Convert a value to the appropriate Python type for the given IFC data type.
         
         Args:
             value: Value to convert
             data_type: Target IFC data type
+            scale: Optional multiplier applied to numeric values first (e.g. 1000 for m -> mm)
+            decimals: Optional rounding applied after scaling; 0 produces an int
             
         Returns:
             Converted value
@@ -251,9 +348,16 @@ class Patcher:
         Raises:
             ValueError: If conversion fails
         """
+        converter = self._resolve_converter(data_type)
+        if converter is None:
+            raise ValueError(f"Cannot write data type '{data_type}' in schema {self.file.schema}")
         try:
-            converter = self.SUPPORTED_DATA_TYPES[data_type]
-            return converter(value)
+            # Boolean/logical targets must skip numeric formatting: float(True)
+            # is 1.0, which _to_bool then reads as the string '1.0' and coerces
+            # to False — silently flipping True. Type the raw value directly.
+            if converter is _to_bool:
+                return converter(value)
+            return converter(self._apply_numeric_format(value, scale, decimals))
         except Exception as e:
             raise ValueError(f"Cannot convert value '{value}' to {data_type}: {str(e)}")
 
@@ -743,7 +847,8 @@ class Patcher:
             property_set.HasProperties = [prop_value]
     
     def _set_property_on_element(self, element, pset_name: str, property_name: str,
-                                 data_type: str, literal_value=None, from_source=None) -> bool:
+                                 data_type: str, literal_value=None, from_source=None,
+                                 scale=None, decimals=None) -> bool:
         """
         Set a property on an element, creating or updating as needed.
         
@@ -772,7 +877,7 @@ class Patcher:
                 raw_value = literal_value
             
             # Convert to appropriate type
-            converted_value = self._convert_value(raw_value, data_type)
+            converted_value = self._convert_value(raw_value, data_type, scale, decimals)
             
             # Find existing property set
             property_set, rel = self._find_property_set(element, pset_name)
@@ -871,7 +976,9 @@ class Patcher:
                 
                 if self._set_property_on_element(element, pset_name, property_name, 
                                                  data_type, literal_value=literal_value,
-                                                 from_source=from_source):
+                                                 from_source=from_source,
+                                                 scale=operation.get('scale'),
+                                                 decimals=operation.get('decimals')):
                     modified_count += 1
                     self.stats['properties_set'] += 1
             
