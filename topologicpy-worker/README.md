@@ -42,8 +42,8 @@ report:
 
 | Value | Stamped pset (`pset_name`) | JSON report |
 |-------|----------------------------|-------------|
-| `simple` (default) | `SpaceNumber`, `SpaceName` only | summary + sample unmatched/ambiguous ids |
-| `summary` | full `SpatialMatch*` diagnostic set (below) | summary + sample unmatched/ambiguous ids |
+| `simple` | `SpaceNumber`, `SpaceLongName` only | summary + sample unmatched/ambiguous ids |
+| `summary` (default) | full `SpatialMatch*` diagnostic set (below) | summary + sample unmatched/ambiguous ids |
 | `full` | full `SpatialMatch*` diagnostic set (below) | adds per-element `elements[]` rows |
 
 ### `simple`
@@ -52,7 +52,7 @@ Writes just the room identity, for models that only need a room stamp on each
 element:
 
 - `SpaceNumber` — the IfcSpace `Name` attribute
-- `SpaceName` — the IfcSpace `LongName` attribute
+- `SpaceLongName` — the IfcSpace `LongName` attribute
 
 The defaults follow the usual convention that `Name` carries the room number and
 `LongName` the room name. Flip or override them per job with
