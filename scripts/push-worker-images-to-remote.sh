@@ -12,6 +12,9 @@ if [[ -f .env ]]; then
   set +a
 fi
 
+# shellcheck source=lib/images.sh
+source "$ROOT/scripts/lib/images.sh"
+
 REMOTE_SSH="${REMOTE_SSH:-deploy@worker-host}"
 SSH_OPTS=(-o RemoteCommand=none -o RequestTTY=no)
 
@@ -19,7 +22,7 @@ WORKERS=(ifctester-worker ifcpatch-worker ifcclash-worker ifcdiff-worker ifccoor
 
 missing=()
 for w in "${WORKERS[@]}"; do
-  if ! docker image inspect "ifcpipeline-${w}:latest" >/dev/null 2>&1; then
+  if ! docker image inspect "$(image_ref "$w")" >/dev/null 2>&1; then
     missing+=("$w")
   fi
 done
@@ -32,8 +35,8 @@ fi
 
 IMAGES=()
 for w in "${WORKERS[@]}"; do
-  if docker image inspect "ifcpipeline-${w}:latest" >/dev/null 2>&1; then
-    IMAGES+=("ifcpipeline-${w}:latest")
+  if docker image inspect "$(image_ref "$w")" >/dev/null 2>&1; then
+    IMAGES+=("$(image_ref "$w")")
   else
     echo "warn: skipping push for ${w} (not on primary; worker keeps existing image if any)" >&2
   fi

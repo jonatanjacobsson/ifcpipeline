@@ -155,12 +155,21 @@ IFC Pipeline follows a **microservice architecture** with distributed workers fo
    - For production, update URLs to your actual domain names
 
 
-4. **Build and start all services**:
+4. **Start all services**:
    ```bash
-   docker compose up --build -d
+   docker compose up -d
    ```
-   
-   **Note:** First build may take 10-30 minutes depending on your system (longer on Apple Silicon due to emulation)
+
+   With `IFCPIPELINE_PULL_POLICY=missing` (the value shipped in `.env.example`) this pulls prebuilt `linux/amd64` images from `ghcr.io/jonatanjacobsson/ifcpipeline-*` and is usually done in a couple of minutes. Any image that is not in the registry falls back to building locally.
+
+   **Build from source instead** — set `IFCPIPELINE_PULL_POLICY=build` in `.env`, or pass `--build`:
+   ```bash
+   docker compose up -d --build
+   ```
+
+   **Note:** A full local build takes 10-30 minutes depending on your system (longer on Apple Silicon due to emulation).
+
+   **Pin a version** — `.env` defaults to `IFCPIPELINE_TAG=latest`; set it to a release (`1.2.3`) or a commit (`sha-abc1234`) for reproducible deployments.
 
    `ifccoord-worker` is **off by default** (Compose profile `ifccoord`). It copies the private [`ifc-coord`](https://github.com/jonatanjacobsson/ifc-coord) submodule. `ifcpatch-worker` does **not** copy that tree, so a public clone can `docker compose up --build` without the submodule. To enable coordination:
 

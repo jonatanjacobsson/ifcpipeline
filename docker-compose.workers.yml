@@ -10,6 +10,8 @@ x-default-logging: &default-logging
 services:
   ifc5d-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifc5d-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifc5d-worker/Dockerfile
@@ -50,6 +52,8 @@ services:
 
   ifcpatch-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifcpatch-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifcpatch-worker/Dockerfile
@@ -127,6 +131,8 @@ services:
 
   ifcconvert-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifcconvert-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifcconvert-worker/Dockerfile
@@ -167,6 +173,8 @@ services:
 
   ifcclash-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifcclash-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifcclash-worker/Dockerfile
@@ -241,6 +249,8 @@ services:
   # ---- Converted to object storage (PoC) ----
   ifccsv-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifccsv-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifccsv-worker/Dockerfile
@@ -281,6 +291,8 @@ services:
 
   ifcfast-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifcfast-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifcfast-worker/Dockerfile
@@ -323,6 +335,8 @@ services:
 
   ifctester-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifctester-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifctester-worker/Dockerfile
@@ -369,6 +383,8 @@ services:
 
   ifcdiff-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifcdiff-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifcdiff-worker/Dockerfile
@@ -415,6 +431,8 @@ services:
 
   ifc2json-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-ifc2json-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: ifc2json-worker/Dockerfile
@@ -526,6 +544,8 @@ services:
 
   topologicpy-worker:
     logging: *default-logging
+    image: ${IFCPIPELINE_REGISTRY:-ghcr.io/jonatanjacobsson}/ifcpipeline-topologicpy-worker:${IFCPIPELINE_TAG:-latest}
+    pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}
     build:
       context: .
       dockerfile: topologicpy-worker/Dockerfile

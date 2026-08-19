@@ -2,6 +2,74 @@
 
 How to run the stack on a **primary host** (control plane + optional local workers) and on **worker host(s)** (RQ consumers only). Use generic host names in configuration; set real hostnames and IPs in `.env` / `.env.remote` on each machine.
 
+## Images
+
+The 10 public workers plus `api-gateway` and `ifc-classifier` are published to
+`ghcr.io/jonatanjacobsson/ifcpipeline-<service>` by
+`.github/workflows/publish-images.yml` (linux/amd64 only, matching the
+`platform:` pin every service already carries). Tags: `latest` and `sha-<short>`
+on every push to `main`; `X.Y.Z` / `X.Y` / `latest` on a `vX.Y.Z` git tag.
+
+Not published: `ifccoord-worker` (needs the private `ifc-coord` submodule) and
+`ifc-viewer` (its API base is baked in at build time via `VITE_API_BASE`).
+
+The same workflow runs as a **build test** on pull requests that touch a service
+(and on a manual run with `dry_run`): it builds and smoke-tests every image but
+pushes nothing. That matters more now that a fresh clone pulls rather than
+builds — a broken Dockerfile that reached `latest` would break new installs
+rather than just the person who wrote it.
+
+Three env vars control this — `IFCPIPELINE_REGISTRY`, `IFCPIPELINE_TAG`,
+`IFCPIPELINE_PULL_POLICY`:
+
+| `IFCPIPELINE_PULL_POLICY` | Behaviour |
+|---|---|
+| unset (compose default) | `build` — always build from source, never pull |
+| `missing` | pull the prebuilt image; build only if it is not in the registry |
+| `build` | always build from source |
+
+`docker compose up --build` forces a local build regardless of the policy.
+
+### The default is `build` on purpose
+
+The compose default is `build` while `.env.example` ships `missing`. That
+asymmetry is deliberate: **every `.env` that predates prebuilt images has no
+`IFCPIPELINE_PULL_POLICY` line, so existing deployments keep building from
+source and can never start pulling `latest` by surprise** — including this
+primary, where `make up-ifc` is a bare `docker compose up -d` with no `--build`
+to act as a second line of defence. Only fresh clones, which copy
+`.env.example`, opt into pulling. Do not "simplify" this by defaulting to
+`missing`.
+
+The same applies to the worker VM: `scripts/deploy-remote-workers-from-primary.sh`
+regenerates `.env.remote` from scratch on every `make remote-deploy`, emitting
+only its `REMOTE_ENV_KEYS` allowlist (the three image vars are now in it, so the
+worker inherits the primary's choice instead of drifting from it).
+
+### Migrating a host that already builds from source
+
+Compose tags a built image by its `image:` key, so the local name changed from
+`ifcpipeline-<service>:latest` to
+`ghcr.io/jonatanjacobsson/ifcpipeline-<service>:latest`. Without this step, the
+first `docker compose up` after pulling this change rebuilds all 12 images even
+with the policy at `build`. Run once, on the primary and on each worker VM:
+
+```bash
+./scripts/adopt-local-images.sh
+```
+
+It only adds tags (instant, idempotent, deletes nothing).
+
+Remote workers can now pull from GHCR instead of receiving ~2 GB tarballs over
+SSH — set `IFCPIPELINE_PULL_POLICY=missing` in `.env.remote` and:
+
+```bash
+docker compose -f docker-compose.remote-workers.yml --env-file .env.remote --profile remote pull
+```
+
+`scripts/push-worker-images-to-remote.sh` remains the route for
+`ifccoord-worker`, which is never published.
+
 ## Compose layout
 
 | File | Purpose |
