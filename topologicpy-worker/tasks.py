@@ -1829,6 +1829,19 @@ def _space_attribute(space: SpaceCandidate, attribute: str) -> str:
     return "" if value is None else str(value)
 
 
+# Pset key names written at each report_detail level. Also surfaced verbatim in
+# the benchmark payload's ``stamped_properties`` so consumers always get a stable
+# ``list[str]``. ``_DIAGNOSTIC_STAMP_KEYS`` must stay in sync with the summary/full
+# ``properties`` dict built in ``_stamp_element``.
+_SIMPLE_STAMP_KEYS = ("SpaceNumber", "SpaceLongName")
+_DIAGNOSTIC_STAMP_KEYS = (
+    "SpatialMatchStatus", "SpatialMatchMethod", "SpatialMatchConfidence",
+    "SpatialMatchCount", "SpatialSourceFile", "SpatialRelationshipEngine",
+    "SpaceGlobalId", "SpaceName", "SpaceLongName", "RoomGlobalId", "RoomName",
+    "RoomLongName", "BuildingStoreyName", "ZoneNames", "ZoneGlobalIds", "StampedBy",
+)
+
+
 def _simple_stamp_properties(
     space: SpaceCandidate,
     space_number_attribute: str,
@@ -1837,11 +1850,14 @@ def _simple_stamp_properties(
     """report_detail=simple pset: room identity only, no match diagnostics.
 
     By convention the IfcSpace ``Name`` holds the room number and ``LongName``
-    the room name, so the defaults invert the attribute names on purpose.
+    the room name, so the defaults map ``Name`` -> ``SpaceNumber`` and
+    ``LongName`` -> ``SpaceLongName``. ``SpaceLongName`` carries the same meaning
+    as in the summary/full pset, so no key means two different things across
+    report_detail levels.
     """
     return {
         "SpaceNumber": _space_attribute(space, space_number_attribute),
-        "SpaceName": _space_attribute(space, space_name_attribute),
+        "SpaceLongName": _space_attribute(space, space_name_attribute),
     }
 
 
@@ -2726,10 +2742,10 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
             "stamp": request.stamp,
             "stamp_ambiguous": request.stamp_ambiguous,
             "report_detail": request.report_detail,
-            "stamped_properties": (
-                ["SpaceNumber", "SpaceName"]
+            "stamped_properties": list(
+                _SIMPLE_STAMP_KEYS
                 if request.report_detail == "simple"
-                else "full"
+                else _DIAGNOSTIC_STAMP_KEYS
             ),
             "stamped_count": stamped_count,
             "skipped_ambiguous_count": skipped_ambiguous_count,

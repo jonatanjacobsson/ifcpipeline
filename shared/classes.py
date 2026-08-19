@@ -669,11 +669,12 @@ class TopologicpyRequest(VersionPinOptional):
         description="Use TopologicPy to resolve initially unmatched elements",
     )
     report_detail: Literal["simple", "summary", "full"] = Field(
-        default="simple",
+        default="summary",
         description=(
             "Detail dial for both the stamped property set and the JSON report. "
-            "simple: stamp only SpaceNumber/SpaceName into pset_name (summary-level report). "
-            "summary: stamp the full SpatialMatch* diagnostic property set. "
+            "summary (default): stamp the full SpatialMatch* diagnostic property set "
+            "(the pre-existing behaviour; required for graph ingestion). "
+            "simple: stamp only SpaceNumber/SpaceLongName into pset_name (summary-level report). "
             "full: same pset as summary plus per-element rows in the JSON report."
         ),
     )
@@ -695,7 +696,7 @@ class TopologicpyRequest(VersionPinOptional):
     )
     space_name_attribute: Literal["Name", "LongName"] = Field(
         default="LongName",
-        description="IfcSpace attribute written as SpaceName when report_detail=simple",
+        description="IfcSpace attribute written as SpaceLongName when report_detail=simple",
     )
     output_ifc_prefix: Optional[str] = Field(
         default=None,

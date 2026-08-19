@@ -74,11 +74,13 @@ def _stamp(monkeypatch, **kwargs):
     return captured["properties"]
 
 
-def test_request_defaults_to_simple():
+def test_request_defaults_to_summary():
     request = TopologicpyRequest(
         spatial_files=["A_spaces.ifc"], element_files=["A.ifc"]
     )
-    assert request.report_detail == "simple"
+    # summary is the backward-compatible default: it stamps the full SpatialMatch*
+    # pset that graph ingestion (ExtractRoomStamp) depends on. simple is opt-in.
+    assert request.report_detail == "summary"
     assert request.space_number_attribute == "Name"
     assert request.space_name_attribute == "LongName"
 
@@ -92,26 +94,28 @@ def test_report_detail_rejects_unknown_level():
         )
 
 
-def test_simple_properties_map_name_to_number_and_long_name_to_name():
+def test_simple_properties_map_name_to_number_and_long_name_to_long_name():
     props = tasks._simple_stamp_properties(_space(), "Name", "LongName")
-    assert props == {"SpaceNumber": "1234", "SpaceName": "Kontor"}
+    assert props == {"SpaceNumber": "1234", "SpaceLongName": "Kontor"}
 
 
 def test_simple_properties_honour_attribute_overrides():
     props = tasks._simple_stamp_properties(_space(), "LongName", "Name")
-    assert props == {"SpaceNumber": "Kontor", "SpaceName": "1234"}
+    assert props == {"SpaceNumber": "Kontor", "SpaceLongName": "1234"}
 
 
 def test_simple_properties_coerce_missing_attributes_to_empty_string():
     props = tasks._simple_stamp_properties(_space(name=None, long_name=None), "Name", "LongName")
-    assert props == {"SpaceNumber": "", "SpaceName": ""}
+    assert props == {"SpaceNumber": "", "SpaceLongName": ""}
 
 
 def test_simple_stamp_writes_only_two_properties(monkeypatch):
     props = _stamp(monkeypatch, report_detail="simple")
-    assert set(props) == {"SpaceNumber", "SpaceName"}
+    # SpaceLongName (not SpaceName) so the key never collides with the summary
+    # pset, where SpaceName means the IfcSpace Name attribute.
+    assert set(props) == {"SpaceNumber", "SpaceLongName"}
     assert props["SpaceNumber"] == "1234"
-    assert props["SpaceName"] == "Kontor"
+    assert props["SpaceLongName"] == "Kontor"
 
 
 def test_summary_stamp_keeps_diagnostic_properties(monkeypatch):

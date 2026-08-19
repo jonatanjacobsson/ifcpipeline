@@ -4,7 +4,7 @@ Reads ``Pset_IfcPipelineRoomStamp`` (or a custom pset) written by the
 topologicpy roomstamp job and emits ``contained_in_space`` graph edges.
 
 Requires a pset stamped with ``report_detail`` of ``summary`` or ``full`` — the
-``simple`` level writes only ``SpaceNumber``/``SpaceName`` and carries no space
+``simple`` level writes only ``SpaceNumber``/``SpaceLongName`` and carries no space
 GlobalId, so those elements cannot be linked and are counted under
 ``skipped_simple_stamp``.
 """
