@@ -30,6 +30,7 @@
     "web-ifc": "0.0.71"
   },
   "overrides": {
-    "fast-xml-parser": "5.7.0"
+    "fast-xml-parser": "5.7.0",
+    "esbuild": "^0.28.1"
   }
 }
