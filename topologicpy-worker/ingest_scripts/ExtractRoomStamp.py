@@ -2,6 +2,11 @@
 
 Reads ``Pset_IfcPipelineRoomStamp`` (or a custom pset) written by the
 topologicpy roomstamp job and emits ``contained_in_space`` graph edges.
+
+Requires a pset stamped with ``report_detail`` of ``summary`` or ``full`` — the
+``simple`` level writes only ``SpaceNumber``/``SpaceLongName`` and carries no space
+GlobalId, so those elements cannot be linked and are counted under
+``skipped_simple_stamp``.
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ from ingest_scripts._pset_index import build_pset_index
 _DEFAULT_PSET = "Pset_IfcPipelineRoomStamp"
 _SPACE_GUID_KEYS = ("SpaceGlobalId", "RoomGlobalId")
 _STATUS_SKIP = frozenset({"", "Unmatched"})
+# Fields only a summary/full stamp writes; absent from a report_detail=simple pset.
+_MATCH_KEYS = ("SpatialMatchStatus", *_SPACE_GUID_KEYS)
 
 
 class Ingester(_Base):
@@ -58,6 +65,7 @@ class Ingester(_Base):
         skipped_unmatched = 0
         skipped_low_confidence = 0
         skipped_ambiguous = 0
+        skipped_simple_stamp = 0
         methods_seen: Set[str] = set()
 
         for ifc_path in self.ifc_files:
@@ -85,6 +93,10 @@ class Ingester(_Base):
 
                 props = self._read_stamp_props(element, stamp_index)
                 if not props:
+                    continue
+
+                if not any((props.get(key) or "").strip() for key in _MATCH_KEYS):
+                    skipped_simple_stamp += 1
                     continue
 
                 status = str(props.get("SpatialMatchStatus") or "").strip()
@@ -139,10 +151,19 @@ class Ingester(_Base):
             "skipped_unmatched": skipped_unmatched,
             "skipped_low_confidence": skipped_low_confidence,
             "skipped_ambiguous": skipped_ambiguous,
+            "skipped_simple_stamp": skipped_simple_stamp,
             "methods_seen": sorted(methods_seen),
             "pset_name": self.pset_name,
             "elapsed_seconds": round(elapsed, 2),
         }
+        if skipped_simple_stamp and not edges_created:
+            self.log.warning(
+                "roomstamp_ingest: %d elements carry a %s pset with no space GlobalId — "
+                "the model looks stamped with report_detail=simple; re-run the roomstamp "
+                "job with report_detail=summary to ingest containment edges",
+                skipped_simple_stamp,
+                self.pset_name,
+            )
         self.log.info(
             "roomstamp_ingest: %d/%d elements stamped, %d contained_in_space edges in %.1fs",
             stamped_elements,

@@ -13,6 +13,27 @@ logger = logging.getLogger(__name__)
 
 WORKER_NAME = "ifccsv-worker"
 
+# ifccsv.group_results always reads group["varies_value"] for VARIES rows.
+# Hub / Baserow grouping JSON often omits the key (default is the literal
+# "VARIES" replacement when values in a group differ).
+_DEFAULT_VARIES_VALUE = "VARIES"
+
+
+def _normalize_ifccsv_groups(groups):
+    """Ensure every VARIES group has ``varies_value`` so ifccsv does not KeyError."""
+    if not groups:
+        return groups
+    out = []
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        g = dict(group)
+        if str(g.get("type") or "").upper() == "VARIES":
+            if g.get("varies_value") is None:
+                g["varies_value"] = _DEFAULT_VARIES_VALUE
+        out.append(g)
+    return out
+
 
 def _ifc_csv_request_to_dict(request: IfcCsvRequest) -> dict:
     if hasattr(request, "model_dump"):
@@ -44,7 +65,7 @@ def _run_ifccsv_export_to_path(
         format=fmt,
         delimiter=request.delimiter,
         null=request.null_value,
-        groups=request.groups,
+        groups=_normalize_ifccsv_groups(request.groups),
         sort=request.sort,
         summaries=request.summaries,
         formatting=request.formatting,

@@ -175,30 +175,59 @@ services:
       "
     restart: "no"
 
-  rq-dashboard:
+  # Server-rendered HTMX dashboard (jobs, history, workers, network share, n8n,
+  # database) over the shared JSON API in `dashboard/`. Replaces the former
+  # rq-dashboard-fast image on the same host port.
+  dashboard:
     logging: *default-logging
-    image: hannes221/rq-dashboard-fast:latest
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    # Same uid as the workers: the share is mounted rw for the file editor, and files
+    # written back must stay owned by the user the workers run as.
+    user: "1000:1000"
+    # Read the docker socket for the live log viewer (gid 999 = docker on this host).
+    # Override DOCKER_GID in .env if your host differs: `getent group docker`.
+    group_add:
+      - "${DOCKER_GID:-999}"
     ports:
       - "9181:8000"
     environment:
+      - TZ=${TZ:-Europe/Stockholm}
       - REDIS_URL=redis://redis:6379/0
-      - FASTAPI_PORT=8000
-    command: ["python3", "app.py"]
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-ifcpipeline}
+      - POSTGRES_USER=${POSTGRES_USER:-ifcpipeline}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_API_URL=http://n8n:5678
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_EXTERNAL_URL=${N8N_WEBHOOK_URL:-}
+      # Network Share browses this root; ./shared/uploads and ./shared/output are
+      # mounted underneath it. Point it at a CIFS/NFS mount to browse a real share.
+      - NETWORK_SHARE_PATH=/share
+      - WORKER_LOGS_DIR=/share/logs
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Mirrors finished jobs into Postgres so History outlives RQ's result TTL.
+      - ENABLE_BACKGROUND_PG_SYNC=true
     volumes:
-      - ./rq-dashboard-custom/css/main.css:/app/rq_dashboard_fast/static/css/main.css:ro
-      - ./rq-dashboard-custom/templates/job.html:/app/rq_dashboard_fast/templates/job.html:ro
-      - ./rq-dashboard-custom/rq_dashboard_fast.py:/app/rq_dashboard_fast/rq_dashboard_fast.py:ro
-      - ./rq-dashboard-custom/utils/jobs.py:/app/rq_dashboard_fast/utils/jobs.py:ro
-      - ./rq-dashboard-custom/utils/workers.py:/app/rq_dashboard_fast/utils/workers.py:ro
-      - ./shared/uploads:/uploads:ro
+      # :rw so the Network Share editor can save IDS/XML/JSON back. Change to :ro
+      # to make the dashboard read-only.
+      - ./shared/uploads:/share/uploads
+      - ./shared/output:/share/output
+      # Live log viewer. NOTE: :ro applies to the socket file, not the API — anything
+      # that can reach this socket can control the docker daemon. Drop this mount to
+      # disable the Logs pages, or put a read-only socket proxy in front of it.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.2'
-          memory: 256M
+          cpus: '0.3'
+          memory: 384M
 
   dozzle:
     logging: *default-logging
