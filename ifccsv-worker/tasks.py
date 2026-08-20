@@ -2,11 +2,11 @@ import logging
 import os
 import tempfile
 from multiprocessing import get_context
-from queue import Empty
 from typing import Any, Optional
 
 from shared.classes import IfcCsvRequest, IfcCsvImportRequest
 from shared import object_storage as s3
+from shared.spawn_isolation import drain_and_join
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -152,24 +152,16 @@ def _run_in_spawn_isolation(
     q = ctx.Queue(maxsize=1)
     proc = ctx.Process(target=worker_target, args=(q, payload))
     proc.start()
-    proc.join()
+    got, status, data = drain_and_join(
+        proc, q, result_timeout=result_timeout, operation=operation
+    )
     if proc.exitcode == 0:
-        try:
-            status, data = q.get(timeout=result_timeout)
-        except Empty as e:
-            raise RuntimeError(
-                f"{operation} child exited 0 but sent no result"
-            ) from e
+        if not got:
+            raise RuntimeError(f"{operation} child exited 0 but sent no result")
         if status == "ok":
             return data
         raise RuntimeError(f"{operation} isolated worker: {data}")
-    child_err: Optional[str] = None
-    try:
-        status, data = q.get_nowait()
-        if status == "err":
-            child_err = data
-    except Empty:
-        pass
+    child_err: Optional[str] = data if (got and status == "err") else None
     raise RuntimeError(
         f"{operation} crashed in isolated subprocess "
         f"(label={label!r}, exit={proc.exitcode}"

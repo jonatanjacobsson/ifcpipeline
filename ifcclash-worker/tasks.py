@@ -11,10 +11,10 @@ import ifcopenshell.geom
 import ifcopenshell.ifcopenshell_wrapper as _ios_wrap
 import multiprocessing
 from multiprocessing import get_context
-from queue import Empty
 from ifcclash.ifcclash import Clasher, ClashSettings
 from shared.db_client import save_clash_result
 from shared import audit_db
+from shared.spawn_isolation import drain_and_join
 from shared import object_storage as s3
 from typing import Tuple, List, Dict, Any, Optional
 
@@ -764,26 +764,20 @@ def _run_clash_in_spawn_isolation(
         label, IFCCLASH_GEOMETRY_LIBRARY, IFCCLASH_ITERATOR_THREADS,
     )
     proc.start()
-    proc.join()
+    got, status, data = drain_and_join(
+        proc, q, result_timeout=60, operation="ifcclash"
+    )
 
     if proc.exitcode == 0:
-        try:
-            status, data = q.get(timeout=60)
-        except Empty as exc:
+        if not got:
             raise RuntimeError(
                 "ifcclash isolated worker exited 0 but sent no result"
-            ) from exc
+            )
         if status == "ok":
             return data
         raise RuntimeError(f"ifcclash isolated worker reported error: {data}")
 
-    child_err: Optional[str] = None
-    try:
-        status, data = q.get_nowait()
-        if status == "err":
-            child_err = data
-    except Empty:
-        pass
+    child_err: Optional[str] = data if (got and status == "err") else None
 
     # Normalise the exit code into the same wording that RQ uses when the
     # work-horse itself dies, so RETRYABLE_ERROR_PATTERNS in
