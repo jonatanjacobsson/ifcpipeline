@@ -15,6 +15,10 @@ Performance: uses a single-pass bulk relationship detachment (O(R + E))
 instead of per-element remove_product calls (O(R × E)), where R = total
 relationships and E = elements to remove.
 
+After detachment, relationships whose required references were nulled (e.g.
+``IfcRelAggregates`` with ``RelatingObject=$`` while children remain) are
+removed so remaining products stay viewable in Solibri / ifcopenshell.
+
 **Policy:** instances of ``IfcSite``, ``IfcBuilding``, and ``IfcBuildingStorey``
 are **never** removed, regardless of query. That keeps the core spatial
 hierarchy and containment references intact for viewers (e.g. Solibri).
@@ -39,6 +43,27 @@ from logging import Logger
 
 # Negated IFC class: "!IfcCovering" or "! IfcCovering" (same as ifcopenshell selector)
 _NEGATED_IFC_TYPE = re.compile(r"^!\s*(Ifc[A-Za-z_][A-Za-z0-9_]*)$")
+
+# Relationship types whose required single-reference attrs must not be left blank ($)
+# after detaching removed elements — e.g. IfcRelAggregates with RelatingObject=None
+# breaks viewer tessellation for remaining children (Isolering / !IfcCovering exports).
+_REQUIRED_RELATING_ATTRS: dict[str, tuple[str, ...]] = {
+    "IfcRelAggregates": ("RelatingObject",),
+    "IfcRelNests": ("RelatingObject",),
+    "IfcRelContainedInSpatialStructure": ("RelatingStructure",),
+    "IfcRelVoidsElement": ("RelatingBuildingElement", "RelatedOpeningElement"),
+    "IfcRelFillsElement": ("RelatingOpeningElement", "RelatedBuildingElement"),
+    "IfcRelSpaceBoundary": ("RelatingSpace", "RelatedBuildingElement"),
+    "IfcRelServicesBuildings": ("RelatingSystem",),
+    "IfcRelDefinesByType": ("RelatingType",),
+    "IfcRelDeclares": ("RelatingContext",),
+    "IfcRelAssociatesMaterial": ("RelatingMaterial",),
+    "IfcRelAssociatesClassification": ("RelatingClassification",),
+    "IfcRelAssociatesDocument": ("RelatingDocument",),
+    "IfcRelAssociatesLibrary": ("RelatingLibrary",),
+    "IfcRelAssignsToGroup": ("RelatingGroup",),
+    "IfcRelAssignsToProcess": ("RelatingProcess",),
+}
 
 
 class Patcher:
@@ -414,6 +439,26 @@ class Patcher:
                 detached_count += 1
 
         self.logger.info(f"RemoveElements: detached targets from {detached_count} relationship(s)")
+        self._remove_dangling_relationships()
+
+    def _remove_dangling_relationships(self) -> None:
+        """Remove relationships whose required references were nulled during detachment."""
+        removed = 0
+
+        for rel_type, attrs in _REQUIRED_RELATING_ATTRS.items():
+            for rel in list(self.file.by_type(rel_type)):
+                try:
+                    if any(getattr(rel, attr, None) is None for attr in attrs):
+                        self.file.remove(rel)
+                        removed += 1
+                except Exception:
+                    pass
+
+        if removed:
+            self.logger.info(
+                f"RemoveElements: removed {removed} dangling relationship(s) "
+                f"(blank required Relating*/RelatingStructure refs)"
+            )
 
     def _remove_entities(self, entities: list, label: str) -> None:
         removed = 0
@@ -696,6 +741,8 @@ class Patcher:
 
         if removed:
             self.logger.info(f"RemoveElements: cleaned up {removed} empty relationship(s)")
+
+        self._remove_dangling_relationships()
 
     def get_output(self) -> ifcopenshell.file:
         return self.file
