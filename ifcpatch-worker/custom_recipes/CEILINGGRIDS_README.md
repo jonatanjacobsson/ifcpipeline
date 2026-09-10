@@ -49,11 +49,20 @@ Creates ceiling grid beams with **nested/local placement** within parent IfcCove
 
 ### Parameters
 ```python
-args[0]: profile_height (str) - Height of T-profile in mm (default: 40.0)
-args[1]: profile_width (str) - Width of profiles in mm (default: 20.0)
-args[2]: profile_thickness (str) - Thickness of profiles in mm (default: 5.0)
-args[3]: tolerance (str) - Connection tolerance in mm (default: 50.0)
+args[0]: query (str) - IfcOpenShell selector for the coverings to process
+         (default: "IfcCovering", every covering)
+args[1]: profile_height (str) - Height of T-profile in mm (default: 40.0)
+args[2]: profile_width (str) - Width of profiles in mm (default: 20.0)
+args[3]: profile_thickness (str) - Thickness of profiles in mm (default: 5.0)
+args[4]: require_interior (str) - "true" or "false"; skip coverings whose FootPrint
+         is only an outline, with no lines inside it (default: "true")
+args[5]: interior_z_offset (str) - Vertical nudge for T-runners in mm, + is up (default: 0.0)
 ```
+
+Note the different order from CeilingGridsGlobal: this recipe has no `extract_beams`
+or `output_path`, so its dimensions start at args[1]. Footprint reading, perimeter
+classification, coverage filtering and profile placement are otherwise identical to
+the global recipe - see its section above for what those arguments do.
 
 ### Example Usage
 ```python
@@ -106,37 +115,87 @@ Creates ceiling grid beams with **global/absolute placement** in world coordinat
 
 ### Parameters
 ```python
-args[0]: profile_height (str) - Height of T-profile in mm (default: 40.0)
-args[1]: profile_width (str) - Width of profiles in mm (default: 20.0)
-args[2]: profile_thickness (str) - Thickness of profiles in mm (default: 5.0)
-args[3]: tolerance (str) - Connection tolerance in mm (default: 50.0)
-args[4]: extract_beams (str) - "true" or "false" to extract beams to separate file (default: "false")
-args[5]: output_path (str) - Path for extracted beams file (optional, auto-generated if not provided)
+args[0]: query (str) - IfcOpenShell selector for the coverings to process
+         (default: "IfcCovering", every covering)
+args[1]: extract_beams (str) - "true" or "false" to write a beams-only file (default: "false")
+args[2]: profile_height (str) - Height of T-profile in mm (default: 40.0)
+args[3]: profile_width (str) - Width of profiles in mm (default: 20.0)
+args[4]: profile_thickness (str) - Thickness of profiles in mm (default: 5.0)
+args[5]: tolerance (str) - Connection tolerance in mm (default: 50.0)
+args[6]: output_path (str) - Path for extracted beams file (optional, auto-generated if not provided)
+args[7]: require_interior (str) - "true" or "false"; skip coverings whose FootPrint
+         is only an outline, with no lines inside it (default: "true")
+args[8]: interior_z_offset (str) - Vertical nudge for T-runners in mm, + is up (default: 0.0)
 ```
+
+**Lateral placement**: the angle is offset half a profile width towards the ceiling,
+so its upstand's back face sits on the FootPrint line and the leg reaches inwards. The
+inward direction is found by probing both sides of the segment against the perimeter
+loop (even-odd), voting over three points along it, with the footprint centre as
+fallback; the beam is then reversed if needed, because the L profile's leg always
+extends towards `direction x Z`. Where a covering's perimeter loop is not closed -
+the classifier having assigned some boundary lines to the interior - the probe has
+nothing solid to test against and the angle can land on the wrong side; measured at
+10 of 300 sampled angles on M0042-005-A-40-V-0001_Undertak.
+
+**Vertical placement**: both profiles are positioned by their bounding-box centre.
+The perimeter angle's leg sits at -profile_thickness below the FootPrint plane with
+its top face flush to it, so the ceiling bears on the leg and a thickness-deep strip
+shows from below. T-runners are placed to match: flange underside at
+-profile_thickness, bearing face on the FootPrint plane. Use `interior_z_offset` to
+raise or lower the runners from there without touching the perimeter.
+
+**On `require_interior`**: a suspended ceiling exports a FootPrint with runner lines
+inside its boundary; a fixed plasterboard ceiling exports only the boundary. Without
+this filter every plasterboard ceiling gets ringed with an angle profile it does not
+have. On `M0042-005-A-40-V-0001_Undertak` the filter drops 709 of 1819 coverings and
+3516 stray perimeter beams while leaving all 16154 interior beams untouched.
+
+**On `query` vs `require_interior`**: they answer different questions and are meant
+to be combined. The geometry tells you a footprint has lines inside it; only the type
+name tells you whether those lines are grid hardware. A suspended, demountable ceiling
+("pendlat och demonterbart") hangs on a T-grid; a direct-mounted absorber
+("diktmonterad") is fixed straight to the soffit and its interior footprint lines are
+panel joints, not runners. On M0042-005-A-40-V-0001_Undertak, `require_interior` alone
+builds 1110 ceilings / 21256 beams; adding `IfcCovering, Name=/.*pendlat.*/` leaves 709
+ceilings / 14680 beams, dropping 4133 runners on UT21-24 Diktmonterad panels that have
+no grid to model. The selector only ever subtracts - `require_interior` still skips the
+137 UT35 niches that match the name but carry no grid lines.
+
+The selector grammar has no `!` negation in that position and no `/i` flag, but Python
+lookahead works: `Name=/^(?!.*Diktmonterad).*$/` keeps everything except the
+direct-mounted types.
 
 ### Example Usage
 ```python
 from ifcpatch import execute
 
-# Default parameters, no extraction
+# Defaults: beams added to the source model, outline-only coverings skipped
 output = execute({
     "input": "input.ifc",
     "recipe": "CeilingGridsGlobal",
     "arguments": []
 })
 
-# Custom dimensions with beam extraction
+# Beams-only output file (blank query = every covering)
 output = execute({
     "input": "input.ifc",
     "recipe": "CeilingGridsGlobal",
-    "arguments": ["50.0", "25.0", "6.0", "5.0", "true", "/path/to/beams_only.ifc"]
+    "arguments": ["", "true"]
 })
 
-# Extract to auto-generated path
+# Suspended ceilings only - the usual production call
 output = execute({
     "input": "input.ifc",
     "recipe": "CeilingGridsGlobal",
-    "arguments": ["40.0", "20.0", "5.0", "50.0", "true"]
+    "arguments": ["IfcCovering, Name=/.*pendlat.*/"]
+})
+
+# Custom dimensions, beams-only, and every covering ringed regardless of grid
+output = execute({
+    "input": "input.ifc",
+    "recipe": "CeilingGridsGlobal",
+    "arguments": ["", "true", "50.0", "25.0", "6.0", "5.0", "", "false"]
 })
 ```
 
@@ -200,6 +259,23 @@ Not recommended. Global beams are independent and converting back to nested woul
 ---
 
 ## Version History
+
+### Version 0.4.0 (2026-09-10)
+- Read `IfcIndexedPolyCurve` footprints, not just `IfcPolyline`. Revit 2025 / ODA
+  SDAI 24.12 exports use the former, so both recipes previously produced zero beams
+  on current models while still reporting success
+- Classify a segment as interior when an endpoint lands mid-span on another line,
+  not only when 3+ segments share an endpoint. Revit does not split footprint lines
+  at intersections, so T-runners were being given angle profiles
+- Skip coverings whose footprint has no lines inside it (`require_interior`), and
+  accept a selector `query` as args[0], matching the convention in RemoveElements
+  and ExtractElementsExcludeSpaces
+- Place the T-runner flange flush with the perimeter angle's leg so both carry the
+  ceiling at one level, with `interior_z_offset` to tune it
+- Offset the angle towards the ceiling interior instead of along world X, reversing
+  the beam where needed so its leg reaches inwards and its upstand sits on the line
+- Both recipes now produce identical geometry; they differ only in placement
+  (absolute + spatial containment vs relative + nesting)
 
 ### Version 0.2.0 (2025-01-01)
 - Split into two recipes: `CeilingGridsNested` and `CeilingGridsGlobal`
