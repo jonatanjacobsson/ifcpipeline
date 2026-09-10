@@ -35,6 +35,7 @@ import ifcopenshell.api.context
 import ifcopenshell.api.spatial
 import ifcopenshell.util.representation
 import ifcopenshell.util.placement
+import ifcopenshell.util.selector
 import ifcopenshell.guid
 from collections import defaultdict
 from typing import List, Dict, Any, Set, Tuple, Optional
@@ -70,31 +71,47 @@ class Patcher:
     Parameters:
         file: The IFC model to patch
         logger: Logger instance for output
+        query: IfcOpenShell selector for the coverings to process
+            (default: "IfcCovering", every covering). Narrow it to a ceiling
+            family with e.g. 'IfcCovering, Name=/.*pendlat.*/' - suspended,
+            demountable ceilings carry a grid, direct-mounted ("diktmonterad")
+            panels do not, and only the type name says which is which.
         extract_beams: Extract beams to separate file (default: "false")
         profile_height: Height of T-profile in mm (default: 40.0)
         profile_width: Width of profiles in mm (default: 20.0)
         profile_thickness: Thickness of profiles in mm (default: 5.0)
         tolerance: Connection tolerance in mm (default: 50.0)
         output_path: Path for extracted beams file (default: auto-generated)
+        require_interior: Only build grids for coverings whose FootPrint has
+            lines inside the boundary, i.e. a real grid rather than just an
+            outline (default: "true"). Pass "false" for the old behaviour of
+            ringing every covering with an angle profile.
+        interior_z_offset: Vertical nudge for T-runners in mm, positive up
+            (default: 0.0). At 0.0 the runner flange is flush with the
+            perimeter angle's leg, so both carry the ceiling at one level.
     
     Example:
         # Use default dimensions, no extraction
         patcher = Patcher(ifc_file, logger)
         patcher.patch()
         
-        # Custom dimensions with beam extraction
-        patcher = Patcher(ifc_file, logger, "true", "50.0", "25.0", "6.0", "5.0", "/path/to/beams.ifc")
+        # Suspended ceilings only, custom dimensions, beams extracted
+        patcher = Patcher(ifc_file, logger, "IfcCovering, Name=/.*pendlat.*/",
+                          "true", "50.0", "25.0", "6.0", "5.0", "/path/to/beams.ifc")
         patcher.patch()
         output = patcher.get_output()
     """
     
     def __init__(self, file: ifcopenshell.file, logger: logging.Logger,
+                 query: str = "IfcCovering",
                  extract_beams: str = "false",
                  profile_height: str = "40.0",
                  profile_width: str = "20.0", 
                  profile_thickness: str = "5.0",
                  tolerance: str = "50.0",
-                 output_path: str = ""):
+                 output_path: str = "",
+                 require_interior: str = "true",
+                 interior_z_offset: str = "0.0"):
         self.file = file
         self.logger = logger
         self.target_file = None
@@ -105,6 +122,9 @@ class Patcher:
         self.profile_thickness = float(profile_thickness) if profile_thickness else 5.0
         self.tolerance = float(tolerance) if tolerance else 50.0
         self.output_path = output_path if output_path else None
+        self.require_interior = require_interior.lower() != "false" if require_interior else True
+        self.query = query.strip() if query and query.strip() else "IfcCovering"
+        self.interior_z_offset = float(interior_z_offset) if interior_z_offset else 0.0
         
         if self.profile_height <= 0:
             raise ValueError(f"profile_height must be positive, got {self.profile_height}")
@@ -117,6 +137,7 @@ class Patcher:
         
         self.stats = {
             "covering_elements": 0,
+            "skipped_no_interior": 0,
             "total_segments": 0,
             "perimeter_beams": 0,
             "interior_beams": 0,
@@ -136,10 +157,14 @@ class Patcher:
         self._style_wrapper = None
         self._perimeter_offset_pt = None
         self._interior_offset_pt = None
+        self._perimeter_offset_cache = {}
         
         self.logger.info(
             f"CeilingGridsGlobal: h={self.profile_height} w={self.profile_width} "
-            f"t={self.profile_thickness} tol={self.tolerance} extract={self.extract_beams}"
+            f"t={self.profile_thickness} tol={self.tolerance} extract={self.extract_beams} "
+            f"require_interior={self.require_interior} "
+            f"interior_z_offset={self.interior_z_offset}"
+            + (f" query={self.query!r}" if self.query != "IfcCovering" else "")
         )
     
     def patch(self) -> None:
@@ -158,11 +183,22 @@ class Patcher:
                 self.profile_width *= fu
                 self.profile_thickness *= fu
                 self.tolerance *= fu
+                self.interior_z_offset *= fu
             
             covering_elements = self.file.by_type("IfcCovering")
             if not covering_elements:
                 self.logger.warning("No IfcCovering elements found")
                 return
+            
+            if self.query != "IfcCovering":
+                selected = ifcopenshell.util.selector.filter_elements(self.file, self.query)
+                covering_elements = [e for e in covering_elements if e in selected]
+                self.logger.info(
+                    f"Selector {self.query!r} kept {len(covering_elements)} coverings"
+                )
+                if not covering_elements:
+                    self.logger.warning("Selector matched no IfcCovering elements")
+                    return
             
             # Extract beam geometry from source (read-only pass)
             all_beam_data = []
@@ -172,10 +208,20 @@ class Patcher:
                 beam_data, segments = self._extract_beam_data_from_covering(
                     elem_index, elem, transform_cache
                 )
+                if not beam_data:
+                    continue
+                
+                # A ceiling whose footprint is only an outline has no grid to
+                # build - ringing it with an angle profile would be noise.
+                if self.require_interior and not any(
+                    not d['segment']['is_perimeter'] for d in beam_data
+                ):
+                    self.stats["skipped_no_interior"] += 1
+                    continue
+                
                 all_beam_data.extend(beam_data)
                 self.stats["total_segments"] += segments
-                if beam_data:
-                    self.stats["covering_elements"] += 1
+                self.stats["covering_elements"] += 1
             
             # Prepare target file
             if self.extract_beams:
@@ -321,11 +367,18 @@ class Patcher:
             FlangeThickness=self.profile_thickness
         )
         
+        # Both profiles are positioned by their bounding-box centre. The angle's
+        # leg lands at -profile_thickness below the footprint plane, its top face
+        # flush with it, so the ceiling bears on the leg and the underside shows.
+        self._perimeter_offset_cache = {}
         self._perimeter_offset_pt = f.createIfcCartesianPoint(
             (self.profile_width / 2, 0.0, self.profile_thickness)
         )
+        # Put the T-runner's flange at the same level, so runners carry the
+        # ceiling alongside the angle instead of floating above it.
         self._interior_offset_pt = f.createIfcCartesianPoint(
-            (0.0, 0.0, self.profile_width + self.profile_thickness)
+            (0.0, 0.0,
+             self.profile_height / 2 - self.profile_thickness + self.interior_z_offset)
         )
         
         if self.grid_covering_style:
@@ -405,47 +458,92 @@ class Patcher:
                 rep_type = getattr(rep, "RepresentationType", "")
                 if rep_id == "FootPrint" and rep_type == "Curve2D" and rep.Items:
                     for item in rep.Items:
-                        if item.is_a("IfcPolyline"):
+                        if item.is_a("IfcPolyline") or item.is_a("IfcIndexedPolyCurve"):
                             curves_found.append(item)
         except Exception as e:
             self.logger.debug(f"Error extracting footprint curves: {str(e)}")
         return curves_found
     
-    def _process_polyline_to_segments(self, polyline: ifcopenshell.entity_instance, 
+    @staticmethod
+    def _as_3d(coords: Any) -> Tuple[float, float, float]:
+        """Pad a 2D or 3D coordinate tuple to 3D."""
+        z = float(coords[2]) if len(coords) > 2 else 0.0
+        return (float(coords[0]), float(coords[1]), z)
+
+    def _curve_vertex_runs(self, curve: ifcopenshell.entity_instance) -> List[List[Tuple[float, float, float]]]:
+        """
+        Return a curve's vertex runs as lists of 3D coordinates.
+
+        Handles both FootPrint flavours Revit/ODA emits: IfcPolyline (explicit
+        IfcCartesianPoints) and IfcIndexedPolyCurve (IfcCartesianPointList with
+        optional segment indices). Arc segments are reduced to their chord so
+        endpoint connectivity stays intact for perimeter detection.
+        """
+        if curve.is_a("IfcPolyline"):
+            points = curve.Points or []
+            run = [self._as_3d(p.Coordinates) for p in points if p.Coordinates]
+            return [run] if len(run) >= 2 else []
+
+        if curve.is_a("IfcIndexedPolyCurve"):
+            point_list = curve.Points
+            coord_list = getattr(point_list, "CoordList", None) if point_list else None
+            if not coord_list:
+                return []
+            points = [self._as_3d(c) for c in coord_list]
+
+            segments = getattr(curve, "Segments", None)
+            if not segments:
+                return [points] if len(points) >= 2 else []
+
+            runs = []
+            for seg in segments:
+                raw = getattr(seg, "wrappedValue", seg)
+                try:
+                    indices = [int(i) for i in raw]
+                except (TypeError, ValueError):
+                    continue
+                is_arc = False
+                try:
+                    is_arc = seg.is_a("IfcArcIndex")
+                except AttributeError:
+                    is_arc = False
+                if is_arc and len(indices) == 3:
+                    indices = [indices[0], indices[2]]
+                run = [points[i - 1] for i in indices if 1 <= i <= len(points)]
+                if len(run) >= 2:
+                    runs.append(run)
+            return runs
+
+        return []
+
+    def _process_polyline_to_segments(self, curve: ifcopenshell.entity_instance,
                                      polyline_index: int) -> List[Dict[str, Any]]:
-        """Process an IfcPolyline into ceiling grid segments."""
+        """Process a FootPrint curve into ceiling grid segments."""
         segments = []
         try:
-            points = polyline.Points
-            if not points or len(points) < 2:
-                return segments
-            
-            for i in range(len(points) - 1):
-                start_coords = points[i].Coordinates
-                end_coords = points[i + 1].Coordinates
-                
-                if start_coords and end_coords:
-                    sz = start_coords[2] if len(start_coords) > 2 else 0.0
-                    ez = end_coords[2] if len(end_coords) > 2 else 0.0
-                    s = (start_coords[0], start_coords[1], sz)
-                    e = (end_coords[0], end_coords[1], ez)
-                    
+            segment_index = 0
+            for run in self._curve_vertex_runs(curve):
+                for i in range(len(run) - 1):
+                    s = run[i]
+                    e = run[i + 1]
+
                     dx = e[0] - s[0]
                     dy = e[1] - s[1]
                     h_len = (dx**2 + dy**2)**0.5
-                    
+
                     if h_len > 0.001:
                         segments.append({
                             "polyline_index": polyline_index,
-                            "segment_index": i,
+                            "segment_index": segment_index,
                             "start_point": s,
                             "end_point": e,
                             "direction": (dx / h_len, dy / h_len, 0.0),
                             "length": h_len,
                             "midpoint": ((s[0]+e[0])/2, (s[1]+e[1])/2, (s[2]+e[2])/2)
                         })
+                        segment_index += 1
         except Exception as e:
-            self.logger.debug(f"Error processing polyline {polyline_index}: {str(e)}")
+            self.logger.debug(f"Error processing curve {polyline_index}: {str(e)}")
         return segments
     
     # ------------------------------------------------------------------ #
@@ -454,9 +552,15 @@ class Patcher:
     
     def _find_closed_loop_segments(self, all_segments: List[Dict[str, Any]]) -> Set[int]:
         """
-        Find perimeter segments using spatial hashing for fast connectivity,
-        then degree-based classification: perimeter if at least one endpoint
-        has <= 2 connections, interior if both endpoints have 3+ connections.
+        Find perimeter segments using spatial hashing for fast connectivity.
+
+        An endpoint is "constrained" when the grid continues past it: either 3+
+        segments share it, or it lands mid-span on another segment (a T-junction).
+        A segment is interior (T-runner) when both endpoints are constrained, and
+        perimeter (L angle) otherwise. The mid-span test matters because Revit
+        FootPrint exports do not split grid lines at intersections - an interior
+        runner then just stops against an unbroken boundary line, and endpoint
+        counting alone would read it as perimeter.
         """
         if not all_segments:
             return set()
@@ -506,19 +610,117 @@ class Patcher:
                         if d_sq < tol_sq:
                             point_to_group[(s_idx, s_ep)] = gid
         
+        # Segment index by cell, so the mid-span test only visits nearby segments.
+        span_grid = defaultdict(set)
+        for idx, seg in enumerate(all_segments):
+            s, e = seg['start_point'], seg['end_point']
+            x0, x1 = sorted((s[0], e[0]))
+            y0, y1 = sorted((s[1], e[1]))
+            for cx in range(int((x0 - tol) // cell_size), int((x1 + tol) // cell_size) + 1):
+                for cy in range(int((y0 - tol) // cell_size), int((y1 + tol) // cell_size) + 1):
+                    span_grid[(cx, cy)].add(idx)
+        
+        def _meets_span(p, own_idx) -> bool:
+            """True if p sits on another segment's span, away from its endpoints."""
+            cx, cy = int(p[0] // cell_size), int(p[1] // cell_size)
+            candidates = set()
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    candidates |= span_grid.get((cx+dx, cy+dy), set())
+            
+            for o_idx in candidates:
+                if o_idx == own_idx:
+                    continue
+                o = all_segments[o_idx]
+                s, e = o['start_point'], o['end_point']
+                if abs(p[2] - s[2]) > tol:
+                    continue
+                dx, dy = e[0] - s[0], e[1] - s[1]
+                len_sq = dx*dx + dy*dy
+                if len_sq <= 0:
+                    continue
+                t = ((p[0] - s[0]) * dx + (p[1] - s[1]) * dy) / len_sq
+                length = len_sq ** 0.5
+                if t * length <= tol or (1.0 - t) * length <= tol:
+                    continue  # at (or beyond) an endpoint, not mid-span
+                d_sq = (p[0] - (s[0] + t*dx))**2 + (p[1] - (s[1] + t*dy))**2
+                if d_sq < tol_sq:
+                    return True
+            return False
+        
         perimeter_indices = set()
-        for idx in range(len(all_segments)):
-            start_gid = point_to_group.get((idx, 'start_point'))
-            end_gid = point_to_group.get((idx, 'end_point'))
+        for idx, seg in enumerate(all_segments):
+            constrained = []
+            for ep_key in ('start_point', 'end_point'):
+                gid = point_to_group.get((idx, ep_key))
+                conns = len(endpoint_groups[gid]) if gid is not None else 0
+                constrained.append(conns >= 3 or _meets_span(seg[ep_key], idx))
             
-            start_conns = len(endpoint_groups[start_gid]) if start_gid is not None else 0
-            end_conns = len(endpoint_groups[end_gid]) if end_gid is not None else 0
-            
-            if start_conns < 3 or end_conns < 3:
+            if not all(constrained):
                 perimeter_indices.add(idx)
         
         return perimeter_indices
     
+    @staticmethod
+    def _point_inside_boundary(x: float, y: float, boundary: List[Dict[str, Any]]) -> bool:
+        """Even-odd test of a point against the covering's perimeter segments."""
+        inside = False
+        for seg in boundary:
+            x0, y0 = seg['start_point'][0], seg['start_point'][1]
+            x1, y1 = seg['end_point'][0], seg['end_point'][1]
+            if (y0 > y) != (y1 > y):
+                if x0 + (y - y0) * (x1 - x0) / (y1 - y0) > x:
+                    inside = not inside
+        return inside
+
+    def _interior_normal(self, segment: Dict[str, Any],
+                         boundary: List[Dict[str, Any]]) -> Tuple[float, float]:
+        """
+        Unit normal of a perimeter segment pointing into the ceiling.
+
+        The angle profile has to be offset towards the ceiling, not along a fixed
+        world axis, or it lands sideways by up to half its width depending on
+        which way the segment happens to run. Probing both sides against the
+        perimeter loop handles concave footprints and holes; for a segment that
+        is not part of a closed loop the footprint's centre is the fallback.
+        """
+        d = segment['direction']
+        n = (-d[1], d[0])
+        s0 = segment['start_point']
+        length = segment['length']
+        step = max(self.profile_width, 1.0)
+        
+        # Vote from three points along the segment: a notch or a doorway at the
+        # midpoint alone would otherwise pick the wrong side for the whole run.
+        votes = 0
+        for frac in (0.25, 0.5, 0.75):
+            px = s0[0] + d[0] * length * frac
+            py = s0[1] + d[1] * length * frac
+            left = self._point_inside_boundary(px + n[0]*step, py + n[1]*step, boundary)
+            right = self._point_inside_boundary(px - n[0]*step, py - n[1]*step, boundary)
+            if left != right:
+                votes += 1 if left else -1
+        if votes:
+            return n if votes > 0 else (-n[0], -n[1])
+        
+        mx, my = segment['midpoint'][0], segment['midpoint'][1]
+        cx = sum(s['midpoint'][0] for s in boundary) / len(boundary)
+        cy = sum(s['midpoint'][1] for s in boundary) / len(boundary)
+        return n if (cx - mx) * n[0] + (cy - my) * n[1] >= 0 else (-n[0], -n[1])
+
+    def _perimeter_offset_point(self, normal: Tuple[float, float, float]
+                                ) -> ifcopenshell.entity_instance:
+        """Profile origin that puts the angle's back face on the footprint line."""
+        half = self.profile_width / 2
+        pt = (normal[0] * half, normal[1] * half,
+              normal[2] * half + self.profile_thickness)
+        key = (round(pt[0], 4), round(pt[1], 4), round(pt[2], 4))
+        point = self._perimeter_offset_cache.get(key)
+        if point is None:
+            point = self.target_file.createIfcCartesianPoint(pt)
+            self._perimeter_offset_cache[key] = point
+        return point
+
     # ------------------------------------------------------------------ #
     #  Beam data extraction (with transform caching)                     #
     # ------------------------------------------------------------------ #
@@ -546,9 +748,12 @@ class Patcher:
             covering_transform = transform_cache[elem_id]
             
             perimeter_indices = self._find_closed_loop_segments(all_segments)
+            boundary = [all_segments[i] for i in sorted(perimeter_indices)]
             
             for idx, segment in enumerate(all_segments):
                 segment['is_perimeter'] = idx in perimeter_indices
+                if segment['is_perimeter']:
+                    segment['interior_normal'] = self._interior_normal(segment, boundary)
                 beam_data.append({
                     'segment': segment,
                     'segment_id': f"{elem_index}_{segment['polyline_index']}_{segment['segment_index']}",
@@ -646,6 +851,20 @@ class Patcher:
         global_start = self._transform_point(start_point, covering_transform)
         global_dir = self._transform_direction(direction, covering_transform)
         
+        offset_pt = self._interior_offset_pt
+        if is_perimeter:
+            offset_pt = self._perimeter_offset_pt
+            normal = segment.get("interior_normal")
+            if normal is not None:
+                n = self._transform_direction((normal[0], normal[1], 0.0), covering_transform)
+                # The angle's horizontal leg extends towards (direction x Z), so
+                # reverse the beam when that points out of the ceiling - then the
+                # leg lies inside it and the upstand sits on the boundary line.
+                if global_dir[1] * n[0] - global_dir[0] * n[1] < 0:
+                    global_start = self._transform_point(segment["end_point"], covering_transform)
+                    global_dir = (-global_dir[0], -global_dir[1], -global_dir[2])
+                offset_pt = self._perimeter_offset_point(n)
+        
         # Placement using shared direction entities
         beam.ObjectPlacement = f.createIfcLocalPlacement(
             None,
@@ -683,7 +902,7 @@ class Patcher:
         
         if is_perimeter:
             extrude_placement = f.createIfcAxis2Placement3D(
-                self._perimeter_offset_pt,
+                offset_pt,
                 f.createIfcDirection(bd),
                 f.createIfcDirection(ay)
             )
@@ -694,7 +913,7 @@ class Patcher:
                 ay[0]*bd[1] - ay[1]*bd[0]
             )
             extrude_placement = f.createIfcAxis2Placement3D(
-                self._interior_offset_pt,
+                offset_pt,
                 f.createIfcDirection(bd),
                 f.createIfcDirection((-ax[0], -ax[1], -ax[2]))
             )
@@ -732,11 +951,15 @@ class Patcher:
     def _log_statistics(self, elapsed: float) -> None:
         """Log processing statistics."""
         s = self.stats
+        skipped = ""
+        if s['skipped_no_interior']:
+            skipped = f", skipped {s['skipped_no_interior']} coverings with no interior lines"
         self.logger.info(
             f"CeilingGridsGlobal done in {elapsed:.1f}s: "
             f"{s['covering_elements']} coverings, "
             f"{s['total_beams']} beams "
             f"({s['perimeter_beams']} perimeter, {s['interior_beams']} interior)"
+            f"{skipped}"
             f"{' [extracted]' if self.extract_beams else ''}"
         )
     
