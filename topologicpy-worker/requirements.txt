@@ -15,7 +15,13 @@ ifcopenshell==0.8.4
 # Upper-bounded: KnowledgeGraphExport memoizes KnowledgeGraph internals and the
 # topograph disk cache round-trips TGraph.ToPython/FromPython — re-verify both
 # (ingest_bench fingerprints) before crossing 0.10.
-topologicpy>=0.9.58,<0.10
+# PINNED, not a range. A rebuild on 2026-09-18 drifted to 0.9.70, under which
+# Topology.Cells returns NOTHING for every IfcSpace BRep -- zero room cells, zero
+# edges, reported as success. 0.9.65 + topologic_core 8.0.4 is the pair every
+# measurement and the 0.9.65 rollout bench were made against (see
+# ingest_bench/). Bump both together and re-run the bench before deploying.
+topologicpy==0.9.65
+topologic_core==8.0.4
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
 # (algorithm="louvain"), used by ZonePartition. topologicpy does not pull it in.
 python-igraph>=0.11

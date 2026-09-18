@@ -112,6 +112,7 @@ class Patcher:
         self.logger = logger
         
         self.operations = []
+        self.skip_output_write = False
         self.stats = {
             'operations_total': 0,
             'operations_completed': 0,
@@ -472,6 +473,7 @@ class Patcher:
         - Tracks statistics and errors
         """
         if self.stats['operations_total'] == 0:
+            self.skip_output_write = True
             self.logger.warning("No valid operations to execute")
             return
         
@@ -502,6 +504,11 @@ class Patcher:
                 f"{self.stats['elements_modified']} elements modified, "
                 f"{self.stats['attributes_set']} attributes set"
             )
+            if self.stats['elements_modified'] == 0:
+                self.skip_output_write = True
+                self.logger.info(
+                    "SetAttributeBySelector: no attributes changed — skip_output_write=True"
+                )
             
         except Exception as e:
             self.logger.error(f"Critical error during patch execution: {str(e)}", exc_info=True)
