@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -192,8 +193,8 @@ def face_probe_points(
     verts: Sequence[float],
     faces: Sequence[int],
     min_area_m2: float = 0.05,
-    max_faces: int = 24,
-    per_bucket: int = 6,
+    max_faces: int = 32,
+    per_bucket: int = 8,
     min_sep_m: float = 0.5,
 ) -> List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
     """(centroid, unit normal) for the element's dominant planar faces.
@@ -224,14 +225,33 @@ def face_probe_points(
         if area < min_area_m2 or norm <= 0:
             continue
         normal = (nx / norm, ny / norm, nz / norm)
-        centroid = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0, (az + bz + cz) / 3.0)
         key = (round(normal[0], 1) + 0.0, round(normal[1], 1) + 0.0, round(normal[2], 1) + 0.0)
-        buckets.setdefault(key, []).append((area, centroid, normal))
+        bucket = buckets.setdefault(key, [])
+        # A 20 m wall face is often two triangles; probing only their centroids puts
+        # two points at 1/3 and 2/3 of the diagonal whatever the length. Subdivide
+        # large triangles so probe density follows the face's extent instead.
+        k = min(4, int(math.sqrt(area) / max(min_sep_m, 0.25)))
+        if k < 2:
+            bucket.append((area, ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0, (az + bz + cz) / 3.0), normal))
+            continue
+        share = area / (k * k)
+        for i in range(k):
+            for j in range(k - i):
+                u = (i + 1.0 / 3.0) / k
+                v = (j + 1.0 / 3.0) / k
+                w = 1.0 - u - v
+                bucket.append((share, (u * ax + v * bx + w * cx, u * ay + v * by + w * cy, u * az + v * bz + w * cz), normal))
 
     out: List[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = []
     for key in sorted(buckets, key=lambda k: (-math.fsum(a for a, _, _ in buckets[k]), k)):
+        # Spread the per-bucket budget over the face's whole extent: taking the first
+        # N by position would cluster every probe at one end of a long wall.
+        ordered = sorted(buckets[key], key=lambda item: item[1])
+        if len(ordered) > per_bucket:
+            picks = sorted({round(i * (len(ordered) - 1) / (per_bucket - 1)) for i in range(per_bucket)})
+            ordered = [ordered[i] for i in picks]
         kept: List[Tuple[float, float, float]] = []
-        for _area, centroid, normal in sorted(buckets[key], key=lambda item: (-item[0], item[1])):
+        for _area, centroid, normal in ordered:
             if len(kept) >= per_bucket or len(out) >= max_faces:
                 break
             if _far_enough(centroid, kept, min_sep_m):
@@ -273,7 +293,7 @@ class Ingester(_Base):
         include_bounds: bool = True,
         include_serves_space: bool = True,
         bounds_offset_m: float = 0.10,
-        bounds_max_faces: int = 24,
+        bounds_max_faces: int = 32,
         serves_reach_m: float = 1.5,
         serves_step_m: float = 0.10,
         grid_m: float = 3.0,
@@ -346,8 +366,14 @@ class Ingester(_Base):
 
     def _resolve_space_file(self) -> Optional[Path]:
         if self.space_file:
+            # The caller names the model by its bucket key or basename; the worker
+            # stages inputs as "<index>-<basename>" in S3 mode. Compare basenames and
+            # tolerate the index prefix, so the explicit choice is never silently
+            # replaced by auto-detect (which, on an architecture drop, would pick the
+            # architecture model itself as the rooms file: 247 spaces beat 243).
+            wanted = re.compile(r"^(\d+-)?" + re.escape(Path(self.space_file).name) + r"$")
             for path in self.ifc_files:
-                if path.name == self.space_file:
+                if wanted.match(path.name):
                     return path
             self.log.warning(
                 "space_interactions: space_file %r not among inputs; auto-detecting",
@@ -363,6 +389,22 @@ class Ingester(_Base):
             if count > best_count:
                 best, best_count = path, count
         return best
+
+    def _candidate_pad(self) -> float:
+        """How far from a room's box an element may sit and still be worth probing.
+
+        The broad phase must be as generous as the most far-reaching relation that is
+        switched on; a pad of only the bounds offset silently dropped every ceiling-void
+        tray before above_space could look for the room beneath it.
+        """
+        reaches = [0.0]
+        if self.include_bounds:
+            reaches.append(self.bounds_offset_m)
+        if self.include_vertical:
+            reaches.extend((self.vertical_reach_m, self.below_reach_m))
+        if self.include_serves_space:
+            reaches.append(self.serves_reach_m)
+        return max(reaches)
 
     # -- probing --------------------------------------------------------------------
 
@@ -422,7 +464,7 @@ class Ingester(_Base):
         gap. The second, deeper probe covers rooms whose ceiling is not flat at that XY.
         """
         x, y, z = point[0], point[1], point[2]
-        best: Optional[Tuple[float, int, float]] = None  # (gap, cell index, probe z)
+        candidates: List[Tuple[float, str, int, float]] = []  # (gap, gid, cell index, probe z)
         for ci in index.column(x, y):
             a = index.cells[ci].aabb
             if downward:
@@ -433,21 +475,22 @@ class Ingester(_Base):
                 probe_z = a[2]
             if gap < 0 or gap > reach_m:
                 continue
-            if best is None or gap < best[0]:
-                best = (gap, ci, probe_z)
-        if best is None:
-            return None
-        gap, ci, probe_z = best
-        room = index.cells[ci]
-        for inset in (0.05, 0.3):
-            pz = probe_z - inset if downward else probe_z + inset
-            self._probe_count += 1
-            if room.cell is None:
-                if point_in_aabb((x, y, pz), room.aabb):
+            candidates.append((gap, index.cells[ci].global_id, ci, probe_z))
+        # Nearest first, but every room on a storey shares a top elevation, so ties
+        # are the rule: a corridor whose box covers the whole floor plate ties with the
+        # office the point is actually over. Try them all in order and let the solid
+        # probe decide; stop at the first room that really contains the probe.
+        for gap, _gid, ci, probe_z in sorted(candidates):
+            room = index.cells[ci]
+            for inset in (0.05, 0.3):
+                pz = probe_z - inset if downward else probe_z + inset
+                self._probe_count += 1
+                if room.cell is None:
+                    if point_in_aabb((x, y, pz), room.aabb):
+                        return ci, round(gap, 4)
+                    continue
+                if probe_status(room.cell, vertex_at((x, y, pz))) == STATUS_INSIDE:
                     return ci, round(gap, 4)
-                continue
-            if probe_status(room.cell, vertex_at((x, y, pz))) == STATUS_INSIDE:
-                return ci, round(gap, 4)
         return None
 
     # -- main ------------------------------------------------------------------------
@@ -481,6 +524,7 @@ class Ingester(_Base):
 
         element_paths = [p for p in self.ifc_files if p != space_path] or [space_path]
         settings = mesh_settings()
+        pad = self._candidate_pad()
 
         seen_gids: set = set()
         stats = {
@@ -518,7 +562,6 @@ class Ingester(_Base):
 
                 box = world_aabb(verts, matrix)
                 elements_box = _union(elements_box, box)
-                pad = self.bounds_offset_m if self.include_bounds else 0.0
                 if not index.candidates_near(box, pad=pad):
                     stats["elements_without_candidate_room"] += 1
                     continue
@@ -736,7 +779,7 @@ class Ingester(_Base):
         # running over three rooms' ceilings relates to all three. Down first; a station
         # that found the room it is above never looks up, because what is above it is the
         # next storey through the slab. Rooms the element enters are excluded.
-        if self.include_vertical and void_stations:
+        if self.include_vertical and void_stations and ifc_class not in BOUNDS_CLASSES:
             vertical: Dict[Tuple[str, int], Dict[str, Any]] = {}
             for world in void_stations:
                 # The gap is from the element's FACE, not its centreline: bottom face
@@ -753,7 +796,7 @@ class Ingester(_Base):
                 if found is None:
                     continue
                 ci, gap = found
-                if index.cells[ci].global_id in entered:
+                if index.cells[ci].global_id in entered or index.cells[ci].global_id in touching:
                     continue
                 slot = vertical.setdefault((rel_type, ci), {"hits": 0, "min": gap})
                 slot["hits"] += 1
