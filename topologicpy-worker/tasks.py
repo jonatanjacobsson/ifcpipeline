@@ -3107,6 +3107,12 @@ _INGEST_SIGSEGV_FALLBACK_SCRIPTS = frozenset(
         "PathRouting",
         "BridgesAndCuts",
         "GraphCentrality",
+        # Registration is not optional for a geometry script: unregistered, the crash
+        # retry re-runs the IDENTICAL job in the SimpleWorker parent, where a
+        # deterministic OCCT segfault kills the worker itself and (replicas: 1) blocks
+        # the queue until the job's timeout. Registered, the retry degrades to
+        # bounding-box probing, which needs no kernel.
+        "SpaceInteractions",
     }
 )
 
