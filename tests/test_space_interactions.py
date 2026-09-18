@@ -386,3 +386,70 @@ def test_a_room_with_two_cells_yields_one_passes_through_edge():
     index._build_grid()
     rels, _ = _relate(index, z0=1.0, z1=1.2)
     assert [(r["relationship_type"], r["object_global_id"]) for r in rels] == [("passes_through", "ROOM1")]
+
+
+# --- review findings ---------------------------------------------------------
+
+def test_the_spaces_hint_matches_the_workers_staged_name():
+    # The backend names the model by bucket key; the worker stages "<index>-<basename>".
+    ing = _ingester(space_file="output/topology/A1_2b_BIM_XXX_0003_00.ifc")
+    ing.ifc_files = [Path("/tmp/x/0-E1_2b_BIM_XXX_600_00.ifc"), Path("/tmp/x/1-A1_2b_BIM_XXX_0003_00.ifc")]
+    assert ing._resolve_space_file() == ing.ifc_files[1]
+    ing.ifc_files = [Path("/tmp/x/E1.ifc"), Path("/tmp/x/A1_2b_BIM_XXX_0003_00.ifc")]
+    assert ing._resolve_space_file() == ing.ifc_files[1]
+    # A basename that itself starts with digits-dash is not confused with an index.
+    ing = _ingester(space_file="0-S2-200-MM-MASTER_MODEL.ifc")
+    ing.ifc_files = [Path("/tmp/x/1-0-S2-200-MM-MASTER_MODEL.ifc"), Path("/tmp/x/0-S2-200-MM-MASTER_MODEL.ifc")]
+    assert ing._resolve_space_file() == ing.ifc_files[0]
+
+
+def test_the_broad_phase_pad_covers_every_enabled_reach():
+    assert _ingester()._candidate_pad() == 1.5   # serves reach is the widest by default
+    assert _ingester(include_serves_space=False)._candidate_pad() == 1.25
+    assert _ingester(include_serves_space=False, include_vertical=False)._candidate_pad() == 0.10
+    assert _ingester(include_serves_space=False, include_vertical=False, include_bounds=False)._candidate_pad() == 0.0
+
+
+def test_a_wall_on_the_storey_above_is_not_above_the_room_below():
+    class _Wall(_Segment):
+        def is_a(self):
+            return "IfcWall"
+    index = _index_with_room(0.0, 3.0)
+    ing = _ingester(include_bounds=False, include_serves_space=False)
+    verts = _box_verts(1.0, 4.0, 3.35, 9.0, 4.2, 6.0)   # sits on the slab, 0.35 m above the room
+    box = _space_index.world_aabb(verts, IDENTITY)
+    ing._relate_element(
+        index=index, gid="WALL", entity=_Wall(), verts=verts, faces=[], matrix=IDENTITY, box=box,
+        source_file="A1.ifc", space_file="A1s.ifc", terminal_classes=set(), ports={}, systems={},
+        unit_scale=1.0, stats={"terminals": 0},
+    )
+    assert ing.get_relationships() == []
+
+
+def test_the_nearest_tied_room_that_does_not_contain_the_point_is_skipped():
+    # Two rooms with the same top; the first by GlobalId does not cover the point in
+    # plan, the second does. Both are AABB rooms, so column() only admits rooms whose
+    # box covers (x, y): give the decoy a box that covers it but a probe that fails
+    # by making its z-range not include the inset probe (top-inset falls below floor).
+    index = _space_index.RoomIndex(grid_m=3.0)
+    index.cells.append(_space_index.RoomCell(   # decoy: a 2 cm thick "room" -- probe at top-0.05 is outside it
+        global_id="A_DECOY", name="d", long_name="d", storey="1",
+        cell=None, aabb=(0.0, 0.0, 2.98, 10.0, 10.0, 3.0), cell_index=0, cell_count=1, kind="aabb"))
+    index.cells.append(_space_index.RoomCell(
+        global_id="B_REAL", name="r", long_name="r", storey="1",
+        cell=None, aabb=(0.0, 0.0, 0.0, 10.0, 10.0, 3.0), cell_index=0, cell_count=1, kind="aabb"))
+    index.space_count = 2
+    index._build_grid()
+    ing = _ingester()
+    found = ing._room_in_column(index, (5.0, 5.0, 3.5), downward=True, reach_m=1.25)
+    assert found is not None and index.cells[found[0]].global_id == "B_REAL"
+
+
+def test_large_faces_get_probes_along_their_length():
+    # A 20 m x 3 m wall face as two triangles.
+    verts = [0, 0, 0, 20, 0, 0, 20, 0, 3, 0, 0, 3]
+    faces = [0, 1, 2, 0, 2, 3]
+    probes = face_probe_points(verts, faces, min_area_m2=0.05, max_faces=32, per_bucket=8, min_sep_m=0.5)
+    xs = sorted(round(p[0][0], 1) for p in probes)
+    assert len(xs) >= 6, xs
+    assert xs[0] < 4 and xs[-1] > 16, "probes must reach both ends of the face"

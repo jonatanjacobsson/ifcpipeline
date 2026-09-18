@@ -3107,14 +3107,25 @@ _INGEST_SIGSEGV_FALLBACK_SCRIPTS = frozenset(
         "PathRouting",
         "BridgesAndCuts",
         "GraphCentrality",
-        # Registration is not optional for a geometry script: unregistered, the crash
-        # retry re-runs the IDENTICAL job in the SimpleWorker parent, where a
-        # deterministic OCCT segfault kills the worker itself and (replicas: 1) blocks
-        # the queue until the job's timeout. Registered, the retry degrades to
-        # bounding-box probing, which needs no kernel.
+        # Registered so the retry degrades to bounding-box probing (no topologicpy
+        # cells). It is NOT kernel-free -- the element iterator and the room shapes are
+        # still ifcopenshell/OpenCascade -- which is why the retry for this script also
+        # stays in a spawn child (see _INGEST_ISOLATED_RETRY_SCRIPTS).
         "SpaceInteractions",
     }
 )
+
+# Scripts whose whole point is geometry: their degraded retry still drives OpenCascade
+# (ifcopenshell.geom.iterator over the discipline model, create_shape per IfcSpace), so
+# re-running it IN the SimpleWorker parent would let a deterministic tessellator
+# segfault kill the worker itself. With replicas: 1 the RQ job then sits "started"
+# until its 2 h timeout and the whole topologicpy queue waits behind it. The retry
+# therefore runs in a fresh spawn child too; a second crash fails the job cleanly.
+_INGEST_ISOLATED_RETRY_SCRIPTS = frozenset({"SpaceInteractions"})
+
+
+def _retry_in_isolation(script_name: str) -> bool:
+    return script_name in _INGEST_ISOLATED_RETRY_SCRIPTS
 
 
 def _ingest_args_dict(job_data: dict) -> dict[str, Any]:
@@ -3254,10 +3265,12 @@ def run_ingest(job_data: dict) -> dict:
             _is_isolated_child_crash(exc)
             and not _ingest_already_retried_inprocess(job_data)
         ):
+            isolated_retry = _retry_in_isolation(script_name)
             logger.warning(
-                "ingest script=%s isolated child crash (%s); retrying in-process",
+                "ingest script=%s isolated child crash (%s); retrying %s",
                 script_name,
                 exc,
+                "in a fresh isolated child" if isolated_retry else "in-process",
             )
-            return _attempt(_job_data_for_inprocess_retry(job_data), isolated=False)
+            return _attempt(_job_data_for_inprocess_retry(job_data), isolated=isolated_retry)
         raise
