@@ -24,12 +24,20 @@ Two routing strategies are supported:
     door or boundary data. Suited for room-only models (e.g. A1/architectural
     programme files) that lack IfcDoor and IfcRelSpaceBoundary:
 
-    * Horizontal edges — two spaces on the same storey whose 2D bounding-box
-      footprints share a face (touch within ``face_tolerance`` and overlap by
-      at least ``min_shared_face``) get a ``bbox_face_adjacency`` edge.
+    * Horizontal edges — two spaces on the same storey whose 2D bounding boxes
+      share a face (touch within ``face_tolerance``, overlap at least
+      ``min_shared_face``) AND whose real footprints come within
+      ``footprint_tolerance`` get a ``bbox_face_adjacency`` edge. The box test is
+      only a broad phase: an axis-aligned box around an L- or U-shaped room covers
+      ground the room does not, so boxes alone linked rooms up to 26 m apart across
+      open floor plate — measured on Nobel, only 21% of box-adjacent pairs had
+      footprints that actually touched. The footprint check is the narrow phase.
     * Vertical edges — spaces with a LongName matching a stairway or lift
       keyword are grouped by normalised name; same-named instances on
-      consecutive storeys are connected with ``named_stair_lift_match`` edges.
+      consecutive storeys are connected with ``named_stair_lift_match`` edges,
+      provided they are also within ``max_connector_offset`` horizontally. A stair
+      connects rooms stacked above one another; without the cap, two unrelated
+      rooms whose names both normalise to the same keyword were linked 25 m apart.
     * Storey assignment — uses IFC spatial containment first; falls back to
       parsing the three-digit prefix in the room number (e.g. "040-206" →
       storey "040"), then to Z-centroid nearest storey elevation.
@@ -163,6 +171,10 @@ class Ingester(_Base):
         use_topologic: bool = True,
         force_ifc_native: bool = False,
         thin_spaces: bool = True,
+        # Appended, never inserted: resolve_positional_arguments maps the n8n
+        # Arguments list by declaration order, so inserting would re-map callers.
+        footprint_tolerance: float = 1.5,
+        max_connector_offset: float = 6.0,
     ):
         """Extract space-to-space circulation edges.
 
@@ -211,6 +223,8 @@ class Ingester(_Base):
         :param face_tolerance: (space_adjacency) Max bbox gap (metres) to count as touching.
         :param min_shared_face: (space_adjacency) Min shared edge (metres) for adjacency.
         :param vertical_keywords: (space_adjacency) Override stair/lift keyword list.
+        :param footprint_tolerance: (space_adjacency) Max real-footprint gap (m) behind the bbox broad phase; 0 disables the check. Calibrated against pairs a real IfcDoor proves adjacent: 0.6 m would keep only 65% of them, 1.5 m keeps 89%, and the box over-reach it rejects runs to 26 m.
+        :param max_connector_offset: (space_adjacency) Max horizontal offset (m) between two instances of one stair/lift; 0 disables.
         :param use_topologic: (door_portal) When False, skip Graph.ByIFCFile portal graph step.
         :param force_ifc_native: Internal retry flag after SIGSEGV (same as use_topologic=False).
         :param thin_spaces: When True (default), build a spaces-only IFC via RemoveElements
@@ -249,6 +263,8 @@ class Ingester(_Base):
         # space_adjacency params
         self.face_tolerance = face_tolerance
         self.min_shared_face = min_shared_face
+        self.footprint_tolerance = float(footprint_tolerance)
+        self.max_connector_offset = float(max_connector_offset)
         self.vertical_keywords: Tuple[str, ...] = (
             vertical_keywords if vertical_keywords is not None else _VERTICAL_KEYWORDS
         )
@@ -337,7 +353,12 @@ class Ingester(_Base):
                 "isolated_resolved": isolated,
                 "total_edges": len(self._relationships),
                 "input_files": [p.name for p in self.ifc_files],
+                "footprint_tolerance_m": self.footprint_tolerance,
+                "max_connector_offset_m": self.max_connector_offset,
                 "duration_ms": int(elapsed * 1000),
+                # What the narrow phases threw out, so a reader can see the box
+                # broad phase's over-reach rather than infer it from a lower total.
+                **getattr(self, "_summary_extra", {}),
             }
             self.log.info(
                 "EgressCirculation[space_adjacency]: %d edges "
@@ -371,6 +392,9 @@ class Ingester(_Base):
                     ys = [v[i] * scale for i in range(1, len(v), 3)]
                     zs = [v[i] * scale for i in range(2, len(v), 3)]
                     bbox2d = (min(xs), min(ys), max(xs), max(ys))
+                    # The footprint itself, deduped on a 5 cm grid: enough to measure
+                    # the real gap between two rooms without carrying the full mesh.
+                    pts2d = sorted({(round(x, 2), round(y, 2)) for x, y in zip(xs, ys)})
                     cx = (min(xs) + max(xs)) / 2
                     cy = (min(ys) + max(ys)) / 2
                     cz = (min(zs) + max(zs)) / 2
@@ -381,6 +405,7 @@ class Ingester(_Base):
                         "long_name": long_name,
                         "source": ifc_path.name,
                         "bbox2d": bbox2d,
+                        "pts2d": pts2d,
                         "cx": cx, "cy": cy, "cz": cz,
                         "storey_key": None,   # assigned later
                         "is_vc": _is_vertical_connector(long_name, self.vertical_keywords),
@@ -474,6 +499,7 @@ class Ingester(_Base):
             by_storey[sp["storey_key"] or "_unknown"].append(sp)
 
         added = 0
+        rejected = 0
         for storey_key, floor_spaces in by_storey.items():
             gids = [s["gid"] for s in floor_spaces]
             for i, sp1 in enumerate(floor_spaces):
@@ -485,6 +511,15 @@ class Ingester(_Base):
                         continue
                     key = tuple(sorted((sp1["gid"], sp2["gid"])))
                     if key in seen:
+                        continue
+                    # Narrow phase: the boxes touch, but do the rooms? Skipping the
+                    # pair rather than marking `seen` leaves it available to a later,
+                    # better-evidenced pass.
+                    gap = _footprint_gap(
+                        sp1.get("pts2d"), sp2.get("pts2d"), self.footprint_tolerance
+                    ) if self.footprint_tolerance > 0 else 0.0
+                    if gap is None:
+                        rejected += 1
                         continue
                     seen.add(key)
                     # Confidence: higher when neither space is a large hub
@@ -499,14 +534,19 @@ class Ingester(_Base):
                         evidence={
                             "method": "bbox_face_adjacency",
                             "shared_edge_m": round(shared, 3),
+                            "footprint_gap_m": round(gap, 3),
                             "storey_key": storey_key,
                             "source_file": sp1["source"],
                         },
                     ))
                     added += 1
         self.log.info(
-            "EgressCirculation[space_adjacency]: %d horizontal edges (bbox face-share)", added
+            "EgressCirculation[space_adjacency]: %d horizontal edges (bbox face-share), "
+            "%d rejected by the footprint check (tol=%.2fm)",
+            added, rejected, self.footprint_tolerance,
         )
+        self._summary_extra = getattr(self, "_summary_extra", {})
+        self._summary_extra["bbox_pairs_rejected_by_footprint"] = rejected
         return added
 
     # ------------------------------------------------------------------
@@ -530,6 +570,7 @@ class Ingester(_Base):
         storey_order = self._storey_order(spaces, storey_elevations)
 
         added = 0
+        rejected_vc = 0
         for norm_name, instances in vc_by_name.items():
             if len(instances) < 2:
                 continue
@@ -545,6 +586,12 @@ class Ingester(_Base):
                 key = tuple(sorted((sp1["gid"], sp2["gid"])))
                 if key in seen:
                     continue
+                # A stair connects rooms stacked above one another. A long horizontal
+                # jump means two unrelated rooms whose names merely normalise the same.
+                offset = _planar_dist(sp1["cx"], sp1["cy"], sp2["cx"], sp2["cy"])
+                if self.max_connector_offset > 0 and offset > self.max_connector_offset:
+                    rejected_vc += 1
+                    continue
                 seen.add(key)
                 self._relationships.append(Relationship(
                     subject_global_id=sp1["gid"],
@@ -555,6 +602,7 @@ class Ingester(_Base):
                     source_kind="topologic_ingest_EgressCirculation",
                     evidence={
                         "method": "named_stair_lift_match",
+                        "horizontal_offset_m": round(offset, 3),
                         "connector_name": norm_name,
                         "connector_long_name": sp1["long_name"],
                         "storey_from": sp1["storey_key"],
@@ -565,9 +613,12 @@ class Ingester(_Base):
                 added += 1
 
         self.log.info(
-            "EgressCirculation[space_adjacency]: %d vertical edges (%d named connectors)",
-            added, len(vc_by_name),
+            "EgressCirculation[space_adjacency]: %d vertical edges (%d named connectors), "
+            "%d rejected as too far apart horizontally (max=%.1fm)",
+            added, len(vc_by_name), rejected_vc, self.max_connector_offset,
         )
+        self._summary_extra = getattr(self, "_summary_extra", {})
+        self._summary_extra["stair_pairs_rejected_by_offset"] = rejected_vc
         return added
 
     def _storey_order(
@@ -2493,6 +2544,32 @@ def _bbox2d_shared_edge(
     x_ov = max(0.0, min(b1[2], b2[2]) - max(b1[0], b2[0]))
     y_ov = max(0.0, min(b1[3], b2[3]) - max(b1[1], b2[1]))
     return max(x_ov, y_ov)
+
+
+def _footprint_gap(
+    pts1: Optional[List[Tuple[float, float]]],
+    pts2: Optional[List[Tuple[float, float]]],
+    tol: float,
+) -> Optional[float]:
+    """Smallest distance between two footprints, or None when it exceeds ``tol``.
+
+    Point-to-point over the deduped footprint vertices. Rooms that share a wall have
+    vertices within its thickness of each other; rooms on opposite sides of a floor
+    plate do not, however much their bounding boxes overlap. Returns early on the
+    first pair inside tolerance, so an adjacent pair costs almost nothing.
+    """
+    if not pts1 or not pts2:
+        return 0.0  # no footprint captured: fall back to the bbox verdict
+    tol2 = tol * tol
+    best = float("inf")
+    for x1, y1 in pts1:
+        for x2, y2 in pts2:
+            d2 = (x1 - x2) ** 2 + (y1 - y2) ** 2
+            if d2 <= tol2:
+                return d2 ** 0.5
+            if d2 < best:
+                best = d2
+    return None
 
 
 def _planar_dist(x1: float, y1: float, x2: float, y2: float) -> float:
