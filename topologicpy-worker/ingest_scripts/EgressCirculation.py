@@ -392,9 +392,10 @@ class Ingester(_Base):
                     ys = [v[i] * scale for i in range(1, len(v), 3)]
                     zs = [v[i] * scale for i in range(2, len(v), 3)]
                     bbox2d = (min(xs), min(ys), max(xs), max(ys))
-                    # The footprint itself, deduped on a 5 cm grid: enough to measure
-                    # the real gap between two rooms without carrying the full mesh.
+                    # Vertex samples, deduped on a 1 cm grid: the fallback used when
+                    # a space yields no outline segments below.
                     pts2d = sorted({(round(x, 2), round(y, 2)) for x, y in zip(xs, ys)})
+                    segs2d = _footprint_segments(xs, ys, shape.geometry.faces)
                     cx = (min(xs) + max(xs)) / 2
                     cy = (min(ys) + max(ys)) / 2
                     cz = (min(zs) + max(zs)) / 2
@@ -406,6 +407,7 @@ class Ingester(_Base):
                         "source": ifc_path.name,
                         "bbox2d": bbox2d,
                         "pts2d": pts2d,
+                        "segs2d": segs2d,
                         "cx": cx, "cy": cy, "cz": cz,
                         "storey_key": None,   # assigned later
                         "is_vc": _is_vertical_connector(long_name, self.vertical_keywords),
@@ -516,7 +518,7 @@ class Ingester(_Base):
                     # pair rather than marking `seen` leaves it available to a later,
                     # better-evidenced pass.
                     gap = _footprint_gap(
-                        sp1.get("pts2d"), sp2.get("pts2d"), self.footprint_tolerance
+                        sp1, sp2, self.footprint_tolerance
                     ) if self.footprint_tolerance > 0 else 0.0
                     if gap is None:
                         rejected += 1
@@ -2546,29 +2548,119 @@ def _bbox2d_shared_edge(
     return max(x_ov, y_ov)
 
 
-def _footprint_gap(
-    pts1: Optional[List[Tuple[float, float]]],
-    pts2: Optional[List[Tuple[float, float]]],
-    tol: float,
-) -> Optional[float]:
+_MAX_FOOTPRINT_SEGMENTS = 600
+
+
+def _footprint_segments(
+    xs: List[float], ys: List[float], faces,
+) -> List[Tuple[float, float, float, float]]:
+    """Outline segments of a space footprint, from the vertical faces of its solid.
+
+    A triangle whose 2D projection has no area is a vertical face, so it projects
+    to exactly one segment of the room outline. Those segments are the real
+    footprint boundary, which vertex samples alone are not: a small room opening
+    onto a long corridor sits *on* the corridor's outline while the corridor's
+    nearest vertex is metres away down its length.
+    """
+    segs = set()
+    n = len(xs)
+    for i in range(0, len(faces) - 2, 3):
+        a, b, c = faces[i], faces[i + 1], faces[i + 2]
+        if a >= n or b >= n or c >= n:
+            continue
+        ax, ay, bx, by, cx, cy = xs[a], ys[a], xs[b], ys[b], xs[c], ys[c]
+        if abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) > 1e-6:
+            continue  # has plan area: a floor or ceiling face, not an outline
+        corners = sorted({(round(ax, 3), round(ay, 3)),
+                          (round(bx, 3), round(by, 3)),
+                          (round(cx, 3), round(cy, 3))})
+        best, best_d2 = None, 0.0
+        for j in range(len(corners)):
+            for k in range(j + 1, len(corners)):
+                (x1, y1), (x2, y2) = corners[j], corners[k]
+                d2 = (x1 - x2) ** 2 + (y1 - y2) ** 2
+                if d2 > best_d2:
+                    best, best_d2 = (x1, y1, x2, y2), d2
+        if best is not None and best_d2 > 1e-12:
+            segs.add(best)
+    out = sorted(segs)
+    if len(out) > _MAX_FOOTPRINT_SEGMENTS:
+        # Keep the longest: they carry most of the outline, and dropping the rest
+        # can only make a measured gap larger, never smaller.
+        out.sort(key=lambda s: (s[0] - s[2]) ** 2 + (s[1] - s[3]) ** 2, reverse=True)
+        out = sorted(out[:_MAX_FOOTPRINT_SEGMENTS])
+    return out
+
+
+def _point_seg_dist(
+    px: float, py: float, x1: float, y1: float, x2: float, y2: float,
+) -> float:
+    ex, ey = x2 - x1, y2 - y1
+    length2 = ex * ex + ey * ey
+    if length2 == 0.0:
+        return ((px - x1) ** 2 + (py - y1) ** 2) ** 0.5
+    t = ((px - x1) * ex + (py - y1) * ey) / length2
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+    return ((px - (x1 + t * ex)) ** 2 + (py - (y1 + t * ey)) ** 2) ** 0.5
+
+
+def _seg_seg_dist(
+    s1: Tuple[float, float, float, float],
+    s2: Tuple[float, float, float, float],
+) -> float:
+    """Smallest distance between two 2D segments; 0.0 when they cross."""
+    ax, ay, bx, by = s1
+    cx, cy, dx, dy = s2
+
+    def side(ox, oy, px, py, qx, qy):
+        return (px - ox) * (qy - oy) - (py - oy) * (qx - ox)
+
+    d1 = side(cx, cy, dx, dy, ax, ay)
+    d2 = side(cx, cy, dx, dy, bx, by)
+    d3 = side(ax, ay, bx, by, cx, cy)
+    d4 = side(ax, ay, bx, by, dx, dy)
+    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
+        return 0.0
+    return min(
+        _point_seg_dist(ax, ay, cx, cy, dx, dy),
+        _point_seg_dist(bx, by, cx, cy, dx, dy),
+        _point_seg_dist(cx, cy, ax, ay, bx, by),
+        _point_seg_dist(dx, dy, ax, ay, bx, by),
+    )
+
+
+def _footprint_gap(sp1: dict, sp2: dict, tol: float) -> Optional[float]:
     """Smallest distance between two footprints, or None when it exceeds ``tol``.
 
-    Point-to-point over the deduped footprint vertices. Rooms that share a wall have
-    vertices within its thickness of each other; rooms on opposite sides of a floor
-    plate do not, however much their bounding boxes overlap. Returns early on the
-    first pair inside tolerance, so an adjacent pair costs almost nothing.
+    Segment-to-segment over the room outlines, falling back to the vertex samples
+    when a space yielded no outline. Rooms that share a wall measure within its
+    thickness of each other; rooms on opposite sides of a floor plate do not,
+    however much their bounding boxes overlap.
+
+    The outline scan reports the true minimum rather than stopping at the first
+    qualifying pair, so the distance recorded as evidence means what it says.
+    Rooms carry a handful of outline segments each, so that costs little.
     """
+    segs1, segs2 = sp1.get("segs2d"), sp2.get("segs2d")
+    if segs1 and segs2:
+        best = float("inf")
+        for s1 in segs1:
+            for s2 in segs2:
+                gap = _seg_seg_dist(s1, s2)
+                if gap < best:
+                    best = gap
+                    if best == 0.0:
+                        return 0.0   # outlines touch or cross; nothing beats it
+        return best if best <= tol else None
+    pts1, pts2 = sp1.get("pts2d"), sp2.get("pts2d")
     if not pts1 or not pts2:
         return 0.0  # no footprint captured: fall back to the bbox verdict
     tol2 = tol * tol
-    best = float("inf")
     for x1, y1 in pts1:
         for x2, y2 in pts2:
             d2 = (x1 - x2) ** 2 + (y1 - y2) ** 2
             if d2 <= tol2:
                 return d2 ** 0.5
-            if d2 < best:
-                best = d2
     return None
 
 
