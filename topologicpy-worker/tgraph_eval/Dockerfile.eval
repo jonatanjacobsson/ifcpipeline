@@ -19,9 +19,15 @@ RUN apt-get update && apt-get install -y \
 
 RUN python -m pip install --upgrade pip
 
-# Worker runtime deps (this branch pins topologicpy>=0.9.50).
+# Worker runtime deps (same exact topologicpy + topologic_core pins as the worker).
 COPY topologicpy-worker/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Same kernel pin + build-time kernel smoke as the worker image: an eval run on
+# an image without a geometry kernel would silently measure 0 cells.
+ENV TOPOLOGICPY_CORE_BACKEND=topologic_core
+COPY topologicpy-worker/kernel_smoke.py /app/kernel_smoke.py
+RUN python /app/kernel_smoke.py
 
 # Eval-only extras (NetworkX oracle, igraph louvain backend).
 COPY topologicpy-worker/tgraph_eval/requirements.eval.txt /app/requirements.eval.txt

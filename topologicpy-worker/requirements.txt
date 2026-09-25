@@ -24,12 +24,14 @@ ifcopenshell==0.8.4
 # installed unless it is pinned here. Without a kernel the failure is silent:
 # Vertex.ByCoordinates prints a warning and returns None, and
 # Topology.ByBREPString(silent=True) returns None -> SpaceInteractions indexes
-# 0 rooms, roomstamp builds 0 cells, all reported as success. That is the most
-# likely explanation of the 2026-09-18 incident (rebuild drifted to 0.9.70,
-# "Topology.Cells returns nothing" for every IfcSpace BRep): the Python bodies
-# of Topology.Cells/ByBREPString/ContainmentStatus are identical 0.9.65 vs
-# 0.9.80, and 0.9.65/0.9.68/0.9.70/0.9.80 WITH topologic_core 8.0.4 all give
-# 241 spaces / 243 cells on A1 0003 (2026-09-25 re-evaluation).
+# 0 rooms, roomstamp builds 0 cells, all reported as success. That was the
+# 2026-09-18 incident (rebuild drifted to 0.9.70, "Topology.Cells returns
+# nothing" for every IfcSpace BRep): the kept image
+# ifcpipeline-topologicpy-worker:0.9.70-broken-2026-09-18 has topologicpy
+# 0.9.70 and NO topologic_core (checked 2026-09-25), while
+# 0.9.65/0.9.68/0.9.70/0.9.80 WITH topologic_core 8.0.4 all give 241 spaces /
+# 243 cells on A1 0003. The Dockerfile now fails the build if no kernel is
+# usable (kernel_smoke.py).
 topologicpy==0.9.65
 topologic_core==8.0.4
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
