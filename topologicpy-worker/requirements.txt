@@ -32,7 +32,11 @@ ifcopenshell==0.8.4
 # 0.9.65/0.9.68/0.9.70/0.9.80 WITH topologic_core 8.0.4 all give 241 spaces /
 # 243 cells on A1 0003. The Dockerfile now fails the build if no kernel is
 # usable (kernel_smoke.py).
-topologicpy==0.9.65
+# NOTE (0.9.80, 2026-09-25): bumped together with topologic_core 8.0.4 after the
+# gates in UPGRADE-0.9.80.md (17 ingest_bench fingerprints, SpaceInteractions,
+# roomstamp cells, KG TTL). 0.9.70+ needs ingest_scripts/_kg_compat.py for the
+# KnowledgeGraphExport vocabulary and the Vertex.Distance guard in tasks.py.
+topologicpy==0.9.80
 topologic_core==8.0.4
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
 # (algorithm="louvain"), used by ZonePartition. topologicpy does not pull it in.
