@@ -24,6 +24,15 @@ from the dictionary key ``ifc_guid`` first. The topograph adapter populates
 ``IFC_global_id``; :meth:`_set_guid_keys` copies it to ``ifc_guid`` so every instance
 gets a GlobalId-unique IRI — without this, instances collapse by class label and a
 merge over-deduplicates.
+
+Vocabulary contract (topologicpy >= 0.9.70): the 0.9.70 KnowledgeGraph/Ontology
+rewrite -- as published in the 0.9.80 wheel -- corrupts every literal, emits no
+``rdf:type``/BOT typing and no element<->element edges, and moves the IFC data
+properties to ``dict:*``. :mod:`ingest_scripts._kg_compat` repairs the literals
+at the source and restores the 0.9.65 vocabulary additively from the TGraph
+records, and the Turtle is written in the 0.9.65 form (all 15 prefixes, flat
+sorted statements). On 0.9.65 the restoration is a no-op and the artifact is
+byte-identical to what ``KnowledgeGraph.TurtleString()`` produced.
 """
 
 from __future__ import annotations
@@ -35,7 +44,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ingest_scripts import Ingester as _Base, Relationship
-from ingest_scripts import topograph
+from ingest_scripts import _kg_compat, topograph
 
 # Predicates that are schema/annotation, never instance-to-instance edges.
 # The trailing alternatives cover topologicpy >=0.9.58, which links property
@@ -142,7 +151,9 @@ class Ingester(_Base):
     # --- helpers -------------------------------------------------------------
     def _set_guid_keys(self, g) -> int:
         """Copy ``IFC_global_id`` -> ``ifc_guid`` on every vertex so Ontology mints
-        GlobalId-unique IRIs. Returns the number of vertices stamped."""
+        GlobalId-unique IRIs. Returns the number of vertices that carry a GUID key
+        afterwards (topologicpy >= 0.9.70's TGraph already sets ``ifc_guid``
+        itself, so counting only our own stamps would report 0)."""
         n = 0
         try:
             from topologicpy.TGraph import TGraph
@@ -155,14 +166,26 @@ class Ingester(_Base):
             if not isinstance(d, dict):
                 continue
             gid = d.get("IFC_global_id") or d.get("GlobalId")
-            if gid and not d.get("ifc_guid"):
+            if not gid:
+                continue
+            if not d.get("ifc_guid"):
                 d["ifc_guid"] = gid
-                if d.get("IFC_name") and not d.get("label"):
-                    d["label"] = d["IFC_name"]
-                if d.get("IFC_type") and not d.get("ifc_class"):
-                    d["ifc_class"] = d["IFC_type"]
-                n += 1
+            if d.get("IFC_name") and not d.get("label"):
+                d["label"] = d["IFC_name"]
+            if d.get("IFC_type") and not d.get("ifc_class"):
+                d["ifc_class"] = d["IFC_type"]
+            n += 1
         return n
+
+    @staticmethod
+    def _graph_records(g) -> Dict[str, Any]:
+        from topologicpy.TGraph import TGraph
+
+        try:
+            gd = TGraph.Dictionary(g) or {}
+        except Exception:
+            gd = dict(getattr(g, "_dictionary", {}) or {})
+        return {"graph": gd, "V": topograph._vertex_records(g), "E": topograph._edge_records(g)}
 
     @staticmethod
     def _prefixes(ttl: str) -> List[str]:
@@ -248,6 +271,7 @@ class Ingester(_Base):
         except Exception as exc:
             raise RuntimeError("KnowledgeGraphExport requires rdflib (pip install rdflib): %r" % exc)
         _install_kg_speedups(KnowledgeGraph)
+        _kg_compat.install_literal_fix(KnowledgeGraph)
 
         per_file: List[Dict[str, Any]] = []
         kgs: List[Any] = []
@@ -263,14 +287,21 @@ class Ingester(_Base):
             # token writer either way, so the TTL artifact is byte-identical.
             kg = KnowledgeGraph.ByTopology(g, includeBOT=self.include_bot, silent=True,
                                            useRDFLib=False)
+            # topologicpy >= 0.9.70: restore the 0.9.65 vocabulary (no-op on 0.9.65).
+            kg, compat = _kg_compat.apply(kg, self._graph_records(g), KnowledgeGraph,
+                                          include_bot=self.include_bot)
+            if compat["legacy_triples_added"]:
+                self.log.info("kg_export: restored %d legacy-vocabulary triples for %s",
+                              compat["legacy_triples_added"], stem)
 
-            base_ttl = kg.TurtleString()
+            base_ttl = _kg_compat.kg_turtle(kg)
             base_n = len(kg)  # token triples == serialized statements; no re-parse
             entry: Dict[str, Any] = {
                 "file": Path(ifc_path).name,
                 "vertices": topograph.order(g),
                 "guid_keyed_vertices": stamped,
                 "base_triples": base_n,
+                "legacy_triples_added": compat["legacy_triples_added"],
             }
 
             final_kg = kg
@@ -281,11 +312,19 @@ class Ingester(_Base):
                 kg._rdflib_enabled = True
                 final_kg = kg.Infer(profile="rdfs", includeBOT=self.include_bot,
                                     includeOntologyAxioms=True)
-                ttl = final_kg.TurtleString()
+                ttl = _kg_compat.kg_turtle(final_kg)
                 inf_n = len(final_kg)
                 entry["inferred_triples"] = inf_n
                 entry["inferred_delta"] = (None if (inf_n is None or base_n is None)
                                           else inf_n - base_n)
+                if entry["inferred_delta"] == 0:
+                    # topologicpy 0.9.80's wheel ships no ontology TTL, so Infer
+                    # has no axioms and entails nothing. Materialized edges then
+                    # come from asserted triples only (identical on A1; on MEP
+                    # models the owl:inverseOf-derived isConnectedPortOf edges
+                    # 0.9.65 inferred are absent). See UPGRADE-0.9.80.md.
+                    self.log.warning("kg_export: RDFS inference added no triples for %s "
+                                     "(no ontology axioms in this topologicpy)", stem)
 
             entry["prefixes"] = self._prefixes(ttl)
             per_file.append(entry)
@@ -296,7 +335,7 @@ class Ingester(_Base):
         merged_triples = None
         if self.merge and len(kgs) > 1:
             merged = KnowledgeGraph.MergeGraphs(kgs)
-            mttl = merged.TurtleString()
+            mttl = _kg_compat.kg_turtle(merged)
             merged_triples = len(merged)
             name = "merged%s.kg.ttl" % (".reasoned" if self.reason else "")
             self._artifacts.append((name, mttl, "text/turtle"))
