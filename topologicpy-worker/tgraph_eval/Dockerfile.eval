@@ -1,7 +1,7 @@
 # Isolated evaluation image for topologicpy 0.9.50 / TGraph.
 #
-# Mirrors the production topologicpy-worker image (same base, same patch_vertex
-# step, same ifcopenshell pin) but adds the eval harness + NetworkX/igraph and
+# Mirrors the production topologicpy-worker image (same base, same
+# ifcopenshell pin) but adds the eval harness + NetworkX/igraph and
 # runs the benchmark CLI instead of an RQ worker. It is NOT part of any compose
 # stack: build it standalone and run it as a one-off `docker run` (see README).
 #
@@ -26,10 +26,6 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Eval-only extras (NetworkX oracle, igraph louvain backend).
 COPY topologicpy-worker/tgraph_eval/requirements.eval.txt /app/requirements.eval.txt
 RUN pip install --no-cache-dir -r /app/requirements.eval.txt
-
-# Same upstream None-guard patch the worker applies (no-op if already fixed in 0.9.50).
-COPY topologicpy-worker/patch_vertex.py /tmp/patch_vertex.py
-RUN python /tmp/patch_vertex.py
 
 # Harness + the real ingest scripts (for end-to-end fidelity).
 COPY topologicpy-worker/ingest_scripts /app/ingest_scripts
