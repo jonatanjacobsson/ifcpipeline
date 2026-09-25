@@ -182,6 +182,41 @@ def test_restore_is_additive_and_noop_when_legacy_vocabulary_present():
     assert ("inst:S1", "rdf:type", "bot:Storey") in out
 
 
+_MAPPED_TYPE = re.compile(r"^(bot|brick|prov):")
+
+
+def _mapped_types(triples):
+    return sorted(t for t in triples if t[1] == "rdf:type" and _MAPPED_TYPE.match(t[2]))
+
+
+def test_legacy_typing_honours_include_bot_false():
+    # 0.9.65 Ontology.Triples adds the BOTClassByClass rdf:type only with includeBOT;
+    # the TGraph edge predicates (bot:containsElement, ...) are emitted either way.
+    records = {
+        "graph": {},
+        "V": [{"index": 0, "dictionary": {"IFC_global_id": "P1", "IFC_type": "IfcProject"}},
+              {"index": 1, "dictionary": {"IFC_global_id": "S1", "IFC_type": "IfcBuildingStorey"}},
+              {"index": 2, "dictionary": {"IFC_global_id": "R1", "IFC_type": "IfcSpace"}},
+              {"index": 3, "dictionary": {"IFC_global_id": "X1", "IFC_type": "IfcSensor"}},
+              {"index": 4, "dictionary": {"IFC_global_id": "Q1", "IFC_type": "IfcBoiler",
+                                          "ontology_class": "top:Equipment"}}],
+        "E": [{"index": 0, "src": 1, "dst": 3, "dictionary": {
+            "IFC_type": "IfcRelContainedInSpatialStructure"}}],
+    }
+    with_bot = kc.legacy_triples(records)
+    assert {o for _s, _p, o in _mapped_types(with_bot)} == {
+        "prov:Entity", "bot:Storey", "bot:Space", "brick:Point", "brick:Equipment"}
+
+    no_bot = kc.legacy_triples(records, include_bot=False)
+    assert _mapped_types(no_bot) == []
+    assert no_bot == with_bot - set(_mapped_types(with_bot))
+    assert ("inst:R1", "rdf:type", "top:Space") in no_bot
+    assert ("inst:S1", "bot:containsElement", "inst:X1") in no_bot
+
+    out, _ = kc.restore(set(), records, include_bot=False)
+    assert _mapped_types(out) == []
+
+
 # --------------------------------------------------------------------------- #
 # _kg_compat: end to end on the installed topologicpy
 # --------------------------------------------------------------------------- #
@@ -224,6 +259,16 @@ def test_kg_export_restores_types_edges_and_guids():
     rdflib = pytest.importorskip("rdflib")
     parsed = rdflib.Graph().parse(data=ttl, format="turtle")
     assert len(parsed) == len(triples)
+
+    # includeBOT=False: no mapped BOT/Brick/PROV typing on any topologicpy, the
+    # top:* typing and the element edges stay.
+    kg_nb = KnowledgeGraph.ByTopology(g, includeBOT=False, silent=True, useRDFLib=False)
+    kg_nb, _stats = kc.apply(kg_nb, records, KnowledgeGraph, include_bot=False)
+    nb = set(kg_nb.Triples())
+    assert _mapped_types(nb) == []
+    assert any(p == "rdf:type" and o.startswith("top:") for (sub, p, o) in nb if sub == a)
+    assert (s, "top:aggregates", a) in nb
+    assert (s, "top:ifcGUID", f'"{storey}"') in nb
 
 
 # --------------------------------------------------------------------------- #
