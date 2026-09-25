@@ -465,7 +465,13 @@ class TGraphAdapter:
         a, b = gid2idx.get(src), gid2idx.get(tgt)
         if a is None or b is None:
             return None
-        path = TGraph.ShortestPath(g, a, b, mode="all")
+        # Hop count vs the NetworkX BFS oracle: force unit edge cost. Since
+        # topologicpy 0.9.65 the default is Dijkstra over edgeKey="Length"
+        # (synthetic coordinates in topology mode). 0.9.50-0.9.62 have no
+        # edgeKey kwarg and already route by hops.
+        import inspect as _inspect
+        kw = {"edgeKey": "hop"} if "edgeKey" in _inspect.signature(TGraph.ShortestPath).parameters else {}
+        path = TGraph.ShortestPath(g, a, b, mode="all", **kw)
         if not path:
             return None
         return len(path) - 1

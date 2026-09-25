@@ -395,16 +395,47 @@ def _use_topologic_containment(selected_engine: str) -> bool:
     return selected_engine == TopologyEngine.TOPOLOGICPY.value
 
 
+_TOPOLOGIC_RUNTIME: Optional[Dict[str, Any]] = None
+
+
+def _topologic_runtime() -> Dict[str, Any]:
+    """topologicpy / topologic_core versions + active Core backend, logged once
+    per process. Each job runs in a fresh spawn child, so this is one line per
+    job -- the first place to look when a job reports 0 rooms/cells (no kernel)
+    or different containment answers (backend drifted to PythonOCC)."""
+    global _TOPOLOGIC_RUNTIME
+    if _TOPOLOGIC_RUNTIME is not None:
+        return _TOPOLOGIC_RUNTIME
+    try:
+        import kernel_smoke
+
+        info = kernel_smoke.runtime_info()
+    except Exception as exc:  # pragma: no cover - kernel_smoke ships with tasks.py
+        info = {"error": repr(exc)}
+    healthy = info.get("backend") == "TopologicCoreBackend" and not info.get("occ_importable")
+    logger.log(
+        logging.INFO if healthy else logging.WARNING,
+        "[topologicpy] runtime %s",
+        " ".join(f"{k}={v}" for k, v in sorted(info.items())),
+    )
+    _TOPOLOGIC_RUNTIME = info
+    return info
+
+
 def _topologicpy_status() -> Dict[str, Any]:
     start = time.perf_counter()
     try:
         import topologicpy  # type: ignore
 
-        return {
+        status = {
             "available": True,
             "version": getattr(topologicpy, "__version__", "unknown"),
             "import_seconds": round(time.perf_counter() - start, 6),
         }
+        runtime = _topologic_runtime()
+        status["topologic_core"] = runtime.get("topologic_core")
+        status["backend"] = runtime.get("backend")
+        return status
     except Exception as exc:
         return {
             "available": False,
@@ -2844,6 +2875,7 @@ def _run_ingest_core(job_data: dict) -> dict:
 
     request = TopologicIngestRequest(**job_data)
     script_name = request.script
+    _topologic_runtime()
     logger.info("ingest: starting script=%s, files=%s s3=%s", script_name, request.input_files, len(request.input_s3))
 
     tmpdir = tempfile.mkdtemp(prefix="topo_ingest_")
