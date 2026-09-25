@@ -2,9 +2,9 @@
 
 No worker code path calls these APIs today (checked 2026-09-25 by grep and by
 counting calls during the 0.9.80 gate runs; see UPGRADE-0.9.80.md).
-``tests/test_topologic_guards.py`` fails if a direct call appears anywhere in
-``topologicpy-worker/`` outside this module, so a future use has to come
-through here:
+``tests/test_topologicpy_0980_compat.py::test_regressed_apis_are_only_called_through_guards``
+fails if a direct call appears anywhere in ``topologicpy-worker/`` outside this
+module, so a future use has to come through here:
 
 * ``CellComplex.ByCells`` -- on 0.9.80 + topologic_core it can return an EMPTY
   CellComplex without any warning (243 A1 room cells -> 0 cells): the native

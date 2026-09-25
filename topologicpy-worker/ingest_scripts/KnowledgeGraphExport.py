@@ -288,7 +288,8 @@ class Ingester(_Base):
             kg = KnowledgeGraph.ByTopology(g, includeBOT=self.include_bot, silent=True,
                                            useRDFLib=False)
             # topologicpy >= 0.9.70: restore the 0.9.65 vocabulary (no-op on 0.9.65).
-            kg, compat = _kg_compat.apply(kg, self._graph_records(g), KnowledgeGraph)
+            kg, compat = _kg_compat.apply(kg, self._graph_records(g), KnowledgeGraph,
+                                          include_bot=self.include_bot)
             if compat["legacy_triples_added"]:
                 self.log.info("kg_export: restored %d legacy-vocabulary triples for %s",
                               compat["legacy_triples_added"], stem)

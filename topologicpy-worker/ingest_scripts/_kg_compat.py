@@ -338,11 +338,17 @@ def _is_qname(token: Any) -> bool:
     return bool(local) and prefix in LEGACY_NAMESPACES and prefix != "dict"
 
 
-def legacy_triples(graph_records: Dict[str, Any]) -> Set[Triple]:
+def legacy_triples(graph_records: Dict[str, Any], include_bot: bool = True) -> Set[Triple]:
     """The 0.9.65 vocabulary for a TGraph, from its records alone.
 
     ``graph_records`` = {"graph": graph dictionary, "V": vertex records,
     "E": edge records} (``TGraph.Vertices``/``TGraph.Edges``).
+
+    ``include_bot`` mirrors ``KnowledgeGraph.ByTopology(includeBOT=...)``: 0.9.65
+    only added the mapped ``rdf:type`` (``bot:*``, ``brick:Equipment``,
+    ``brick:Point``, ``prov:Entity``) when it was True. Edge predicates that
+    live in the BOT namespace (``bot:containsElement``/``bot:adjacentElement``)
+    come from the TGraph and were emitted either way, so they are not gated.
     """
     out: Set[Triple] = set()
     add = out.add
@@ -361,7 +367,7 @@ def legacy_triples(graph_records: Dict[str, Any]) -> Set[Triple]:
         cls = d.get("ontology_class") or legacy_class(d.get("IFC_type"))
         add((gs, "top:hasNode", s))
         add((s, "rdf:type", cls))
-        bot = _TOP_TO_BOT.get(cls)
+        bot = _TOP_TO_BOT.get(cls) if include_bot else None
         if bot:
             add((s, "rdf:type", bot))
         # 0.9.65: "equipment" iff IFC.BrickClassByIFCClass found a Brick class
@@ -411,18 +417,20 @@ _PER_SUBJECT_ONCE = {"rdf:type", "top:category", "rdfs:label", "top:ifcType", "t
                      "top:relationship", "top:srcId", "top:dstId", "top:source"}
 
 
-def restore(native: Iterable[Triple], graph_records: Dict[str, Any]) -> Tuple[Set[Triple], Dict[str, int]]:
+def restore(native: Iterable[Triple], graph_records: Dict[str, Any],
+            include_bot: bool = True) -> Tuple[Set[Triple], Dict[str, int]]:
     """Native triples (re-minted) plus the missing legacy vocabulary.
 
     Returns ``(triples, stats)``. Additive only: a legacy triple is skipped when
     the native output already types the subject (``rdf:type top:*``) or already
-    carries that single-valued predicate for it.
+    carries that single-valued predicate for it. ``include_bot`` as in
+    :func:`legacy_triples`.
     """
     base: Set[Triple] = {(_remint(s), p, _remint(o)) for s, p, o in native}
     have = {(s, p) for s, p, _ in base}
     typed = {s for s, p, o in base if p == "rdf:type" and o.startswith("top:")}
     added: Set[Triple] = set()
-    for t in legacy_triples(graph_records):
+    for t in legacy_triples(graph_records, include_bot=include_bot):
         s, p, _o = t
         if t in base:
             continue
@@ -489,16 +497,20 @@ def kg_turtle(kg: Any) -> str:
     return turtle(kg.Triples(sort=False), namespaces=getattr(kg, "_namespaces", None))
 
 
-def apply(kg: Any, graph_records: Dict[str, Any], KG: Any) -> Tuple[Any, Dict[str, int]]:
+def apply(kg: Any, graph_records: Dict[str, Any], KG: Any,
+          include_bot: bool = True) -> Tuple[Any, Dict[str, int]]:
     """Return ``(kg', stats)``: ``kg`` with the legacy vocabulary restored.
 
     ``kg`` is returned unchanged when nothing is missing (topologicpy 0.9.65).
+    Pass the same ``include_bot`` as to ``KnowledgeGraph.ByTopology``: 0.9.80
+    emits no ``rdf:type`` at all, so the BOT typing restored here is the only
+    place that flag still takes effect.
     Raises RuntimeError if literals are still corrupted (i.e. the upstream
     literal type changed shape and :func:`install_literal_fix` no longer
     matches it) -- exporting GUIDs as Python reprs must never pass silently.
     """
     native = list(kg.Triples(sort=False))
-    triples, stats = restore(native, graph_records)
+    triples, stats = restore(native, graph_records, include_bot=include_bot)
     if stats["corrupted_literals"]:
         raise RuntimeError(
             "KnowledgeGraph produced %d corrupted literals (%s...); the "

@@ -14,10 +14,13 @@ Prints one JSON document; run it on the old and the new pin and diff:
 * knowledge_graph    -- KnowledgeGraphExport on A1: triples, prefixes, legacy-vocabulary
                         counts (rdf:type bot:Space, top:aggregates, top:connectsTo,
                         top:ifcGUID), corrupted literals
+* knowledge_graph_no_bot -- the same with include_bot=False; mapped_types counts the
+                        rdf:type bot:*/brick:*/prov:* statements (0.9.65: 0)
 
 Baseline (topologicpy 0.9.65 + topologic_core 8.0.4, 2026-09-25): 237 mesh + 4 hull cells,
 cell_sha aae5349af340, 53316.696 m3; rooms_indexed 243; KG 66,235 triples / 15 prefixes /
-481 bot:Space / 249 top:aggregates / 1,721 top:connectsTo / 0 corrupted.
+481 bot:Space / 249 top:aggregates / 1,721 top:connectsTo / 0 corrupted; include_bot=False
+65,745 triples / 0 mapped types.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import time
 from contextlib import redirect_stdout
@@ -88,10 +92,11 @@ def space_interactions(uploads: Path) -> dict:
             "rel_sha_version_masked": hashlib.sha256(blob.encode()).hexdigest()[:12]}
 
 
-def knowledge_graph(uploads: Path) -> dict:
+def knowledge_graph(uploads: Path, include_bot: bool = True) -> dict:
     from ingest_scripts import load_script
 
-    ing = load_script("KnowledgeGraphExport")([uploads / A1], logging.getLogger("gate"))
+    ing = load_script("KnowledgeGraphExport")([uploads / A1], logging.getLogger("gate"),
+                                              include_bot=include_bot)
     _quiet(ing.extract)
     ttl = ing.get_artifacts()[0][1]
     body = [ln for ln in ttl.splitlines() if ln and not ln.startswith("@prefix")]
@@ -101,6 +106,7 @@ def knowledge_graph(uploads: Path) -> dict:
         "guid_keyed_vertices": entry["guid_keyed_vertices"],
         "legacy_triples_added": entry.get("legacy_triples_added"),
         "bot_space": sum(1 for ln in body if ln.endswith(" rdf:type bot:Space .")),
+        "mapped_types": sum(1 for ln in body if re.search(r" rdf:type (bot|brick|prov):\S+ \.$", ln)),
         "aggregates": sum(1 for ln in body if " top:aggregates " in ln),
         "connects_to": sum(1 for ln in body if " top:connectsTo " in ln),
         "ifc_guid": sum(1 for ln in body if " top:ifcGUID " in ln),
@@ -119,7 +125,8 @@ def main() -> int:
 
     res = {"runtime": kernel_smoke.runtime_info(), "kernel_smoke_failures": kernel_smoke.check()}
     for name, fn in (("roomstamp_cells", roomstamp_cells), ("space_interactions", space_interactions),
-                     ("knowledge_graph", knowledge_graph)):
+                     ("knowledge_graph", knowledge_graph),
+                     ("knowledge_graph_no_bot", lambda u: knowledge_graph(u, include_bot=False))):
         try:
             res[name] = fn(args.uploads)
         except Exception as exc:  # report, keep going
