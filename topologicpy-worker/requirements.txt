@@ -15,11 +15,21 @@ ifcopenshell==0.8.4
 # Upper-bounded: KnowledgeGraphExport memoizes KnowledgeGraph internals and the
 # topograph disk cache round-trips TGraph.ToPython/FromPython — re-verify both
 # (ingest_bench fingerprints) before crossing 0.10.
-# PINNED, not a range. A rebuild on 2026-09-18 drifted to 0.9.70, under which
-# Topology.Cells returns NOTHING for every IfcSpace BRep -- zero room cells, zero
-# edges, reported as success. 0.9.65 + topologic_core 8.0.4 is the pair every
-# measurement and the 0.9.65 rollout bench were made against (see
-# ingest_bench/). Bump both together and re-run the bench before deploying.
+# PINNED, not a range; bump topologicpy and topologic_core TOGETHER and re-run
+# ingest_bench + the SpaceInteractions canary (rooms_indexed=243 on A1 0003)
+# before deploying.
+#
+# topologicpy no longer declares topologic_core in Requires-Dist (dropped in
+# the 0.9.6x line; backends resolve lazily), so NO geometry kernel is
+# installed unless it is pinned here. Without a kernel the failure is silent:
+# Vertex.ByCoordinates prints a warning and returns None, and
+# Topology.ByBREPString(silent=True) returns None -> SpaceInteractions indexes
+# 0 rooms, roomstamp builds 0 cells, all reported as success. That is the most
+# likely explanation of the 2026-09-18 incident (rebuild drifted to 0.9.70,
+# "Topology.Cells returns nothing" for every IfcSpace BRep): the Python bodies
+# of Topology.Cells/ByBREPString/ContainmentStatus are identical 0.9.65 vs
+# 0.9.80, and 0.9.65/0.9.68/0.9.70/0.9.80 WITH topologic_core 8.0.4 all give
+# 241 spaces / 243 cells on A1 0003 (2026-09-25 re-evaluation).
 topologicpy==0.9.65
 topologic_core==8.0.4
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition

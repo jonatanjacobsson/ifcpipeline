@@ -14,9 +14,6 @@ RUN pip install -e /app/shared
 COPY topologicpy-worker/requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY topologicpy-worker/patch_vertex.py /tmp/patch_vertex.py
-RUN python /tmp/patch_vertex.py
-
 COPY topologicpy-worker/space_cache.py /app/
 COPY topologicpy-worker/tasks.py /app/
 COPY topologicpy-worker/ingest_scripts /app/ingest_scripts
@@ -30,6 +27,12 @@ USER worker
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
+# Since topologicpy 0.9.62 Core.Backend() auto-prefers a bundled PythonOCC
+# backend whenever `import OCC` succeeds. No OCC ships in this image today, but
+# pin the kernel so a future transitive pythonocc-core can never swap it
+# silently (non-topologic_core backends no-op RemoveCoplanarFaces, which we
+# reach via Topology.ConvexHull).
+ENV TOPOLOGICPY_CORE_BACKEND=topologic_core
 
 # SimpleWorker: topologic/OCCT is not fork-safe under the default RQ work-horse.
 CMD ["sh", "-c", "rq worker --worker-class rq.worker.SimpleWorker topologicpy-worker --url \"${REDIS_URL:-redis://redis:6379/0}\" --path /app"]
