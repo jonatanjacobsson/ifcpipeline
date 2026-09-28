@@ -40,5 +40,14 @@
    "kwargs": {}},
   {"case_id": "ExtractRoomStampReport_dryrunjson", "script": "ExtractRoomStampReport",
    "files": ["/output/topology/nobel-a1x0003-e1-roomstamp-dryrun.json"],
+   "kwargs": {}},
+  {"case_id": "SpaceInteractions_E1_A1spaces", "script": "SpaceInteractions",
+   "files": ["/uploads/E1_2b_BIM_XXX_600_00.ifc", "/uploads/A1_2b_BIM_XXX_0003_00.ifc"],
+   "kwargs": {}},
+  {"case_id": "SpaceInteractions_M1_A1spaces", "script": "SpaceInteractions",
+   "files": ["/uploads/M1_2b_BIM_XXX_0001_00.ifc", "/uploads/A1_2b_BIM_XXX_0003_00.ifc"],
+   "kwargs": {}},
+  {"case_id": "SpaceInteractions_A1arch_A1spaces", "script": "SpaceInteractions",
+   "files": ["/uploads/A1_2b_BIM_XXX_0001_00.ifc", "/uploads/A1_2b_BIM_XXX_0003_00.ifc"],
    "kwargs": {}}
 ]

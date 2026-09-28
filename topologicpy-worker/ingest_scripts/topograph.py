@@ -32,6 +32,7 @@ Performance notes (ingest_bench, 2026-07):
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -690,13 +691,26 @@ def cut_vertices(g) -> List[Node]:
 # pathfinding
 # --------------------------------------------------------------------------- #
 
+# topologicpy 0.9.65 changed TGraph.ShortestPath's default from unweighted BFS
+# (fewest hops) to Dijkstra with edgeKey="Length" (least Euclidean distance over
+# vertex coordinates). Under importMode="topology" (build_graph) the vertex
+# coordinates are SYNTHETIC — geometric weighting would minimize distance over
+# meaningless numbers — so hop semantics is the correct policy here, not merely
+# the backward-compatible one (edgeKey="hop" on 0.9.65 reproduces the 0.9.62
+# output exactly). Guarded on the signature: 0.9.62 has no edgeKey kwarg and
+# would raise TypeError.
+_SP_KWARGS: Dict[str, Any] = {}
+if "edgeKey" in inspect.signature(TGraph.ShortestPath).parameters:
+    _SP_KWARGS["edgeKey"] = "hop"
+
+
 def shortest_path(g, src_gid: str, tgt_gid: str) -> List[str]:
     """Shortest path between two gids → ordered list of gids ([] if none)."""
     i2g, g2i = _gid_maps(g)
     si, ti = g2i.get(src_gid), g2i.get(tgt_gid)
     if si is None or ti is None:
         return []
-    path = TGraph.ShortestPath(g, si, ti, mode="all")
+    path = TGraph.ShortestPath(g, si, ti, mode="all", **_SP_KWARGS)
     if not path:
         return []
     return [i2g.get(i) for i in path if i2g.get(i)]

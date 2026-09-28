@@ -285,6 +285,74 @@ class _JobTuning:
     overlap_confidence_margin: float
     overlap_coverage_min: float
     hybrid_geometric_fallback: bool
+    # Set when distance_mode="topologic" was requested but downgraded to "bbox"
+    # (see _guard_distance_mode); reported next to distance_mode.
+    distance_mode_requested: Optional[str] = None
+    distance_mode_note: Optional[str] = None
+
+
+# topologicpy 0.9.70 rewrote Vertex.Project (plane equation kept at 12 decimals
+# instead of 6). Vertex.IsInternal is unchanged and, at our ~850 m world
+# coordinates, rejects the now-exact in-plane projection, so Vertex.Distance to a
+# room cell falls back to the nearest edge/vertex: on A1 room cells 18 of 57
+# probes are >1 mm too far, up to 0.659 m (0.9.65/0.9.68: within 0.3 mm of the
+# exact point-to-mesh distance). Only distance_mode="topologic" reaches it
+# (tasks.py _closest_space_by_topologic); production runs "bbox". Vertex-to-vertex
+# distances (EgressCirculation) do not go through Vertex.Project.
+_TOPOLOGIC_DISTANCE_REGRESSED_IN = (0, 9, 70)
+_ALLOW_REGRESSED_TOPOLOGIC_DISTANCE = os.environ.get(
+    "IFCTOPOLOGY_ALLOW_TOPOLOGIC_DISTANCE", ""
+).strip().lower() in ("1", "true", "yes")
+
+
+def _version_tuple(version: Any) -> Optional[Tuple[int, ...]]:
+    try:
+        return tuple(int(part) for part in str(version).split("+")[0].split(".")[:3])
+    except (TypeError, ValueError):
+        return None
+
+
+def _topologic_distance_unsafe_reason() -> Optional[str]:
+    """Why Vertex.Distance can't be trusted on this runtime (None = it can)."""
+    if _ALLOW_REGRESSED_TOPOLOGIC_DISTANCE:
+        return None
+    try:
+        import topologicpy  # type: ignore
+
+        version = getattr(topologicpy, "__version__", None)
+    except Exception:
+        return None  # no topologicpy: the topologic engine is unavailable anyway
+    parsed = _version_tuple(version)
+    if parsed is not None and parsed < _TOPOLOGIC_DISTANCE_REGRESSED_IN:
+        return None
+    return (
+        f"topologicpy {version}: Vertex.Distance to room cells is unreliable since 0.9.70 "
+        "(Vertex.Project rewrite; up to 0.66 m too far at project coordinates); "
+        "set IFCTOPOLOGY_ALLOW_TOPOLOGIC_DISTANCE=1 to override"
+    )
+
+
+_DISTANCE_GUARD_WARNED = False
+
+
+def _guard_distance_mode(tuning: _JobTuning) -> _JobTuning:
+    """Downgrade distance_mode="topologic" to "bbox" on a regressed topologicpy."""
+    if tuning.distance_mode != "topologic":
+        return tuning
+    reason = _topologic_distance_unsafe_reason()
+    if reason is None:
+        return tuning
+    global _DISTANCE_GUARD_WARNED
+    logger.log(
+        logging.DEBUG if _DISTANCE_GUARD_WARNED else logging.WARNING,
+        "[roomstamp] distance_mode=topologic downgraded to bbox: %s",
+        reason,
+    )
+    _DISTANCE_GUARD_WARNED = True
+    tuning.distance_mode_requested = tuning.distance_mode
+    tuning.distance_mode_note = reason
+    tuning.distance_mode = "bbox"
+    return tuning
 
 
 @dataclass
@@ -330,7 +398,7 @@ class _RunStats:
 
 
 def _tuning_from_request(request: TopologicpyRequest) -> _JobTuning:
-    return _JobTuning(
+    return _guard_distance_mode(_JobTuning(
         cell_mode=(request.cell_mode or _CELL_MODE).strip().lower(),
         distance_mode=(request.distance_mode or _DISTANCE_MODE).strip().lower(),
         max_proximate_spaces=max(
@@ -352,7 +420,7 @@ def _tuning_from_request(request: TopologicpyRequest) -> _JobTuning:
             if request.hybrid_geometric_fallback is not None
             else _HYBRID_GEOMETRIC_FALLBACK
         ),
-    )
+    ))
 
 
 class _PsetCache:
@@ -395,16 +463,47 @@ def _use_topologic_containment(selected_engine: str) -> bool:
     return selected_engine == TopologyEngine.TOPOLOGICPY.value
 
 
+_TOPOLOGIC_RUNTIME: Optional[Dict[str, Any]] = None
+
+
+def _topologic_runtime() -> Dict[str, Any]:
+    """topologicpy / topologic_core versions + active Core backend, logged once
+    per process. Each job runs in a fresh spawn child, so this is one line per
+    job -- the first place to look when a job reports 0 rooms/cells (no kernel)
+    or different containment answers (backend drifted to PythonOCC)."""
+    global _TOPOLOGIC_RUNTIME
+    if _TOPOLOGIC_RUNTIME is not None:
+        return _TOPOLOGIC_RUNTIME
+    try:
+        import kernel_smoke
+
+        info = kernel_smoke.runtime_info()
+    except Exception as exc:  # pragma: no cover - kernel_smoke ships with tasks.py
+        info = {"error": repr(exc)}
+    healthy = info.get("backend") == "TopologicCoreBackend" and not info.get("occ_importable")
+    logger.log(
+        logging.INFO if healthy else logging.WARNING,
+        "[topologicpy] runtime %s",
+        " ".join(f"{k}={v}" for k, v in sorted(info.items())),
+    )
+    _TOPOLOGIC_RUNTIME = info
+    return info
+
+
 def _topologicpy_status() -> Dict[str, Any]:
     start = time.perf_counter()
     try:
         import topologicpy  # type: ignore
 
-        return {
+        status = {
             "available": True,
             "version": getattr(topologicpy, "__version__", "unknown"),
             "import_seconds": round(time.perf_counter() - start, 6),
         }
+        runtime = _topologic_runtime()
+        status["topologic_core"] = runtime.get("topologic_core")
+        status["backend"] = runtime.get("backend")
+        return status
     except Exception as exc:
         return {
             "available": False,
@@ -1571,7 +1670,7 @@ def _resolve_dominant_room(
 
 
 def _default_job_tuning() -> _JobTuning:
-    return _JobTuning(
+    return _guard_distance_mode(_JobTuning(
         cell_mode=_CELL_MODE,
         distance_mode=_DISTANCE_MODE,
         max_proximate_spaces=_MAX_PROXIMATE_SPACES,
@@ -1582,7 +1681,7 @@ def _default_job_tuning() -> _JobTuning:
         overlap_confidence_margin=_OVERLAP_CONFIDENCE_MARGIN,
         overlap_coverage_min=_OVERLAP_COVERAGE_MIN,
         hybrid_geometric_fallback=_HYBRID_GEOMETRIC_FALLBACK,
-    )
+    ))
 
 
 def _match_element_resolution(
@@ -2754,6 +2853,14 @@ def _run_roomstamp_benchmark_core(job_data: dict) -> dict:
             "element_geometry_failures": element_geometry_failures,
             "cell_mode": tuning.cell_mode,
             "distance_mode": tuning.distance_mode,
+            **(
+                {
+                    "distance_mode_requested": tuning.distance_mode_requested,
+                    "distance_mode_note": tuning.distance_mode_note,
+                }
+                if tuning.distance_mode_requested
+                else {}
+            ),
             "max_proximate_spaces": tuning.max_proximate_spaces,
             "topologic_distance_calls": stats.topologic_distance_calls,
             "topologic_distance_failures": stats.topologic_distance_failures,
@@ -2844,6 +2951,7 @@ def _run_ingest_core(job_data: dict) -> dict:
 
     request = TopologicIngestRequest(**job_data)
     script_name = request.script
+    _topologic_runtime()
     logger.info("ingest: starting script=%s, files=%s s3=%s", script_name, request.input_files, len(request.input_s3))
 
     tmpdir = tempfile.mkdtemp(prefix="topo_ingest_")
@@ -3107,8 +3215,25 @@ _INGEST_SIGSEGV_FALLBACK_SCRIPTS = frozenset(
         "PathRouting",
         "BridgesAndCuts",
         "GraphCentrality",
+        # Registered so the retry degrades to bounding-box probing (no topologicpy
+        # cells). It is NOT kernel-free -- the element iterator and the room shapes are
+        # still ifcopenshell/OpenCascade -- which is why the retry for this script also
+        # stays in a spawn child (see _INGEST_ISOLATED_RETRY_SCRIPTS).
+        "SpaceInteractions",
     }
 )
+
+# Scripts whose whole point is geometry: their degraded retry still drives OpenCascade
+# (ifcopenshell.geom.iterator over the discipline model, create_shape per IfcSpace), so
+# re-running it IN the SimpleWorker parent would let a deterministic tessellator
+# segfault kill the worker itself. With replicas: 1 the RQ job then sits "started"
+# until its 2 h timeout and the whole topologicpy queue waits behind it. The retry
+# therefore runs in a fresh spawn child too; a second crash fails the job cleanly.
+_INGEST_ISOLATED_RETRY_SCRIPTS = frozenset({"SpaceInteractions"})
+
+
+def _retry_in_isolation(script_name: str) -> bool:
+    return script_name in _INGEST_ISOLATED_RETRY_SCRIPTS
 
 
 def _ingest_args_dict(job_data: dict) -> dict[str, Any]:
@@ -3248,10 +3373,12 @@ def run_ingest(job_data: dict) -> dict:
             _is_isolated_child_crash(exc)
             and not _ingest_already_retried_inprocess(job_data)
         ):
+            isolated_retry = _retry_in_isolation(script_name)
             logger.warning(
-                "ingest script=%s isolated child crash (%s); retrying in-process",
+                "ingest script=%s isolated child crash (%s); retrying %s",
                 script_name,
                 exc,
+                "in a fresh isolated child" if isolated_retry else "in-process",
             )
-            return _attempt(_job_data_for_inprocess_retry(job_data), isolated=False)
+            return _attempt(_job_data_for_inprocess_retry(job_data), isolated=isolated_retry)
         raise
