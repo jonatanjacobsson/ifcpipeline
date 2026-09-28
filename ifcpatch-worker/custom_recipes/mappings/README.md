@@ -60,6 +60,16 @@ Place Naviate keynotes in `reference/` (`BSAB 96 Byggdelar HUS.txt`, etc.) — s
 | `reference/bsab96_*.tsv` | Parsed BSAB byggdel / produktionsresultat |
 | `reference/bsab96_lookup.json` | BSAB code → title lookup (generated) |
 | `*.example.py` | Structure templates |
+| `lubekalk_magicad.py` | Default `AssignLubekalkPset` mapping (generic, not project data) |
 | `README.md` | This file |
 | `../scripts/generate_nobel_contract_id_from_baserow.py` | Baserow → local contract module |
 | `../scripts/export_code_library_reference.py` | Refresh reference txt from online catalogues |
+
+4. **Lubekalk (ventilation estimating)** — `AssignLubekalkPset`
+
+   Nothing to set up: the default mapping `lubekalk_magicad.py` is tracked (MagiCAD
+   for Revit → Lubekalk codes). For a project that differs, add a gitignored
+   `<project>_lubekalk.py` that starts with `from mappings.lubekalk_magicad import *`
+   and overrides only what differs. Review the entries marked `ANTAGANDE`
+   (insulation fire classes, joints, cleanouts, LTTR/LORU codes) with the kalkylator
+   before pricing. See `../LUBEKALK_README.md`.

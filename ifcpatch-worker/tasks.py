@@ -884,6 +884,7 @@ def _execute_ifcpatch_core(
             base_dir = os.path.dirname(s3_ctx["output_key"])
             _ARTIFACT_CONTENT_TYPES = {
                 ".json": "application/json",
+                ".csv": "text/csv",
                 ".bcf": "application/octet-stream",
                 ".ifc": "application/x-step",
             }
