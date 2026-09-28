@@ -1,5 +1,5 @@
 """
-SetColorBySelector Recipe (V3.2 - Partial-Match Fix)
+SetColorBySelector Recipe (V3.3 - Per-element last-match + isolated geometry)
 
 This custom recipe assigns colors to IFC elements based on selector syntax.
 Supports multiple operations with filter groups and hex color assignments.
@@ -10,11 +10,11 @@ Author: Jonatan Jacobsson
 Date: 2025-01-08
 Updated: 2026-01-16 (V3 optimizations - 13.8x faster)
 Updated: 2026-03-11 (V3.2 - partial-match MappingSource splitting)
+Updated: 2026-09-01 (V3.3 - one colour per element; isolate shared mapped geometry)
 
-Performance Optimizations (V3):
-    - Uses ifcopenshell.api.style.assign_representation_styles() bulk API
-    - MappingSource deduplication: styles shared geometry definitions once
-    - Reduces element operations
+V3.3 assigns exactly one colour per element (last matching operation wins) and
+styles a private copy of each MappingSource / direct representation so shared
+IfcFacetedBrep items cannot be overwritten by a later colour rule.
 
 Transparency Support:
     - Transparency is supported in both IFC2X3 and IFC4+ schemas
@@ -50,12 +50,12 @@ logger = logging.getLogger(__name__)
 class Patcher:
     """
     Custom patcher for assigning colors to IFC elements using selector syntax.
-    
-    V3 Optimizations:
-    - Uses assign_representation_styles() bulk API instead of manual IfcStyledItem creation
-    - MappingSource deduplication: styles shared geometry definitions once instead of per-element
-    - Benchmark: 125s -> 9s (13.8x faster) on 9,403 elements
-    
+
+    V3.3: last matching operation wins per element. Shared
+    MappingSources and direct representations are duplicated per colour group
+    and styled on isolated top-level items so later rules cannot paint earlier
+    matches.
+
     This recipe:
     - Accepts multiple operations as separate JSON string arguments
     - Uses IfcOpenShell selector syntax (including filter groups) to find elements
@@ -496,718 +496,356 @@ class Patcher:
         self.style_cache[cache_key] = style
         self.stats['styles_created'] += 1
         return style
-    
-    def _get_mapping_sources_for_elements(self, elements):
-        """
-        Get unique MappingSources from elements.
-        
-        MappingSource deduplication: Many IFC elements share the same geometry definition
-        via IfcMappedItem -> IfcRepresentationMap -> MappedRepresentation.
-        By styling the MappedRepresentation once, we color all elements using it.
-        
-        Returns:
-            Tuple of (mapping_source_to_elements dict, direct_rep_to_elements dict)
-        """
-        mapping_source_to_elements = defaultdict(list)
-        direct_rep_to_elements = defaultdict(list)
-        
-        for elem in elements:
-            if not hasattr(elem, 'Representation') or not elem.Representation:
-                continue
-            if not elem.Representation.is_a('IfcProductDefinitionShape'):
-                continue
-            
-            for rep in elem.Representation.Representations:
-                if not rep.is_a('IfcShapeRepresentation'):
+
+    def _prefixed_selector(self, selector: str) -> str:
+        selector = selector.strip()
+        has_ifc_class = re.search(r'\bIfc[A-Z]\w*\b', selector)
+        if '.' in selector and '=' in selector and not has_ifc_class:
+            return f"IfcElement, {selector}"
+        return selector
+
+    def _iter_operation_filter_groups(self, operation: dict):
+        selectors_str = operation['selectors']
+        hex_value = operation['hex']
+        transparency_value = operation.get('transparency', '')
+
+        filter_groups = [fg.strip() for fg in selectors_str.split('+') if fg.strip()]
+        if not filter_groups:
+            return
+
+        hex_colors = [h.strip() for h in hex_value.split('+') if h.strip()]
+        if len(hex_colors) == 1:
+            hex_list = hex_colors * len(filter_groups)
+        else:
+            hex_list = hex_colors
+
+        if len(hex_list) != len(filter_groups):
+            raise ValueError(
+                f"Number of hex colors ({len(hex_list)}) must match number of "
+                f"filter groups ({len(filter_groups)})"
+            )
+
+        transparency_list = []
+        if transparency_value in (None, ''):
+            transparency_list = [0.0] * len(filter_groups)
+        elif isinstance(transparency_value, (int, float)):
+            transparency_list = [float(transparency_value)] * len(filter_groups)
+        else:
+            transparency_strs = [t.strip() for t in str(transparency_value).split('+') if t.strip()]
+            if len(transparency_strs) == 1:
+                transparency_list = [float(transparency_strs[0])] * len(filter_groups)
+            else:
+                transparency_list = [float(t) for t in transparency_strs]
+            if len(transparency_list) != len(filter_groups):
+                raise ValueError(
+                    f"Number of transparency values ({len(transparency_list)}) must match "
+                    f"number of filter groups ({len(filter_groups)})"
+                )
+
+        for filter_group, hex_color, transparency in zip(filter_groups, hex_list, transparency_list):
+            yield filter_group, hex_color, float(transparency)
+
+    def _resolve_element_styles(self) -> dict:
+        """Last matching operation wins per element."""
+        element_to_style = {}
+        for idx, operation in enumerate(self.operations):
+            for filter_group, hex_color, transparency in self._iter_operation_filter_groups(operation):
+                selector = self._prefixed_selector(filter_group)
+                elements = self._select_elements(selector)
+                if not elements:
+                    self.logger.warning(
+                        f"No elements matched filter group: '{selector}' (original: '{filter_group}')"
+                    )
                     continue
-                
-                has_mapped_item = False
-                if rep.Items:
-                    for item in rep.Items:
-                        if item.is_a('IfcMappedItem'):
-                            has_mapped_item = True
-                            mapping_source = item.MappingSource
-                            mapping_source_to_elements[mapping_source].append(elem)
-                
-                if not has_mapped_item:
-                    direct_rep_to_elements[rep].append(elem)
-        
-        return mapping_source_to_elements, direct_rep_to_elements
-    
-    def _build_mapping_source_index(self):
-        """
-        Build a complete reverse index: MappingSource -> set of ALL elements using it.
-        
-        This scans every IfcProduct in the file (not just selector-matched ones) so we
-        can detect when a MappingSource is shared between matched and unmatched elements.
-        Called once at the start of patch().
-        """
-        ms_to_all_elements = defaultdict(set)
+                style = self._get_or_create_style(hex_color, transparency)
+                self.logger.info(
+                    f"Operation {idx + 1} filter '{selector}': {len(elements)} element(s) -> {style.Name}"
+                )
+                for element in elements:
+                    element_to_style[element] = style
+        return element_to_style
+
+    def _iter_shape_reps(self, product):
+        pds = getattr(product, 'Representation', None)
+        if not pds or not pds.is_a('IfcProductDefinitionShape'):
+            return
+        for rep in pds.Representations or ():
+            if rep.is_a('IfcShapeRepresentation'):
+                yield pds, rep
+
+    def _build_geometry_indexes(self):
+        ms_to_elements = defaultdict(set)
+        direct_rep_to_elements = defaultdict(set)
+        pds_to_elements = defaultdict(set)
         for product in self.file.by_type('IfcProduct'):
-            if not hasattr(product, 'Representation') or not product.Representation:
-                continue
-            if not product.Representation.is_a('IfcProductDefinitionShape'):
-                continue
-            for rep in product.Representation.Representations:
-                if not rep.is_a('IfcShapeRepresentation'):
-                    continue
-                if rep.Items:
-                    for item in rep.Items:
-                        if item.is_a('IfcMappedItem'):
-                            ms_to_all_elements[item.MappingSource].add(product)
-        return ms_to_all_elements
-    
-    def _style_mapping_source(self, mapping_source, style):
+            for pds, rep in self._iter_shape_reps(product):
+                pds_to_elements[pds].add(product)
+                has_mapped = False
+                for item in rep.Items or ():
+                    if item.is_a('IfcMappedItem') and item.MappingSource:
+                        has_mapped = True
+                        ms_to_elements[item.MappingSource].add(product)
+                if not has_mapped:
+                    direct_rep_to_elements[rep].add(product)
+        return ms_to_elements, direct_rep_to_elements, pds_to_elements
+
+    def _copy_styleable_item(self, item):
+        """Copy a top-level representation item so it can be styled independently.
+
+        Nested geometry (shells, operands, swept profiles) is referenced, not
+        cloned. Never returns the original item: isolation is required.
         """
-        Style a MappingSource's MappedRepresentation.
-        This styles the shared geometry definition, affecting all elements that use it.
-        """
+        entity_type = item.is_a()
         try:
-            mapped_rep = mapping_source.MappedRepresentation
-            if not mapped_rep:
-                return False
-            
-            source_id = mapping_source.id()
-            if source_id in self.styled_mapping_sources:
-                self.stats['mapping_sources_skipped'] += 1
-                return True
-            
-            use_presentation_style_assignment = self.file.schema == "IFC2X3"
-            
-            ifcopenshell.api.style.assign_representation_styles(
-                self.file,
-                shape_representation=mapped_rep,
-                styles=[style],
-                replace_previous_same_type_style=True,
-                should_use_presentation_style_assignment=use_presentation_style_assignment
-            )
-            
-            self.styled_mapping_sources.add(source_id)
-            self.stats['mapping_sources_styled'] += 1
-            return True
-        except Exception as e:
-            self.logger.debug(f"Failed to style MappingSource {mapping_source.id()}: {e}")
-            return False
-    
-    def _style_representation(self, rep, style):
-        """Style a representation using the bulk API."""
-        try:
-            use_presentation_style_assignment = self.file.schema == "IFC2X3"
-            
-            ifcopenshell.api.style.assign_representation_styles(
-                self.file,
-                shape_representation=rep,
-                styles=[style],
-                replace_previous_same_type_style=True,
-                should_use_presentation_style_assignment=use_presentation_style_assignment
-            )
-            return True
-        except Exception as e:
-            self.logger.debug(f"Failed to style representation {rep.id()}: {e}")
-            return False
-    
-    def _duplicate_representation(self, original_rep):
-        """
-        Create a new IfcShapeRepresentation that references the same geometry items
-        but can be styled independently.
-        
-        The key insight: IfcStyledItem entities link to geometry Items, but styling
-        a representation creates NEW IfcStyledItem entities. The problem is that
-        when Items are shared, changing their StyledByItem affects all representations.
-        
-        Solution: We create new copies of the top-level geometry items (like shells)
-        so that each representation can have its own styles.
-        """
-        try:
-            new_items = []
-            if original_rep.Items:
-                for item in original_rep.Items:
-                    # Deep copy the top-level geometry item
-                    new_item = self._deep_copy_geometry_item(item)
-                    new_items.append(new_item)
-            
-            # Create new representation instance with the copied items
-            new_rep = self.file.create_entity(
-                "IfcShapeRepresentation",
-                ContextOfItems=original_rep.ContextOfItems,
-                RepresentationIdentifier=original_rep.RepresentationIdentifier,
-                RepresentationType=original_rep.RepresentationType,
-                Items=tuple(new_items) if new_items else None
-            )
-            
-            return new_rep
-        except Exception as e:
-            self.logger.warning(f"Failed to duplicate representation {original_rep.id()}: {e}")
-            # Fallback: return original (will share but at least won't crash)
-            return original_rep
-    
-    def _deep_copy_geometry_item(self, item):
-        """
-        Create a deep copy of a geometry item, excluding styles.
-        This allows the copy to be styled independently.
-        """
-        try:
-            entity_type = item.is_a()
-            
             if entity_type == "IfcShellBasedSurfaceModel":
-                # Copy the shell-based surface model
-                new_boundaries = []
-                if item.SbsmBoundary:
-                    for shell in item.SbsmBoundary:
-                        # Shells (IfcOpenShell, IfcClosedShell) can be referenced directly
-                        # as they don't carry styles directly - the SBSM does
-                        new_boundaries.append(shell)
-                
-                return self.file.create_entity(
+                new_item = self.file.create_entity(
                     "IfcShellBasedSurfaceModel",
-                    SbsmBoundary=tuple(new_boundaries) if new_boundaries else None
+                    SbsmBoundary=item.SbsmBoundary,
                 )
-            
-            elif entity_type == "IfcMappedItem":
-                # For mapped items, we need to create a new one pointing to the same MappingSource
-                # But wait - if we're duplicating the representation that contains a MappedItem,
-                # we're already inside a MappedRepresentation. This shouldn't happen.
-                # Just return the original
-                return item
-            
             elif entity_type in ("IfcFacetedBrep", "IfcManifoldSolidBrep", "IfcAdvancedBrep"):
-                # Copy B-rep geometry
-                return self.file.create_entity(
+                new_item = self.file.create_entity(entity_type, Outer=item.Outer)
+            elif entity_type == "IfcFacetedBrepWithVoids":
+                new_item = self.file.create_entity(
+                    "IfcFacetedBrepWithVoids",
+                    Outer=item.Outer,
+                    Voids=item.Voids,
+                )
+            elif entity_type in ("IfcBooleanResult", "IfcBooleanClippingResult"):
+                new_item = self.file.create_entity(
                     entity_type,
-                    Outer=item.Outer
-                )
-            
-            elif entity_type == "IfcBooleanResult":
-                # Copy boolean result (keep references to operands)
-                return self.file.create_entity(
-                    "IfcBooleanResult",
                     Operator=item.Operator,
                     FirstOperand=item.FirstOperand,
-                    SecondOperand=item.SecondOperand
+                    SecondOperand=item.SecondOperand,
                 )
-            
-            elif entity_type == "IfcBooleanClippingResult":
-                return self.file.create_entity(
-                    "IfcBooleanClippingResult",
-                    Operator=item.Operator,
-                    FirstOperand=item.FirstOperand,
-                    SecondOperand=item.SecondOperand
-                )
-            
             elif entity_type == "IfcExtrudedAreaSolid":
-                return self.file.create_entity(
+                new_item = self.file.create_entity(
                     "IfcExtrudedAreaSolid",
                     SweptArea=item.SweptArea,
                     Position=item.Position,
                     ExtrudedDirection=item.ExtrudedDirection,
-                    Depth=item.Depth
+                    Depth=item.Depth,
                 )
-            
             elif entity_type == "IfcSweptDiskSolid":
-                return self.file.create_entity(
+                new_item = self.file.create_entity(
                     "IfcSweptDiskSolid",
                     Directrix=item.Directrix,
                     Radius=item.Radius,
                     InnerRadius=item.InnerRadius,
                     StartParam=item.StartParam,
-                    EndParam=item.EndParam
+                    EndParam=item.EndParam,
                 )
-            
+            elif entity_type == "IfcMappedItem":
+                new_item = self.file.create_entity(
+                    "IfcMappedItem",
+                    MappingSource=item.MappingSource,
+                    MappingTarget=item.MappingTarget,
+                )
             else:
-                # For other types, try generic copy
-                self.logger.debug(f"Unknown geometry type {entity_type}, attempting generic copy")
-                # Get all attributes (excluding inverses like StyledByItem)
                 info = item.get_info(recursive=False, include_identifier=False)
-                # Remove the type info
                 info.pop('type', None)
-                try:
-                    return self.file.create_entity(entity_type, **info)
-                except:
-                    # If generic copy fails, just reference the original
-                    self.logger.debug(f"Generic copy failed for {entity_type}, using reference")
-                    return item
-                    
-        except Exception as e:
-            self.logger.debug(f"Failed to copy geometry item {item.is_a()}: {e}, using reference")
-            return item
-    
-    def _resolve_item_conflicts(self, mapping_source_to_operation):
-        """
-        Detect and resolve Item-level conflicts.
-        
-        Problem: Different MappingSources can share the same geometry Items. When we style
-        each MappingSource, we're styling its Items. If Items are shared, the last styling
-        operation wins, causing incorrect colors.
-        
-        Solution: Find Items that appear in multiple MappedRepresentations being styled with
-        different styles, and duplicate those Items so each representation gets its own copy.
-        """
-        if not mapping_source_to_operation:
-            return mapping_source_to_operation
-        
-        # Build a map: Item ID -> list of (MappingSource, style)
-        item_to_styles = defaultdict(list)
-        
-        for ms, (op_idx, style, elems) in mapping_source_to_operation.items():
-            mapped_rep = ms.MappedRepresentation
-            if not mapped_rep or not mapped_rep.Items:
-                continue
-            
-            for item in mapped_rep.Items:
-                item_to_styles[item.id()].append((ms, style, item))
-        
-        # Find Items that are shared across MappingSources with DIFFERENT styles
-        items_needing_duplication = []
-        for item_id, styles_list in item_to_styles.items():
-            if len(styles_list) <= 1:
-                continue
-            
-            # Check if different styles are used
-            style_ids = set(s.id() for (_, s, _) in styles_list)
-            if len(style_ids) > 1:
-                items_needing_duplication.append((item_id, styles_list))
-        
-        if not items_needing_duplication:
-            return mapping_source_to_operation
-        
-        self.logger.warning(
-            f"Detected {len(items_needing_duplication)} Item(s) shared across MappingSources "
-            f"with different styles. Duplicating to ensure independent styling..."
+                info.pop('id', None)
+                new_item = self.file.create_entity(entity_type, **info)
+        except Exception as exc:
+            raise ValueError(
+                f"Cannot isolate styleable item #{item.id()} ({entity_type}): {exc}"
+            ) from exc
+
+        if new_item.id() == item.id():
+            raise ValueError(
+                f"Cannot isolate styleable item #{item.id()} ({entity_type}): copy returned original"
+            )
+        return new_item
+
+    def _duplicate_representation_isolated(self, original_rep):
+        if original_rep is None:
+            raise ValueError("Cannot duplicate a missing representation")
+        new_items = tuple(
+            self._copy_styleable_item(item) for item in (original_rep.Items or ())
         )
-        
-        # For each conflicting Item, duplicate it for all but the first MappingSource
-        # that uses it
-        for item_id, styles_list in items_needing_duplication:
-            # Sort by operation index so earlier operations get the original
-            styles_list.sort(key=lambda x: mapping_source_to_operation[x[0]][0])
-            
-            # First one keeps the original Item
-            first_ms, first_style, original_item = styles_list[0]
-            
-            # Remaining ones get duplicated Items
-            for ms, style, item in styles_list[1:]:
-                self._duplicate_item_in_representation(ms.MappedRepresentation, item)
-                self.stats['conflicts_detected'] += 1
-        
-        return mapping_source_to_operation
-    
-    def _duplicate_item_in_representation(self, rep, item_to_replace):
-        """
-        Replace a shared Item in a representation with a duplicate.
-        This allows the representation to be styled independently.
-        """
-        if not rep.Items or item_to_replace not in rep.Items:
-            return
-        
-        # Create a duplicate of the Item
-        new_item = self._deep_copy_geometry_item(item_to_replace)
-        
-        if new_item.id() == item_to_replace.id():
-            # Duplication failed, item was returned as-is
-            self.logger.debug(f"Could not duplicate Item {item_to_replace.id()}")
-            return
-        
-        # Replace the old Item with the new one in the representation
-        new_items = []
-        for existing_item in rep.Items:
-            if existing_item.id() == item_to_replace.id():
-                new_items.append(new_item)
-            else:
-                new_items.append(existing_item)
-        
-        # Update the representation's Items
-        rep.Items = tuple(new_items)
-        
-        self.logger.debug(
-            f"Duplicated Item {item_to_replace.id()} -> {new_item.id()} "
-            f"in representation {rep.id()}"
+        return self.file.create_entity(
+            "IfcShapeRepresentation",
+            ContextOfItems=original_rep.ContextOfItems,
+            RepresentationIdentifier=original_rep.RepresentationIdentifier,
+            RepresentationType=original_rep.RepresentationType,
+            Items=new_items or None,
         )
-    
-    def _duplicate_mapping_source(self, original_mapping_source, elements_to_update):
+
+    def _assign_item_style(self, item, style) -> None:
+        """Style a single representation item without traversing nested geometry.
+
+        Implemented locally so IFC2X3 and older IfcOpenShell 0.8 builds (which
+        lack ``style.assign_item_style``) behave the same as the worker.
         """
-        Create a duplicate MappingSource (IfcRepresentationMap) with its own MappedRepresentation.
-        This ensures each MappingSource can be styled independently when conflicts occur.
-        
-        Args:
-            original_mapping_source: The original IfcRepresentationMap to duplicate
-            elements_to_update: List of elements that should use the new MappingSource
-        
-        Returns:
-            New IfcRepresentationMap entity with its own MappedRepresentation
-        """
-        # CRITICAL: Also duplicate the MappedRepresentation so styles don't conflict
-        original_mapped_rep = original_mapping_source.MappedRepresentation
-        new_mapped_rep = self._duplicate_representation(original_mapped_rep)
-        
-        # Create new IfcRepresentationMap pointing to the new MappedRepresentation
-        new_mapping_source = self.file.create_entity(
+        existing = next(iter(getattr(item, "StyledByItem", None) or ()), None)
+        use_assignment = self.file.schema == "IFC2X3"
+        if existing is None:
+            styles = (style,)
+            if use_assignment:
+                styles = (self.file.create_entity("IfcPresentationStyleAssignment", (style,)),)
+            self.file.create_entity("IfcStyledItem", item, styles)
+            return
+
+        if use_assignment:
+            assignment = None
+            for current in existing.Styles or ():
+                if current.is_a("IfcPresentationStyleAssignment"):
+                    assignment = current
+                    break
+            if assignment is not None:
+                assignment.Styles = (style,)
+                existing.Styles = (assignment,)
+                return
+            assignment = self.file.create_entity("IfcPresentationStyleAssignment", (style,))
+            existing.Styles = (assignment,)
+            return
+
+        existing.Styles = (style,)
+
+    def _style_representation_items(self, rep, style) -> int:
+        if not rep or not rep.Items:
+            return 0
+        styled = 0
+        for item in rep.Items:
+            self._assign_item_style(item, style)
+            styled += 1
+        return styled
+
+    def _remap_elements_to_mapping_source(self, elements, original_ms, new_ms) -> int:
+        original_id = original_ms.id()
+        updated = 0
+        for elem in elements:
+            for _pds, rep in self._iter_shape_reps(elem):
+                items = list(rep.Items or ())
+                changed = False
+                new_items = []
+                for item in items:
+                    if item.is_a('IfcMappedItem') and item.MappingSource and item.MappingSource.id() == original_id:
+                        new_items.append(
+                            self.file.create_entity(
+                                "IfcMappedItem",
+                                MappingSource=new_ms,
+                                MappingTarget=item.MappingTarget,
+                            )
+                        )
+                        changed = True
+                        updated += 1
+                    else:
+                        new_items.append(item)
+                if changed:
+                    rep.Items = tuple(new_items)
+        return updated
+
+    def _duplicate_mapping_source_isolated(self, original_ms, elements):
+        original_mapped_rep = original_ms.MappedRepresentation
+        new_mapped_rep = self._duplicate_representation_isolated(original_mapped_rep)
+        new_ms = self.file.create_entity(
             "IfcRepresentationMap",
-            MappingOrigin=original_mapping_source.MappingOrigin,
-            MappedRepresentation=new_mapped_rep
+            MappingOrigin=original_ms.MappingOrigin,
+            MappedRepresentation=new_mapped_rep,
         )
-        
-        # Update all IfcMappedItem instances for these elements to use the new MappingSource
-        updated_count = 0
-        for elem in elements_to_update:
-            if not hasattr(elem, 'Representation') or not elem.Representation:
-                continue
-            if not elem.Representation.is_a('IfcProductDefinitionShape'):
-                continue
-            
-            for rep in elem.Representation.Representations:
-                if not rep.is_a('IfcShapeRepresentation'):
-                    continue
-                
-                if rep.Items:
-                    for item in rep.Items:
-                        if item.is_a('IfcMappedItem'):
-                            if item.MappingSource.id() == original_mapping_source.id():
-                                # Update this MappedItem to use the new MappingSource
-                                item.MappingSource = new_mapping_source
-                                updated_count += 1
-        
+        updated = self._remap_elements_to_mapping_source(elements, original_ms, new_ms)
         self.stats['mapping_sources_duplicated'] += 1
         self.logger.debug(
-            f"Duplicated MappingSource {original_mapping_source.id()} -> {new_mapping_source.id()} "
-            f"(with new MappedRepresentation {new_mapped_rep.id()}), "
-            f"updated {updated_count} MappedItem(s)"
+            f"Isolated MappingSource {original_ms.id()} -> {new_ms.id()} "
+            f"(rep {new_mapped_rep.id()}), remapped {updated} MappedItem(s)"
         )
-        
-        return new_mapping_source
-    
-    def _detect_and_resolve_conflicts(self):
-        """
-        First pass: Analyze all operations, detect conflicts, and resolve by duplicating MappingSources.
-        
-        Handles filter groups (separated by +) and multiple colors/transparencies.
-        
-        Returns:
-            mapping_source_to_operation: dict mapping MappingSource entity -> (operation_idx, style, elements)
-            direct_rep_to_operation: dict mapping Representation entity -> (operation_idx, style, elements)
-        """
-        # Track which operations want which MappingSources
-        # mapping_source -> list of (op_idx, filter_group_idx, style, elements)
-        mapping_source_to_operations = defaultdict(list)
-        direct_rep_to_operations = defaultdict(list)
-        
-        self.logger.debug("Pass 1: Analyzing operations and detecting conflicts...")
-        
-        for idx, operation in enumerate(self.operations):
-            selectors_str = operation['selectors']
-            hex_value = operation['hex']
-            transparency_value = operation.get('transparency', '')
-            
-            # Parse filter groups
-            filter_groups = [fg.strip() for fg in selectors_str.split('+') if fg.strip()]
-            if not filter_groups:
+        return new_ms
+
+    def _repoint_elements_representation(self, elements, old_rep, new_rep, pds_to_elements):
+        old_id = old_rep.id()
+        group = set(elements)
+        for elem in elements:
+            pds = getattr(elem, 'Representation', None)
+            if not pds or not pds.is_a('IfcProductDefinitionShape'):
                 continue
-            
-            hex_colors = [h.strip() for h in hex_value.split('+') if h.strip()]
-            if len(hex_colors) == 1:
-                hex_list = hex_colors * len(filter_groups)
+            representations = list(pds.Representations or ())
+            if not any(r.id() == old_id for r in representations):
+                continue
+            pds_users = pds_to_elements.get(pds, {elem})
+            outsiders = pds_users - group
+            new_reps = tuple(new_rep if r.id() == old_id else r for r in representations)
+            if outsiders:
+                new_pds = self.file.create_entity(
+                    "IfcProductDefinitionShape",
+                    Name=pds.Name,
+                    Description=pds.Description,
+                    Representations=new_reps,
+                )
+                elem.Representation = new_pds
+                pds_to_elements[new_pds] = {elem}
+                pds_to_elements[pds] = outsiders
             else:
-                hex_list = hex_colors
-            
-            transparency_list = []
-            if transparency_value:
-                if isinstance(transparency_value, (int, float)):
-                    transparency_list = [float(transparency_value)] * len(filter_groups)
-                elif isinstance(transparency_value, str):
-                    transparency_strs = [t.strip() for t in transparency_value.split('+') if t.strip()]
-                    if len(transparency_strs) == 1:
-                        transparency_list = [float(transparency_strs[0])] * len(filter_groups)
-                    else:
-                        transparency_list = [float(t) for t in transparency_strs]
-            else:
-                transparency_list = [0.0] * len(filter_groups)
-            
-            # Process each filter group
-            for group_idx, (filter_group, hex_color, transparency) in enumerate(zip(filter_groups, hex_list, transparency_list)):
-                selector = filter_group.strip()
-                has_ifc_class = re.search(r'\bIfc[A-Z]\w*\b', selector)
-                if '.' in selector and '=' in selector and not has_ifc_class:
-                    selector = f"IfcElement, {selector}"
-                
-                elements = self._select_elements(selector)
-                if not elements:
-                    continue
-                
-                # Get style
-                style = self._get_or_create_style(hex_color, transparency)
-                
-                # Get unique MappingSources and direct representations
-                mapping_sources, direct_reps = self._get_mapping_sources_for_elements(elements)
-                
-                # Track which operation/filter group wants to style each MappingSource
-                for mapping_source, elems in mapping_sources.items():
-                    mapping_source_to_operations[mapping_source].append((idx, group_idx, style, elems))
-                
-                # Track direct representations
-                for rep, elems in direct_reps.items():
-                    direct_rep_to_operations[rep].append((idx, group_idx, style, elems))
-        
-        # Phase 1: Resolve partial matches (MappingSource shared with unmatched elements)
-        # When a selector matches only SOME elements using a MappingSource, we must
-        # duplicate it so styling doesn't bleed onto unmatched elements.
-        self.logger.debug("Resolving partial-match MappingSources...")
-        resolved_ms_to_operations = defaultdict(list)
-        for mapping_source, operations_list in mapping_source_to_operations.items():
-            all_elements = self._ms_to_all_elements.get(mapping_source, set())
-            matched_elements = set()
-            for _, _, _, elems in operations_list:
-                matched_elements.update(elems)
-            
-            if all_elements and matched_elements < all_elements:
-                unmatched_count = len(all_elements) - len(matched_elements)
+                pds.Representations = new_reps
+
+    def _partition_by_style(self, users, element_to_style):
+        by_style = defaultdict(set)
+        for elem in users:
+            style = element_to_style.get(elem)
+            if style is not None:
+                by_style[style].add(elem)
+        return by_style
+
+    def _apply_isolated_colours(self, element_to_style):
+        ms_to_elements, direct_rep_to_elements, pds_to_elements = self._build_geometry_indexes()
+        colored_ids = {e.id() for e in element_to_style}
+
+        for mapping_source, users in list(ms_to_elements.items()):
+            by_style = self._partition_by_style(users, element_to_style)
+            if not by_style:
+                continue
+            if len(by_style) > 1 or (users - set().union(*by_style.values())):
+                self.stats['conflicts_detected'] += max(0, len(by_style) - 1)
                 self.stats['mapping_sources_split'] += 1
-                self.logger.debug(
-                    f"Partial match: MappingSource {mapping_source.id()} used by "
-                    f"{len(all_elements)} elements, but only {len(matched_elements)} matched "
-                    f"({unmatched_count} unmatched). Duplicating for matched subset."
-                )
-                for op_idx, group_idx, style, elems in operations_list:
-                    new_ms = self._duplicate_mapping_source(mapping_source, elems)
-                    resolved_ms_to_operations[new_ms].append((op_idx, group_idx, style, elems))
-            else:
-                resolved_ms_to_operations[mapping_source] = operations_list
-        
-        # Phase 2: Resolve inter-operation conflicts (same MS requested by multiple operations)
-        mapping_source_to_operation = {}
-        direct_rep_to_operation = {}
-        
-        for mapping_source, operations_list in resolved_ms_to_operations.items():
-            if len(operations_list) == 1:
-                op_idx, group_idx, style, elems = operations_list[0]
-                mapping_source_to_operation[mapping_source] = (op_idx, style, elems)
-            else:
-                self.stats['conflicts_detected'] += len(operations_list) - 1
-                self.logger.warning(
-                    f"Conflict detected: MappingSource {mapping_source.id()} requested by "
-                    f"{len(operations_list)} operation(s)/filter group(s). Creating unique copies..."
-                )
-                
-                op_idx, group_idx, style, elems = operations_list[0]
-                mapping_source_to_operation[mapping_source] = (op_idx, style, elems)
-                
-                for op_idx, group_idx, style, elems in operations_list[1:]:
-                    new_mapping_source = self._duplicate_mapping_source(mapping_source, elems)
-                    mapping_source_to_operation[new_mapping_source] = (op_idx, style, elems)
-        
-        # CRITICAL: Resolve Item-level conflicts (same Item shared by different MappingSources with different styles)
-        mapping_source_to_operation = self._resolve_item_conflicts(mapping_source_to_operation)
-        
-        # Process direct representations (for now, last operation wins - could duplicate if needed)
-        for rep, operations_list in direct_rep_to_operations.items():
-            if len(operations_list) == 1:
-                op_idx, group_idx, style, elems = operations_list[0]
-                direct_rep_to_operation[rep] = (op_idx, style, elems)
-            else:
-                # For direct representations, last operation wins (duplicating reps is more complex)
-                self.stats['conflicts_detected'] += len(operations_list) - 1
-                self.logger.warning(
-                    f"Conflict detected: Direct representation {rep.id()} requested by "
-                    f"{len(operations_list)} operation(s)/filter group(s). Using last operation's color."
-                )
-                op_idx, group_idx, style, elems = operations_list[-1]
-                direct_rep_to_operation[rep] = (op_idx, style, elems)
-        
-        if self.stats['conflicts_detected'] > 0:
-            self.logger.debug(
-                f"Resolved {self.stats['conflicts_detected']} conflict(s) by creating "
-                f"{self.stats['mapping_sources_duplicated']} unique MappingSource(s)"
-            )
-        
-        return mapping_source_to_operation, direct_rep_to_operation
-    
-    def _execute_operation(self, operation: dict, operation_idx: int) -> dict:
-        """Execute a single color assignment operation."""
-        selectors_str = operation['selectors']
-        hex_value = operation['hex']
-        transparency_value = operation.get('transparency', '')
-        
-        result = {
-            'success': False,
-            'filter_groups_processed': 0,
-            'elements_colored': 0,
-            'error': None
-        }
-        
-        try:
-            filter_groups = [fg.strip() for fg in selectors_str.split('+') if fg.strip()]
-            
-            if not filter_groups:
-                self.logger.warning(f"No valid filter groups found in selector: '{selectors_str}'")
-                result['success'] = True
-                return result
-            
-            hex_colors = [h.strip() for h in hex_value.split('+') if h.strip()]
-            
-            transparency_list = []
-            if transparency_value:
-                if isinstance(transparency_value, (int, float)):
-                    transparency_list = [float(transparency_value)]
-                elif isinstance(transparency_value, str):
-                    transparency_strs = [t.strip() for t in transparency_value.split('+') if t.strip()]
-                    for t_str in transparency_strs:
-                        t_val = float(t_str)
-                        if not (0.0 <= t_val <= 1.0):
-                            raise ValueError(f"Transparency value {t_val} out of range [0, 1]")
-                        transparency_list.append(t_val)
-            
-            if len(hex_colors) > 1 and len(hex_colors) != len(filter_groups):
-                raise ValueError(f"Number of hex colors ({len(hex_colors)}) must match number of filter groups ({len(filter_groups)})")
-            
-            if transparency_list and len(transparency_list) > 1 and len(transparency_list) != len(filter_groups):
-                raise ValueError(f"Number of transparency values ({len(transparency_list)}) must match number of filter groups ({len(filter_groups)})")
-            
-            if len(hex_colors) == 1:
-                hex_list = hex_colors * len(filter_groups)
-            else:
-                hex_list = hex_colors
-            
-            if len(transparency_list) == 0:
-                transparency_list = [0.0] * len(filter_groups)
-            elif len(transparency_list) == 1:
-                transparency_list = transparency_list * len(filter_groups)
-            
-            self.logger.info(f"Processing {len(filter_groups)} filter group(s)")
-            
-            total_colored = 0
-            for group_idx, (filter_group, hex_color, transparency) in enumerate(zip(filter_groups, hex_list, transparency_list)):
-                trans_str = f", transparency={transparency}" if transparency > 0.0 else ""
-                self.logger.debug(f"Filter group {group_idx + 1}/{len(filter_groups)}: '{filter_group}' -> {hex_color}{trans_str}")
-                
-                style = self._get_or_create_style(hex_color, transparency)
-                
-                selector = filter_group.strip()
-                has_ifc_class = re.search(r'\bIfc[A-Z]\w*\b', selector)
-                if '.' in selector and '=' in selector and not has_ifc_class:
-                    selector = f"IfcElement, {selector}"
-                    self.logger.debug(f"Auto-prefixed selector: '{filter_group}' -> '{selector}'")
-                
-                elements = self._select_elements(selector)
-                
-                if len(elements) == 0:
-                    self.logger.warning(f"No elements matched filter group: '{selector}' (original: '{filter_group}')")
-                    continue
-                
-                self.logger.info(f"Found {len(elements)} element(s) matching filter group '{selector}'")
-                
-                # V3 Optimization: Get unique MappingSources and direct representations
-                mapping_sources, direct_reps = self._get_mapping_sources_for_elements(elements)
-                self.logger.info(
-                    f"Found {len(mapping_sources)} unique MappingSource(s) and "
-                    f"{len(direct_reps)} direct representation(s) to style"
-                )
-                
-                # Style MappingSources (shared geometry definitions)
-                styled_count = 0
-                total_items = len(mapping_sources) + len(direct_reps)
-                
-                for i, (mapping_source, elems) in enumerate(mapping_sources.items()):
-                    if total_items > 100 and (i + 1) % 100 == 0:
-                        self.logger.info(f"Styling MappingSource {i + 1}/{len(mapping_sources)}")
-                    
-                    if self._style_mapping_source(mapping_source, style):
-                        styled_count += 1
-                
-                # Style direct representations (non-mapped geometry)
-                for i, (rep, elems) in enumerate(direct_reps.items()):
-                    if total_items > 100 and (len(mapping_sources) + i + 1) % 100 == 0:
-                        self.logger.info(f"Styling direct representation {i + 1}/{len(direct_reps)}")
-                    
-                    if self._style_representation(rep, style):
-                        styled_count += 1
-                        self.stats['representations_styled'] += 1
-                
-                trans_log = f" with transparency {transparency}" if transparency > 0.0 else ""
-                self.logger.info(f"Successfully styled {styled_count} item(s) for {len(elements)} elements{trans_log}")
-                total_colored += len(elements)
-                result['filter_groups_processed'] += 1
-            
-            result['elements_colored'] = total_colored
-            result['success'] = True
-            self.stats['elements_colored'] += total_colored
-            
-        except ValueError as e:
-            result['error'] = str(e)
-            self.logger.error(f"Operation {operation_idx + 1} failed: {str(e)}")
-        except Exception as e:
-            result['error'] = str(e)
-            self.logger.error(f"Unexpected error in operation {operation_idx + 1}: {str(e)}", exc_info=True)
-        
-        return result
-    
+            for style, group in by_style.items():
+                new_ms = self._duplicate_mapping_source_isolated(mapping_source, group)
+                styled = self._style_representation_items(new_ms.MappedRepresentation, style)
+                if styled:
+                    self.stats['mapping_sources_styled'] += 1
+
+        for rep, users in list(direct_rep_to_elements.items()):
+            by_style = self._partition_by_style(users, element_to_style)
+            if not by_style:
+                continue
+            if len(by_style) > 1 or (users - set().union(*by_style.values())):
+                self.stats['conflicts_detected'] += max(0, len(by_style) - 1)
+            for style, group in by_style.items():
+                new_rep = self._duplicate_representation_isolated(rep)
+                self._repoint_elements_representation(group, rep, new_rep, pds_to_elements)
+                styled = self._style_representation_items(new_rep, style)
+                if styled:
+                    self.stats['representations_styled'] += 1
+
+        self.stats['elements_colored'] = len(colored_ids)
+
     def patch(self) -> None:
-        """
-        Execute all operations to patch the IFC file.
-        
-        Uses two-pass approach:
-        1. Detect conflicts where multiple operations want to style the same MappingSource
-        2. Resolve conflicts by duplicating MappingSources (each gets its own MappedRepresentation)
-        3. Style each MappingSource once with the correct color
-        """
+        """Assign one colour per element, isolating shared mapped geometry."""
         if self.stats['operations_total'] == 0:
             self.logger.warning("No valid operations to execute")
             return
-        
-        self.logger.debug(f"Starting SetColorBySelector with {self.stats['operations_total']} operation(s)")
-        
-        # Reset tracking for fresh patch
-        self.styled_mapping_sources = set()
-        
+
+        self.logger.info(
+            f"Starting SetColorBySelector with {self.stats['operations_total']} operation(s)"
+        )
         try:
-            # Build full reverse index: MappingSource -> all elements (not just matched)
-            self._ms_to_all_elements = self._build_mapping_source_index()
-            
-            # Pass 1: Detect and resolve conflicts by duplicating MappingSources
-            mapping_source_to_operation, direct_rep_to_operation = self._detect_and_resolve_conflicts()
-            
-            # Pass 2: Style each MappingSource/Representation once (now all unique, no conflicts)
-            
-            styled_count = 0
-            total_items = len(mapping_source_to_operation) + len(direct_rep_to_operation)
-            
-            # Style MappingSources (using entity references directly)
-            for i, (mapping_source, (op_idx, style, elems)) in enumerate(mapping_source_to_operation.items()):
-                if total_items > 100 and (i + 1) % 100 == 0:
-                    self.logger.debug(f"Styling MappingSource {i + 1}/{len(mapping_source_to_operation)}")
-                
-                if self._style_mapping_source(mapping_source, style):
-                    styled_count += 1
-                    self.stats['elements_colored'] += len(elems)
-            
-            # Style direct representations (using entity references directly)
-            for i, (rep, (op_idx, style, elems)) in enumerate(direct_rep_to_operation.items()):
-                if total_items > 100 and (len(mapping_source_to_operation) + i + 1) % 100 == 0:
-                    self.logger.debug(f"Styling direct representation {i + 1}/{len(direct_rep_to_operation)}")
-                
-                if self._style_representation(rep, style):
-                    styled_count += 1
-                    self.stats['elements_colored'] += len(elems)
-                    self.stats['representations_styled'] += 1
-            
+            element_to_style = self._resolve_element_styles()
+            self._apply_isolated_colours(element_to_style)
             self.stats['operations_completed'] = len(self.operations)
-            
             self.logger.info(
                 f"SetColorBySelector completed: "
                 f"{self.stats['operations_completed']}/{self.stats['operations_total']} operations succeeded, "
                 f"{self.stats['elements_colored']} elements colored, "
                 f"{self.stats['mapping_sources_styled']} MappingSources styled, "
-                f"{self.stats['mapping_sources_skipped']} MappingSources skipped (already styled), "
                 f"{self.stats['representations_styled']} direct reps styled, "
-                f"{self.stats['mapping_sources_split']} MappingSources split (partial match), "
-                f"{self.stats['conflicts_detected']} conflicts detected, "
+                f"{self.stats['mapping_sources_split']} MappingSources split, "
+                f"{self.stats['conflicts_detected']} colour-group conflicts, "
                 f"{self.stats['mapping_sources_duplicated']} MappingSources duplicated, "
                 f"{self.stats['styles_created']} styles created, "
                 f"{self.stats['styles_reused']} styles reused"
             )
-            
         except Exception as e:
             self.logger.error(f"Critical error during patch execution: {str(e)}", exc_info=True)
             raise
-    
+
     def get_output(self) -> ifcopenshell.file:
         """Return the patched IFC file."""
         return self.file
-

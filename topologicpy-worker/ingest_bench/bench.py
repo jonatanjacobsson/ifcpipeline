@@ -42,11 +42,24 @@ def _fingerprint(ingester) -> dict:
     elem_lines = sorted(
         f"{e.get('global_id')}|{e.get('ifc_class')}" for e in elems
     )
+    # Separate hash, deliberately NOT folded into rel_sha256: evidence carries the probe
+    # coordinates, sample counts and measured spans that a geometry script's determinism
+    # actually turns on, and rel_sha256 is blind to all of it. Kept as its own key so
+    # every historical baseline stays comparable.
+    evidence_lines = sorted(
+        "|".join([
+            str(r.get("subject_global_id")), str(r.get("object_global_id")),
+            str(r.get("relationship_type")),
+            json.dumps(r.get("evidence") or {}, sort_keys=True, default=str),
+        ])
+        for r in rels
+    )
     summary = {k: v for k, v in ingester.get_summary().items() if k not in TIME_KEYS}
     return {
         "relationship_count": len(rels),
         "element_count": len(elems),
         "rel_sha256": hashlib.sha256("\n".join(rel_lines).encode()).hexdigest(),
+        "rel_evidence_sha256": hashlib.sha256("\n".join(evidence_lines).encode()).hexdigest(),
         "elem_sha256": hashlib.sha256("\n".join(elem_lines).encode()).hexdigest(),
         "summary": summary,
     }

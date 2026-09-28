@@ -15,7 +15,29 @@ ifcopenshell==0.8.4
 # Upper-bounded: KnowledgeGraphExport memoizes KnowledgeGraph internals and the
 # topograph disk cache round-trips TGraph.ToPython/FromPython — re-verify both
 # (ingest_bench fingerprints) before crossing 0.10.
-topologicpy>=0.9.58,<0.10
+# PINNED, not a range; bump topologicpy and topologic_core TOGETHER and re-run
+# ingest_bench + the SpaceInteractions canary (rooms_indexed=243 on A1 0003)
+# before deploying.
+#
+# topologicpy no longer declares topologic_core in Requires-Dist (dropped in
+# the 0.9.6x line; backends resolve lazily), so NO geometry kernel is
+# installed unless it is pinned here. Without a kernel the failure is silent:
+# Vertex.ByCoordinates prints a warning and returns None, and
+# Topology.ByBREPString(silent=True) returns None -> SpaceInteractions indexes
+# 0 rooms, roomstamp builds 0 cells, all reported as success. That was the
+# 2026-09-18 incident (rebuild drifted to 0.9.70, "Topology.Cells returns
+# nothing" for every IfcSpace BRep): the kept image
+# ifcpipeline-topologicpy-worker:0.9.70-broken-2026-09-18 has topologicpy
+# 0.9.70 and NO topologic_core (checked 2026-09-25), while
+# 0.9.65/0.9.68/0.9.70/0.9.80 WITH topologic_core 8.0.4 all give 241 spaces /
+# 243 cells on A1 0003. The Dockerfile now fails the build if no kernel is
+# usable (kernel_smoke.py).
+# NOTE (0.9.80, 2026-09-25): bumped together with topologic_core 8.0.4 after the
+# gates in UPGRADE-0.9.80.md (17 ingest_bench fingerprints, SpaceInteractions,
+# roomstamp cells, KG TTL). 0.9.70+ needs ingest_scripts/_kg_compat.py for the
+# KnowledgeGraphExport vocabulary and the Vertex.Distance guard in tasks.py.
+topologicpy==0.9.80
+topologic_core==8.0.4
 # Required by ingest_scripts/topograph.community() -> TGraph.CommunityPartition
 # (algorithm="louvain"), used by ZonePartition. topologicpy does not pull it in.
 python-igraph>=0.11

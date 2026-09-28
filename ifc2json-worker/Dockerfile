@@ -1,6 +1,11 @@
 # ifc2json-worker/Dockerfile
-# Use the same base image that provides the .NET runtime needed by ConvertIfc2Json
-FROM mcr.microsoft.com/dotnet/aspnet:6.0 AS base
+# The .NET runtime ConvertIfc2Json needs, on a Debian that still has its package
+# pool. The plain `:6.0` tag is Debian 11 (bullseye), whose LTS ended 2026-08-31:
+# deb.debian.org still serves a bullseye-security index listing package versions
+# whose .deb files have been pruned, so `apt-get install` dies on 404s (exit 100)
+# and this image has failed to build on main since 2026-09-10. Same .NET 6.0.36
+# runtime, Debian 12.
+FROM mcr.microsoft.com/dotnet/aspnet:6.0-bookworm-slim AS base
 
 WORKDIR /
 
@@ -22,11 +27,11 @@ WORKDIR /app
 
 # Copy shared library and install it using pip3
 COPY shared /app/shared
-RUN pip3 install -e /app/shared
+RUN pip3 install --break-system-packages -e /app/shared
 
 # Install worker-specific Python dependencies using pip3
 COPY ifc2json-worker/requirements.txt /app/
-RUN pip3 install --no-cache-dir -r /app/requirements.txt
+RUN pip3 install --break-system-packages --no-cache-dir -r /app/requirements.txt
 
 # Copy worker code directly to /app
 COPY ifc2json-worker/tasks.py /app/

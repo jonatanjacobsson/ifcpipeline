@@ -22,6 +22,10 @@ ARCHITECTURE_SCRIPTS = [
 # Federated cross-discipline geometric relations (penetrates/intersects/sits_in/mounted_on).
 # Run on federated bundles (multiple discipline models in one revision), not single files.
 FEDERATED_SCRIPTS = ["FederatedRelationships"]
+# Element-to-every-space relations (passes_through / bounds / serves_space). Requires a
+# spaces model AND a discipline model in one job, so it is deliberately absent from the
+# per-discipline lists below: routed there it would run single-file and emit nothing.
+SPACE_SCRIPTS = ["SpaceInteractions"]
 STRUCTURAL_SCRIPTS = ["StructuralConnectivity"]
 MEP_SCRIPTS = ["MepTopology"]
 
