@@ -67,7 +67,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 1G
+          memory: 4G
 
   ifcpatch-worker:
     profiles: [remote]
