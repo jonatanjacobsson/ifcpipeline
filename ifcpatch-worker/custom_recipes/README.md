@@ -146,6 +146,13 @@ result.write("modified.ifc")
 **Author**: Jonatan Jacobsson  
 **Status**: In Development
 
+### AssignLubekalkPset
+**Description**: Makes a ventilation model Lubekalk-ready. Writes a `Lubekalk` pset (Kod, Dim 1, Dim 2, Montageläge, Kanalmaterial, Antal, Längd, plus insulation rows; hanger and hole-making rows opt-in via `include_hangers` / `include_voids`) on every element, and returns the import file Lubekalk reads (`lubekalk_import` .csv artifact) with a JSON report. Fitting sizes and bend angles come from the port graph, rectangular sections and unsized ends from geometry, montageläge from height or space. Every element gets a status (Klar / Ingår / Utanför / Saknas) with its reason and source.
+**Default mapping**: `mappings/lubekalk_magicad.py` (MagiCAD for Revit, tracked); project overrides as gitignored `*_lubekalk.py`
+**Status**: Validated on Nobel M1-570 v43 and v46 (100 % resolved, 11 755 elements); the import file was checked against a real Lubekalk import (whole-mm dimensions, 15-character Beteckning, register codes)
+**Documentation**: [LUBEKALK_README.md](LUBEKALK_README.md); command line: `scripts/export_lubekalk_import.py`
+**Use Case**: Model-based ventilation estimating (VVS-kalkyl) in Lubekalk
+
 Add descriptions of your custom recipes here as you create them.
 
 ## Testing Your Recipe

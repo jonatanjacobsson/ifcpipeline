@@ -39,6 +39,7 @@ n8n-workflows/*
 # See ifcpatch-worker/custom_recipes/mappings/README.md
 ifcpatch-worker/custom_recipes/mappings/nobel_a1_*.py
 !ifcpatch-worker/custom_recipes/mappings/nobel_a1_*.example.py
+ifcpatch-worker/custom_recipes/mappings/*_lubekalk.py
 
 # --- One-off Cursor helpers (keep .cursor/rules and .cursor/skills) -
 .cursor/*.py
