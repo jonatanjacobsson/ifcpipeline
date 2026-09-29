@@ -446,7 +446,12 @@ class Patcher:
         removed = 0
 
         for rel_type, attrs in _REQUIRED_RELATING_ATTRS.items():
-            for rel in list(self.file.by_type(rel_type)):
+            try:
+                rels = list(self.file.by_type(rel_type))
+            except RuntimeError:
+                # Entity absent from this schema (e.g. IfcRelDeclares in IFC2X3).
+                continue
+            for rel in rels:
                 try:
                     if any(getattr(rel, attr, None) is None for attr in attrs):
                         self.file.remove(rel)
