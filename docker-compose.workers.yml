@@ -48,7 +48,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M
+          memory: 2G   # ifcopenshell 0.9 ifc5d qto peaks ~1.2 GB on an 8.8 MB model (0.8.5: ~0.8 GB)
 
   ifcpatch-worker:
     logging: *default-logging

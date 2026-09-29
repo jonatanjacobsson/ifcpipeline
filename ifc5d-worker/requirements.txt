@@ -1,7 +1,7 @@
 # IFC dependencies - pinned for stability
-ifcopenshell==0.8.0
+ifcopenshell==0.9.0
 lark<1.3
-ifc5d>=0.0.2
+ifc5d==0.9.0
 
 # Queue and data validation
 rq>=2.0.0,<3.0.0

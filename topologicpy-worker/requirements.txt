@@ -1,5 +1,5 @@
 # IFC dependencies - keep aligned with newer worker images
-ifcopenshell==0.8.4
+ifcopenshell==0.9.0
 
 # Topology feasibility dependency. Lower bounds match the latest versions
 # verified during this worker spike.
