@@ -5,8 +5,8 @@
 # load test was run; this unpin is by association on the assumption that the
 # wrapper bug is shared across products and 0.8.4.post1 offers no real
 # protection. If ifcclash-specific SIGSEGVs appear, repin and isolate.
-ifcclash==0.8.5
-ifcopenshell==0.8.5
+ifcclash==0.9.0
+ifcopenshell==0.9.0
 numpy
 scikit-learn
 typing_extensions
