@@ -12,12 +12,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /
 
-# Download and set up IfcConvert
-RUN wget https://github.com/IfcOpenShell/IfcOpenShell/releases/download/ifcconvert-0.8.3/ifcconvert-0.8.3-linux64.zip \
-    && unzip ifcconvert-0.8.3-linux64.zip \
-    && mv IfcConvert /usr/local/bin/ \
-    && chmod +x /usr/local/bin/IfcConvert \
-    && rm ifcconvert-0.8.3-linux64.zip
+# Download and set up IfcConvert. 0.9.x is a plugin build: the binary loads the
+# geometry kernels/serializers (*.so) and bundled libs from its own directory, so
+# install the whole tree and symlink the binary rather than moving it alone.
+RUN wget https://github.com/IfcOpenShell/IfcOpenShell/releases/download/ifcconvert-0.9.0/ifcconvert-0.9.0-linux64.zip \
+    && mkdir -p /opt/ifcconvert \
+    && unzip -q ifcconvert-0.9.0-linux64.zip -d /opt/ifcconvert \
+    && chmod +x /opt/ifcconvert/IfcConvert \
+    && ln -s /opt/ifcconvert/IfcConvert /usr/local/bin/IfcConvert \
+    && rm ifcconvert-0.9.0-linux64.zip
 
 WORKDIR /app
 

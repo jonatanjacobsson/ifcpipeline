@@ -12,14 +12,14 @@ requests>=2.32.0,<3.0.0
 # A real load-induced SIGSEGV affecting BOTH versions still exists upstream
 # (~1–3 % per execution under parallel pressure) — see §6 of the doc for the
 # upstream report we need to file.
-ifcopenshell==0.8.5
-ifcpatch==0.8.5
+ifcopenshell==0.9.0
+ifcpatch==0.9.0
 
 # Additional utilities
 typing-extensions>=4.12.0
 networkx>=3.3,<4.0.0  # Required for sequence.recalculate_schedule API
 numpy>=1.26.0,<3.0.0
-bcf-client==0.8.5
+bcf-client==0.9.0
 
 # Object storage
 boto3>=1.34,<2

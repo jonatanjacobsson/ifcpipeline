@@ -264,7 +264,12 @@ class RoomIndex:
                 # that hard-kills the interpreter with no traceback.
                 shape = ifcopenshell.geom.create_shape(settings, space)
                 if use_cells:
-                    solid = shape.geometry.as_compound(force_meters=True)
+                    try:
+                        solid = shape.geometry.as_compound(force_meters=True)
+                    except TypeError:
+                        # ifcopenshell >= 0.9: no kwarg; with convert-back-units off
+                        # the compound is already in metres (AABBs verified identical).
+                        solid = shape.geometry.as_compound()
                     cells = cells_of(solid.serialize())
                 else:
                     verts = shape.geometry.verts

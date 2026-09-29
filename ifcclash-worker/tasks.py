@@ -311,7 +311,12 @@ class CustomClasher(Clasher):
     def process_clash_set(self, clash_set) -> None:
         import ifcopenshell
         self._group_shape_counts = {"a": 0, "b": 0}
-        self.tree = ifcopenshell.geom.tree()
+        try:
+            # ifcopenshell >= 0.9 defaults to the 'opencascade.brep' backend, which
+            # rejects the triangulated shapes the iterator yields for CGAL/hybrid.
+            self.tree = ifcopenshell.geom.tree(backend="opencascade.trianglebvh")
+        except TypeError:  # 0.8.x: no ``backend`` kwarg
+            self.tree = ifcopenshell.geom.tree()
         self.create_group("a")
         for source in clash_set["a"]:
             source["ifc"] = self.load_ifc(source["file"])

@@ -285,7 +285,7 @@ class Patcher:
         coordinate system and enable API entity creation.
         """
         source = self.file
-        new_file = ifcopenshell.file(schema=source.wrapped_data.schema)
+        new_file = ifcopenshell.file(schema=source.schema)
         
         # Copy OwnerHistory (and its Person/Org/App references) from source
         # so that api.root.create_entity can find existing owner info.
