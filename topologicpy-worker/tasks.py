@@ -3220,6 +3220,9 @@ _INGEST_SIGSEGV_FALLBACK_SCRIPTS = frozenset(
         # still ifcopenshell/OpenCascade -- which is why the retry for this script also
         # stays in a spawn child (see _INGEST_ISOLATED_RETRY_SCRIPTS).
         "SpaceInteractions",
+        # Same shape: the retry skips TopologicPy adjacency, but the element iterator and
+        # the zone bodies (point_in_zone_volume) are still OpenCascade.
+        "TaktProduction",
     }
 )
 
@@ -3229,7 +3232,7 @@ _INGEST_SIGSEGV_FALLBACK_SCRIPTS = frozenset(
 # segfault kill the worker itself. With replicas: 1 the RQ job then sits "started"
 # until its 2 h timeout and the whole topologicpy queue waits behind it. The retry
 # therefore runs in a fresh spawn child too; a second crash fails the job cleanly.
-_INGEST_ISOLATED_RETRY_SCRIPTS = frozenset({"SpaceInteractions"})
+_INGEST_ISOLATED_RETRY_SCRIPTS = frozenset({"SpaceInteractions", "TaktProduction"})
 
 
 def _retry_in_isolation(script_name: str) -> bool:

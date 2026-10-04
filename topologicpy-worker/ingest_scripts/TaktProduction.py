@@ -14,7 +14,11 @@ Zone resolution ladder (plan §1), first non-empty rung wins under ``zone_source
    case-insensitively in ObjectType / Name / LongName / PredefinedType or any pset
    name/value). Members come from the explicit IFC rels
    (``IfcRelReferencedInSpatialStructure`` / ``IfcRelContainedInSpatialStructure`` /
-   decomposition). *Read-only ingest of author-modelled zones.*
+   decomposition), else from the zone's own volume: an element whose reference point
+   (the centre of its world bounding box) lies inside the zone's body is a member.
+   That is what makes a *zone model* work — zones authored in a file of their own and
+   run together with the discipline models, whose elements no IFC rel can reach.
+   *Read-only ingest of author-modelled zones.*
 2. ``ifc_zone`` — ``IfcZone`` grouping of ``IfcSpace`` via ``IfcRelAssignsToGroup``.
 3. ``derived`` — group spaces by storey (REUSING the egress storey-assignment
    ladder: IFC containment → room-number prefix → Z-centroid, see
@@ -83,6 +87,18 @@ except ImportError:
     HAS_TOPOLOGICPY = False
 
 
+# A zone with a body (an IfcSpatialZone volume) takes the elements whose reference point lies
+# inside it: the centre of the element's world bounding box, raised Z_BIAS_M when the element is
+# thinner than THIN_M, so a floor finish lying just under its storey line counts to that storey.
+ZONE_VOLUME_METHOD = "point_in_zone_volume"
+# An element whose centre lies in no zone (it straddles a façade line, or its centre falls in a
+# void) goes to the zone holding most of a 3×3 grid of points across its bounding box.
+ZONE_SAMPLE_METHOD = "points_in_zone_volume"
+Z_BIAS_M = 0.15
+THIN_M = 0.5
+# Points tested against a zone mesh at once: (points × triangles) arrays stay a few MB.
+_POINT_CHUNK = 1024
+
 IN_ZONE_TYPE = "in_zone"                    # IfcSpace  --> zone
 CONTAINS_ELEMENT_TYPE = "contains_element"  # zone      --> built element
 ADJACENT_ZONE_TYPE = "adjacent_zone"        # zone      <-> zone (sorted pair)
@@ -108,6 +124,21 @@ VOLUME_QTY_KEYS = ("NetVolume", "GrossVolume")
 
 _VALID_ZONE_SOURCES = ("auto", "spatial_zone", "ifc_zone", "derived")
 _VALID_PARTITION_RULES = ("storey", "half")
+
+
+def _cpu_allowance() -> int:
+    """Usable CPUs for the geometry iterator: the cgroup v2 quota when set, else cpu_count-1
+    (the rule of ``_space_index.cpu_allowance``; inside a 2-CPU container ``os.cpu_count()``
+    reports the host's cores, and oversubscribing the iterator is slower)."""
+    import os
+
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            return max(1, -(-int(quota) // int(period)))
+    except (OSError, ValueError):
+        pass
+    return max(1, (os.cpu_count() or 2) - 1)
 
 
 def _area_volume_scales(ifc) -> Tuple[float, float]:
@@ -183,6 +214,61 @@ def _entity_quantities(
         if used_geom:
             source = "qto+geom_aabb" if source == "qto" else "geom_aabb"
     return area, volume, source
+
+
+def reference_point(aabb: Tuple[float, ...]) -> Tuple[float, float, float]:
+    """The point that decides which zone volume an element is in (see ``Z_BIAS_M``)."""
+    cx = (aabb[0] + aabb[3]) / 2.0
+    cy = (aabb[1] + aabb[4]) / 2.0
+    cz = (aabb[2] + aabb[5]) / 2.0
+    if aabb[5] - aabb[2] < THIN_M:
+        cz += Z_BIAS_M
+    return cx, cy, cz
+
+
+def sample_points(aabb: Tuple[float, ...]) -> List[Tuple[float, float, float]]:
+    """A 3×3 grid across the bounding box at the reference height, the centre left out."""
+    _cx, _cy, cz = reference_point(aabb)
+    xs = [aabb[0] + (aabb[3] - aabb[0]) * f for f in (1 / 6, 1 / 2, 5 / 6)]
+    ys = [aabb[1] + (aabb[4] - aabb[1]) * f for f in (1 / 6, 1 / 2, 5 / 6)]
+    return [(x, y, cz) for i, x in enumerate(xs) for j, y in enumerate(ys) if (i, j) != (1, 1)]
+
+
+def points_in_mesh(points, triangles):
+    """Which of ``points`` (N, 3) lie inside the closed triangle mesh ``triangles`` (T, 3, 3).
+
+    A ray straight up from the point crosses the surface an odd number of times when the point
+    is inside. The ray starts a hair off the point (an irrational-ish xy offset) so it never runs
+    exactly through an edge or vertex of an axis-aligned mesh, where two triangles would both
+    count the same crossing. Several disjoint closed bodies in one mesh work the same way.
+    """
+    import numpy as np
+
+    pts = np.asarray(points, dtype=float).reshape(-1, 3) + np.array([1.37e-7, 2.71e-7, 0.0])
+    tris = np.asarray(triangles, dtype=float).reshape(-1, 3, 3)
+    inside = np.zeros(len(pts), dtype=bool)
+    if not len(pts) or not len(tris):
+        return inside
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    e1, e2 = b - a, c - a
+    # Möller–Trumbore with direction (0, 0, 1): h = d × e2, det = e1 · h.
+    h = np.stack([-e2[:, 1], e2[:, 0], np.zeros(len(tris))], axis=1)
+    det = np.einsum("ij,ij->i", e1, h)
+    usable = np.abs(det) > 1e-12   # vertical faces never cross a vertical ray
+    a, e1, e2, h, det = a[usable], e1[usable], e2[usable], h[usable], det[usable]
+    if not len(det):
+        return inside
+    inv = 1.0 / det
+    for start in range(0, len(pts), _POINT_CHUNK):
+        p = pts[start:start + _POINT_CHUNK]
+        s_ = p[:, None, :] - a[None, :, :]                       # (n, t, 3)
+        u = np.einsum("ntk,tk->nt", s_, h) * inv
+        q = np.cross(s_, e1[None, :, :])                         # (n, t, 3)
+        v = q[:, :, 2] * inv                                     # d · q with d = (0, 0, 1)
+        t = np.einsum("ntk,tk->nt", q, e2) * inv
+        hit = (u >= 0.0) & (v >= 0.0) & (u + v <= 1.0) & (t > 1e-9)
+        inside[start:start + _POINT_CHUNK] = (hit.sum(axis=1) % 2) == 1
+    return inside
 
 
 def _zone_node_id(storey_key: str, partition: Optional[str]) -> str:
@@ -297,7 +383,7 @@ class Ingester(_Base):
         :param storey_z_tolerance: Z tolerance (m) for centroid→storey inference.
         :param face_tolerance: Max bbox gap (m) counting as touching in the adjacency fallback.
         :param min_shared_face: Min shared bbox edge (m) for fallback adjacency.
-        :param num_threads: Geometry-iterator threads (0 = auto: cpu_count-1).
+        :param num_threads: Geometry-iterator threads (0 = auto: the container's CPU quota, else cpu_count-1).
         """
         super().__init__(ifc_files, log)
         zone_source = (zone_source or "auto").strip().lower()
@@ -327,8 +413,12 @@ class Ingester(_Base):
         self.face_tolerance = float(face_tolerance)
         self.min_shared_face = float(min_shared_face)
         import os
-        self.num_threads = int(num_threads) or max(1, (os.cpu_count() or 2) - 1)
+        self.num_threads = int(num_threads) or _cpu_allowance()
         self._temp_paths: List[Path] = []
+        # Rung-1 zones: the IfcSpatialZone entity and its file's (area, volume) scales, so a
+        # zone's own body can decide membership and its own Qto can stand for its area.
+        self._zone_entities: Dict[str, Any] = {}
+        self._zone_scales: Dict[str, Tuple[float, float]] = {}
 
     # ------------------------------------------------------------------
     # extract
@@ -438,6 +528,16 @@ class Ingester(_Base):
             )
 
         # --- zone nodes ----------------------------------------------------------
+        if self.quantities:
+            for zone in self._sorted_zones(zones):
+                entity = self._zone_entities.get(zone.zone_id)
+                if zone.member_spaces or entity is None:
+                    continue
+                # A zone model's zone has no rooms: its own Qto is its area and volume.
+                a_scale, v_scale = self._zone_scales.get(zone.zone_id, (1.0, 1.0))
+                area, volume, _source = _entity_quantities(entity, None, a_scale, v_scale)
+                zone.space_area = area or 0.0
+                zone.space_volume = volume or 0.0
         for zone in self._sorted_zones(zones):
             extra: Dict[str, Any] = {
                 "takt_zone": True,
@@ -568,6 +668,8 @@ class Ingester(_Base):
                 rec.member_spaces = sorted(spaces)
                 rec.direct_elements = sorted(elements)
                 zones[gid] = rec
+                self._zone_entities[gid] = sz
+                self._zone_scales[gid] = _area_volume_scales(ifc)
         return zones
 
     @staticmethod
@@ -705,7 +807,11 @@ class Ingester(_Base):
         Assignment precedence (first match wins, all deterministic):
           1. explicit zone rels (rung 1 only)
           2. element explicitly contained in a member IfcSpace
-          3. derived rungs: element's storey (containment else Z-inferred) +
+          3. rung 1: the element's reference point inside a zone's own body
+             (``point_in_zone_volume``; the zone that sorts first wins an overlap),
+             else the zone holding most of a grid of points across the element
+             (``points_in_zone_volume``)
+          4. derived rungs: element's storey (containment else Z-inferred) +
              partition side (centroid vs the storey's split midpoint)
              rung 1/2: element centroid inside a member space's AABB
         """
@@ -758,6 +864,16 @@ class Ingester(_Base):
             for egid in zone.direct_elements:
                 direct[egid].add(zone.zone_id)
 
+        volume_zone: Dict[str, Tuple[str, str]] = {}
+        if rung == "spatial_zone":
+            volume_zone = self._elements_in_zone_volumes(
+                zones,
+                {gid: aabbs[gid] for gid in candidates
+                 if gid in aabbs and gid not in direct
+                 and not (gid in elem_space and elem_space[gid] in member_space_of)},
+            )
+        file_of = {id(ifc): path.name for path, ifc in models}
+
         seen_pairs: Set[Tuple[str, str]] = set()
         unassigned = 0
         storey_elev_key = {
@@ -777,6 +893,9 @@ class Ingester(_Base):
                 sgid = elem_space[egid]
                 for zid in member_space_of[sgid]:
                     assignments.append((zid, "contained_in_member_space", 1.0, sgid))
+            elif egid in volume_zone:
+                zid, method = volume_zone[egid]
+                assignments.append((zid, method, 0.95 if method == ZONE_VOLUME_METHOD else 0.85, None))
             elif rung == "derived":
                 zone = self._derived_zone_for_element(
                     egid, aabb, elem_storey_gid, storey_elev_key,
@@ -829,6 +948,8 @@ class Ingester(_Base):
                     evidence["volumeM3"] = round(volume, 3)
                 if qty_source:
                     evidence["qtySource"] = qty_source
+                if method in (ZONE_VOLUME_METHOD, ZONE_SAMPLE_METHOD):
+                    evidence["elementFile"] = file_of.get(id(element_ifc[egid]))
                 self._relationships.append(Relationship(
                     subject_global_id=zid,
                     object_global_id=egid,
@@ -841,6 +962,79 @@ class Ingester(_Base):
         if unassigned:
             self.log.info("takt: %d element(s) not assignable to a zone", unassigned)
         return unassigned
+
+    def _elements_in_zone_volumes(
+        self, zones: Dict[str, _ZoneRec], aabbs: Dict[str, Tuple[float, ...]],
+    ) -> Dict[str, Tuple[str, str]]:
+        """element gid → (zone id, method): the zone whose own body holds its reference point,
+        else the zone holding most of its sample points."""
+        import numpy as np
+
+        meshes = self._zone_meshes(zones)
+        if not meshes or not aabbs:
+            return {}
+        gids = sorted(aabbs)
+        points = np.array([reference_point(aabbs[g]) for g in gids], dtype=float)
+        free = np.ones(len(gids), dtype=bool)
+        found: Dict[str, Tuple[str, str]] = {}
+        for zid in sorted(meshes):
+            triangles, lo, hi = meshes[zid]
+            near = free & np.all(points >= lo, axis=1) & np.all(points <= hi, axis=1)
+            idx = np.nonzero(near)[0]
+            if not len(idx):
+                continue
+            inside = points_in_mesh(points[idx], triangles)
+            for k in idx[inside]:
+                found[gids[k]] = (zid, ZONE_VOLUME_METHOD)
+                free[k] = False
+        by_centre = len(found)
+        # The rest: the zone holding most of a grid of points across the element.
+        rest = [gids[k] for k in np.nonzero(free)[0]]
+        if rest:
+            samples = np.array([p for g in rest for p in sample_points(aabbs[g])], dtype=float)
+            owner = np.full(len(samples), -1)
+            zone_ids = sorted(meshes)
+            for zi, zid in enumerate(zone_ids):
+                triangles, lo, hi = meshes[zid]
+                near = (owner < 0) & np.all(samples >= lo, axis=1) & np.all(samples <= hi, axis=1)
+                idx = np.nonzero(near)[0]
+                if len(idx):
+                    owner[idx[points_in_mesh(samples[idx], triangles)]] = zi
+            per = len(samples) // len(rest)
+            for n, gid in enumerate(rest):
+                votes = owner[n * per:(n + 1) * per]
+                votes = votes[votes >= 0]
+                if len(votes):
+                    counts = np.bincount(votes)
+                    found[gid] = (zone_ids[int(np.argmax(counts))], ZONE_SAMPLE_METHOD)
+        self.log.info(
+            "takt: %d of %d element(s) in %d zone volume(s): %d by their centre, %d by most of their extent",
+            len(found), len(gids), len(meshes), by_centre, len(found) - by_centre,
+        )
+        return found
+
+    def _zone_meshes(self, zones: Dict[str, _ZoneRec]):
+        """zone id → (world triangles (T, 3, 3), bbox min, bbox max) for zones with a body."""
+        import numpy as np
+
+        settings = ifcopenshell.geom.settings()
+        settings.set("use-world-coords", True)
+        meshes = {}
+        for zid in sorted(zones):
+            entity = self._zone_entities.get(zid)
+            if entity is None or not getattr(entity, "Representation", None):
+                continue
+            try:
+                shape = ifcopenshell.geom.create_shape(settings, entity)
+                verts = np.asarray(shape.geometry.verts, dtype=float).reshape(-1, 3)
+                faces = np.asarray(shape.geometry.faces, dtype=int).reshape(-1, 3)
+            except Exception:
+                self.log.warning("takt: zone %s has no usable body", zid, exc_info=True)
+                continue
+            if not len(faces):
+                continue
+            meshes[zid] = (verts[faces], verts.min(axis=0), verts.max(axis=0))
+        return meshes
 
     def _derived_zone_for_element(
         self, egid, aabb, elem_storey_gid, storey_elev_key,
