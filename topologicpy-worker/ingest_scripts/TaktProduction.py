@@ -18,6 +18,9 @@ Zone resolution ladder (plan §1), first non-empty rung wins under ``zone_source
    (the centre of its world bounding box) lies inside the zone's body is a member.
    That is what makes a *zone model* work — zones authored in a file of their own and
    run together with the discipline models, whose elements no IFC rel can reach.
+   A zone model may hold several TBS levels that overlap in space (the frame's
+   sectors, the façade's sides, the interior's zones): a zone's level is its
+   ``TaktLevel`` property, and an element is placed in one zone *per level*.
    *Read-only ingest of author-modelled zones.*
 2. ``ifc_zone`` — ``IfcZone`` grouping of ``IfcSpace`` via ``IfcRelAssignsToGroup``.
 3. ``derived`` — group spaces by storey (REUSING the egress storey-assignment
@@ -98,6 +101,11 @@ Z_BIAS_M = 0.15
 THIN_M = 0.5
 # Points tested against a zone mesh at once: (points × triangles) arrays stay a few MB.
 _POINT_CHUNK = 1024
+
+# A zone model's TBS: each zone's level (zones of one level never overlap; levels may) and its
+# path in the breakdown, read from any property set. Zones without a level share one.
+ZONE_LEVEL_PROPERTY = "TaktLevel"
+ZONE_TBS_PROPERTY = "TBS"
 
 IN_ZONE_TYPE = "in_zone"                    # IfcSpace  --> zone
 CONTAINS_ELEMENT_TYPE = "contains_element"  # zone      --> built element
@@ -310,12 +318,12 @@ class _ZoneRec:
         "zone_id", "name", "ifc_class", "rung", "storey_key", "partition",
         "source_file", "member_spaces", "direct_elements",
         "space_area", "space_volume", "element_area", "element_volume",
-        "element_count",
+        "element_count", "level", "tbs",
     )
 
     def __init__(self, zone_id: str, name: str, ifc_class: str, rung: str,
                  source_file: str, storey_key: Optional[str] = None,
-                 partition: Optional[str] = None):
+                 partition: Optional[str] = None, level: str = "", tbs: Optional[str] = None):
         self.zone_id = zone_id
         self.name = name
         self.ifc_class = ifc_class
@@ -323,6 +331,8 @@ class _ZoneRec:
         self.storey_key = storey_key
         self.partition = partition
         self.source_file = source_file
+        self.level = level      # the zone's TBS level ("" = the one shared level)
+        self.tbs = tbs          # the zone's TBS path, e.g. NC/ÖVB/040/V/V3
         self.member_spaces: List[str] = []
         self.direct_elements: List[str] = []   # rung-1 explicit zone contents
         self.space_area = 0.0
@@ -359,6 +369,8 @@ class Ingester(_Base):
         face_tolerance: float = 0.15,
         min_shared_face: float = 0.30,
         num_threads: int = 0,
+        zone_level_property: str = ZONE_LEVEL_PROPERTY,
+        zone_tbs_property: str = ZONE_TBS_PROPERTY,
     ):
         """Resolve takt zones and their element membership from IFC models.
 
@@ -384,6 +396,8 @@ class Ingester(_Base):
         :param face_tolerance: Max bbox gap (m) counting as touching in the adjacency fallback.
         :param min_shared_face: Min shared bbox edge (m) for fallback adjacency.
         :param num_threads: Geometry-iterator threads (0 = auto: the container's CPU quota, else cpu_count-1).
+        :param zone_level_property: Property (any pset) naming an IfcSpatialZone's TBS level; an element is placed in one zone per level.
+        :param zone_tbs_property: Property (any pset) holding an IfcSpatialZone's TBS path, passed on with the zone.
         """
         super().__init__(ifc_files, log)
         zone_source = (zone_source or "auto").strip().lower()
@@ -414,6 +428,8 @@ class Ingester(_Base):
         self.min_shared_face = float(min_shared_face)
         import os
         self.num_threads = int(num_threads) or _cpu_allowance()
+        self.zone_level_property = zone_level_property or ZONE_LEVEL_PROPERTY
+        self.zone_tbs_property = zone_tbs_property or ZONE_TBS_PROPERTY
         self._temp_paths: List[Path] = []
         # Rung-1 zones: the IfcSpatialZone entity and its file's (area, volume) scales, so a
         # zone's own body can decide membership and its own Qto can stand for its area.
@@ -550,6 +566,10 @@ class Ingester(_Base):
                 extra["storey_key"] = zone.storey_key
             if zone.partition:
                 extra["partition"] = zone.partition
+            if zone.level:
+                extra["level"] = zone.level
+            if zone.tbs:
+                extra["tbs"] = zone.tbs
             if self.quantities:
                 extra["area_m2"] = round(zone.space_area, 2)
                 extra["volume_m3"] = round(zone.space_volume, 2)
@@ -590,6 +610,7 @@ class Ingester(_Base):
                 {
                     "id": z.zone_id,
                     "name": z.name,
+                    "level": z.level or None,
                     "storey_key": z.storey_key,
                     "partition": z.partition,
                     "spaces": len(z.member_spaces),
@@ -661,6 +682,8 @@ class Ingester(_Base):
                     ifc_class=sz.is_a(),
                     rung="spatial_zone",
                     source_file=ifc_path.name,
+                    level=self._zone_property(sz, self.zone_level_property) or "",
+                    tbs=self._zone_property(sz, self.zone_tbs_property),
                 )
                 spaces, elements = self._spatial_zone_members(sz)
                 # Author-tagged zones keep ALL their explicit space members — the
@@ -671,6 +694,19 @@ class Ingester(_Base):
                 self._zone_entities[gid] = sz
                 self._zone_scales[gid] = _area_volume_scales(ifc)
         return zones
+
+    @staticmethod
+    def _zone_property(zone, name: str) -> Optional[str]:
+        """The value of property ``name`` in the first property set (by name) that has one."""
+        try:
+            psets = ifc_element_util.get_psets(zone)
+        except Exception:  # noqa: BLE001 - a zone without readable psets has no level
+            return None
+        for pset in sorted(psets):
+            value = psets[pset].get(name)
+            if value not in (None, ""):
+                return str(value).strip() or None
+        return None
 
     @staticmethod
     def _spatial_zone_members(sz) -> Tuple[Set[str], Set[str]]:
@@ -810,7 +846,8 @@ class Ingester(_Base):
           3. rung 1: the element's reference point inside a zone's own body
              (``point_in_zone_volume``; the zone that sorts first wins an overlap),
              else the zone holding most of a grid of points across the element
-             (``points_in_zone_volume``)
+             (``points_in_zone_volume``) -- once per TBS level, so an element can be in
+             a frame sector, a façade side and an interior zone at once
           4. derived rungs: element's storey (containment else Z-inferred) +
              partition side (centroid vs the storey's split midpoint)
              rung 1/2: element centroid inside a member space's AABB
@@ -864,7 +901,7 @@ class Ingester(_Base):
             for egid in zone.direct_elements:
                 direct[egid].add(zone.zone_id)
 
-        volume_zone: Dict[str, Tuple[str, str]] = {}
+        volume_zone: Dict[str, List[Tuple[str, str]]] = {}
         if rung == "spatial_zone":
             volume_zone = self._elements_in_zone_volumes(
                 zones,
@@ -894,8 +931,8 @@ class Ingester(_Base):
                 for zid in member_space_of[sgid]:
                     assignments.append((zid, "contained_in_member_space", 1.0, sgid))
             elif egid in volume_zone:
-                zid, method = volume_zone[egid]
-                assignments.append((zid, method, 0.95 if method == ZONE_VOLUME_METHOD else 0.85, None))
+                for zid, method in volume_zone[egid]:
+                    assignments.append((zid, method, 0.95 if method == ZONE_VOLUME_METHOD else 0.85, None))
             elif rung == "derived":
                 zone = self._derived_zone_for_element(
                     egid, aabb, elem_storey_gid, storey_elev_key,
@@ -965,14 +1002,27 @@ class Ingester(_Base):
 
     def _elements_in_zone_volumes(
         self, zones: Dict[str, _ZoneRec], aabbs: Dict[str, Tuple[float, ...]],
-    ) -> Dict[str, Tuple[str, str]]:
-        """element gid → (zone id, method): the zone whose own body holds its reference point,
-        else the zone holding most of its sample points."""
-        import numpy as np
-
+    ) -> Dict[str, List[Tuple[str, str]]]:
+        """element gid → [(zone id, method)], one per TBS level: in each level, the zone whose own
+        body holds its reference point, else the zone holding most of its sample points."""
         meshes = self._zone_meshes(zones)
         if not meshes or not aabbs:
             return {}
+        by_level: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        for zid, mesh in meshes.items():
+            by_level[zones[zid].level][zid] = mesh
+        found: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
+        for level in sorted(by_level):
+            for gid, placed in self._elements_in_level(by_level[level], aabbs, level).items():
+                found[gid].append(placed)
+        return dict(found)
+
+    def _elements_in_level(
+        self, meshes: Dict[str, Any], aabbs: Dict[str, Tuple[float, ...]], level: str,
+    ) -> Dict[str, Tuple[str, str]]:
+        """element gid → (zone id, method) among one level's zone bodies."""
+        import numpy as np
+
         gids = sorted(aabbs)
         points = np.array([reference_point(aabbs[g]) for g in gids], dtype=float)
         free = np.ones(len(gids), dtype=bool)
@@ -1008,8 +1058,9 @@ class Ingester(_Base):
                     counts = np.bincount(votes)
                     found[gid] = (zone_ids[int(np.argmax(counts))], ZONE_SAMPLE_METHOD)
         self.log.info(
-            "takt: %d of %d element(s) in %d zone volume(s): %d by their centre, %d by most of their extent",
-            len(found), len(gids), len(meshes), by_centre, len(found) - by_centre,
+            "takt: %d of %d element(s) in %d zone volume(s)%s: %d by their centre, %d by most of their extent",
+            len(found), len(gids), len(meshes), f" of level {level!r}" if level else "",
+            by_centre, len(found) - by_centre,
         )
         return found
 
