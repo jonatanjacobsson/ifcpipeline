@@ -143,3 +143,63 @@ def test_a_zone_model_takes_the_elements_inside_its_volumes(tmp_path):
     # A zone model's zone has no rooms: its own Qto stands for its area.
     zones_out = {e.name: e.extra for e in ingester._elements}
     assert zones_out["Z1"]["area_m2"] == 100.0 and zones_out["Z1"]["element_count"] == 2
+
+
+def test_a_zone_model_with_tbs_levels_places_an_element_once_per_level(tmp_path):
+    """Frame sectors, façade sides and interior zones overlap in space; each level keeps its members."""
+    import ifcopenshell
+    import ifcopenshell.api
+
+    def zones(f, body, storey):
+        for name, level, tbs, box in (
+            ("040:V1", "Taktzon", "NC/ÖVB/040/V/V1", (0, 0, 0, 10, 10, 3)),
+            ("040:V2", "Taktzon", "NC/ÖVB/040/V/V2", (10, 0, 0, 20, 10, 3)),
+            # The frame sector closes with the slab above: it reaches 0.15 m past the storey line.
+            ("ST-040:V", "Stomzon", "NC/ÖVB/040/V", (0, 0, 0.15, 20, 10, 3.15)),
+            ("FA-040:V", "Fasadzon", "NC/ÖVB/040/Fasad/V", (-1, 0, 0, 1, 10, 3)),
+            ("untagged", None, None, (100, 100, 0, 110, 110, 3)),
+        ):
+            z = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcSpatialZone", name=name,
+                                     predefined_type="CONSTRUCTION")
+            z.ObjectType = "Taktzon"
+            _prism(f, body, z, *box)
+            ifcopenshell.api.run("spatial.reference_structure", f, products=[z], relating_structure=storey)
+            if level:
+                pset = ifcopenshell.api.run("pset.add_pset", f, product=z, name="Taktplanering")
+                ifcopenshell.api.run("pset.edit_pset", f, pset=pset, properties={"TaktLevel": level, "TBS": tbs})
+
+    def elements(f, body, storey):
+        for name, cls, box in (
+            ("wall-V1", "IfcWall", (2, 2, 0, 2.2, 8, 3)),
+            ("wall-V2", "IfcWall", (12, 2, 0, 12.2, 8, 3)),
+            ("window-west", "IfcWindow", (0, 4, 1, 0.3, 6, 2.2)),
+            ("slab-above", "IfcSlab", (0, 0, 2.8, 20, 10, 3.0)),
+            ("in-untagged", "IfcWall", (102, 102, 0, 102.2, 108, 3)),
+        ):
+            e = ifcopenshell.api.run("root.create_entity", f, ifc_class=cls, name=name)
+            _prism(f, body, e, *box)
+            ifcopenshell.api.run("spatial.assign_container", f, products=[e], relating_structure=storey)
+
+    zone_file = _model(tmp_path / "zones.ifc", zones)
+    element_file = _model(tmp_path / "elements.ifc", elements)
+    ingester = tp.Ingester([zone_file, element_file], logging.getLogger("t"), adjacency=False, num_threads=1)
+    ingester.extract()
+
+    names = {e.GlobalId: e.Name for path in (zone_file, element_file)
+             for e in ifcopenshell.open(str(path)).by_type("IfcRoot")}
+    members: dict = {}
+    for r in ingester._relationships:
+        if r.relationship_type == tp.CONTAINS_ELEMENT_TYPE:
+            members.setdefault(names[r.object_global_id], set()).add(names[r.subject_global_id])
+    assert members == {
+        "wall-V1": {"040:V1", "ST-040:V"},
+        "wall-V2": {"040:V2", "ST-040:V"},
+        "window-west": {"040:V1", "ST-040:V", "FA-040:V"},
+        # The slab above lies above the interior zones' storey line: the frame's alone.
+        "slab-above": {"ST-040:V"},
+        "in-untagged": {"untagged"},
+    }
+    out = {e.name: e.extra for e in ingester._elements}
+    assert (out["ST-040:V"]["level"], out["ST-040:V"]["tbs"]) == ("Stomzon", "NC/ÖVB/040/V")
+    assert out["040:V1"]["tbs"] == "NC/ÖVB/040/V/V1" and "level" not in out["untagged"]
+    assert {z["name"]: z["level"] for z in ingester._summary["zones"]}["FA-040:V"] == "Fasadzon"
