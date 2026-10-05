@@ -206,6 +206,10 @@ Expect **container recreate**, not **volume replacement**. If Postgres logs show
 
 1. Build/push images from primary (does not touch volumes).
 2. Worker host: `SKIP_BUILD=1 ./scripts/start-remote-workers.sh` with `.env.remote` pointing at primary LAN.
+   `SKIP_BUILD=1` never builds: it runs `up --no-build`, and a pull policy left at
+   `build` becomes `never`, so an image missing on the worker stops the script
+   instead of being rebuilt from the worker's (possibly older) copy of the repo.
+   With `missing`, a missing image is pulled from the registry.
 3. Optionally scale down primary worker replicas once remote is healthy.
 
 ```bash
@@ -341,6 +345,8 @@ worker VM, so if it is missing the queue has zero consumers anywhere.
 | S3 errors | `S3_ENDPOINT_URL` uses primary LAN IP `:8333`, not `http://seaweedfs:8333` |
 | Deploy SSH fails | Run from your terminal; `ssh -o RemoteCommand=none deploy@worker-host` |
 | Worker disk full on build | Use `push-worker-images-to-remote.sh` + `SKIP_BUILD=1` |
+| `make remote-deploy` builds on the worker and fails there (e.g. a pin the index no longer has) | Fixed: `SKIP_BUILD=1` now passes `--no-build`. Before that, `pull_policy: build` rebuilt every image on the worker despite it |
+| Push refuses: `the worker has N MiB free for Docker` | `push-worker-images-to-remote.sh` checks the worker's Docker disk before streaming, and skips images the worker already has (same tag and creation time). Free space there (`docker image prune -f`), or `FORCE_PUSH=1` to try anyway |
 
 SeaweedFS shadow dual-write vars (`S3_SHADOW_*`) are obsolete; leave them empty.
 

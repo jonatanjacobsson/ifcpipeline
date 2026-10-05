@@ -103,7 +103,27 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
   UP_FLAGS+=(--build)
   echo "==> Building and starting remote workers (profile=${COMPOSE_PROFILES})"
 else
-  echo "==> Starting remote workers (SKIP_BUILD=1, profile=${COMPOSE_PROFILES})"
+  # SKIP_BUILD=1 means: run the images already on this host (pushed by the primary's
+  # push-worker-images-to-remote.sh). The worker services declare
+  # pull_policy: ${IFCPIPELINE_PULL_POLICY:-build}, and "build" makes `up` rebuild every
+  # image anyway -- from this host's rsynced copy of the repo, which can be older than the
+  # images just pushed, or no longer build at all. --no-build stops that; a policy left at
+  # "build" becomes "never", so a missing image is an error here, not a silent rebuild.
+  UP_FLAGS+=(--no-build)
+  if [[ "${IFCPIPELINE_PULL_POLICY:-build}" == "build" ]]; then
+    export IFCPIPELINE_PULL_POLICY=never
+  fi
+  missing=()
+  while read -r image; do
+    [[ -z "$image" ]] && continue
+    docker image inspect "$image" >/dev/null 2>&1 || missing+=("$image")
+  done < <(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_REMOTE" config --images "${REMOTE_SERVICES[@]}")
+  if [[ "$IFCPIPELINE_PULL_POLICY" == "never" ]] && ((${#missing[@]})); then
+    echo "error: SKIP_BUILD=1 but these images are not on this host: ${missing[*]}" >&2
+    echo "  Push them from the primary (make remote-deploy), or run without SKIP_BUILD to build here." >&2
+    exit 1
+  fi
+  echo "==> Starting remote workers (SKIP_BUILD=1: no build, pull_policy=${IFCPIPELINE_PULL_POLICY}, profile=${COMPOSE_PROFILES})"
 fi
 
 SCALE_ARGS=()
