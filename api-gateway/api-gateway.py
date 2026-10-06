@@ -46,6 +46,7 @@ from pydantic import BaseModel, HttpUrl
 from redis import Redis
 from shared import object_storage as s3
 from shared import audit_db
+from shared.docstring_params import parse_docstring_params
 from rq import Queue, Retry
 from rq.job import Job, JobStatus
 from rq.worker import Worker
@@ -796,19 +797,6 @@ async def topologicpy_ingest_scripts(_: str = Depends(verify_access)):
             type_str = type_str.replace(prefix, "")
         return type_str
 
-    def _parse_docstring_params(docstring: str) -> dict:
-        params = {}
-        if not docstring:
-            return params
-        for line in docstring.split("\n"):
-            line = line.strip()
-            if line.startswith(":param "):
-                rest = line[7:]
-                if ":" in rest:
-                    pname, desc = rest.split(":", 1)
-                    params[pname.strip()] = desc.strip()
-        return params
-
     scripts = []
     try:
         import pkgutil
@@ -823,7 +811,7 @@ async def topologicpy_ingest_scripts(_: str = Depends(verify_access)):
 
                 sig = inspect.signature(cls.__init__)
                 docstring = inspect.getdoc(cls.__init__) or ""
-                param_docs = _parse_docstring_params(docstring)
+                param_docs = parse_docstring_params(docstring)
 
                 # Extract short description (first paragraph)
                 description = docstring
@@ -1829,6 +1817,7 @@ async def list_patch_recipes(
             try:
                 sig = inspect.signature(patcher_class.__init__)
                 docstring = inspect.getdoc(patcher_class.__init__) or ""
+                doc_params = parse_docstring_params(docstring)
                 
                 for param_name, param in sig.parameters.items():
                     if param_name in ['self', 'file', 'logger']:
@@ -1842,14 +1831,9 @@ async def list_patch_recipes(
                         "description": ""
                     }
                     
-                    # Try to extract description from docstring
-                    if docstring:
-                        for line in docstring.split('\n'):
-                            line = line.strip()
-                            if line.startswith(f'{param_name}:') or line.startswith(f':param {param_name}:'):
-                                desc = line.split(':', 2)[-1].strip()
-                                param_info["description"] = desc
-                                break
+                    # Try to extract description from docstring (Google "Args:" or :param style)
+                    if param_name in doc_params:
+                        param_info["description"] = doc_params[param_name]
                     
                     parameters.append(param_info)
             except Exception as e:
@@ -1932,7 +1916,12 @@ async def list_patch_recipes(
                                 patcher_class = module.Patcher
                                 parameters = extract_recipe_parameters(patcher_class)
                                 
-                                description = inspect.getdoc(patcher_class.__init__) or "Custom IfcPatch recipe"
+                                description = (
+                                    inspect.getdoc(patcher_class)
+                                    or inspect.getdoc(module)
+                                    or inspect.getdoc(patcher_class.__init__)
+                                    or "Custom IfcPatch recipe"
+                                )
                                 if '\n\n' in description:
                                     description = description.split('\n\n')[0]
                                 elif ':param' in description:
