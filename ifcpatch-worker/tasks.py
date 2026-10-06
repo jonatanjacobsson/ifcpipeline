@@ -112,6 +112,7 @@ from typing import List, Dict, Any, Optional, get_type_hints, get_origin, get_ar
 from shared.classes import IfcPatchRequest, IfcPatchListRecipesRequest
 from shared import object_storage as s3
 from shared.spawn_isolation import drain_and_join
+from shared.docstring_params import parse_docstring_params
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -167,64 +168,6 @@ logger = logging.getLogger(__name__)
 # Add custom recipes directory to path
 CUSTOM_RECIPES_DIR = Path("/app/custom_recipes")
 sys.path.insert(0, str(CUSTOM_RECIPES_DIR))
-
-def parse_docstring_params(docstring: str) -> Dict[str, str]:
-    """
-    Parse parameter descriptions from docstring.
-    
-    Looks for patterns like:
-    :param query: A query to select the subset of IFC elements.
-    :param assume_asset_uniqueness_by_name: Avoid adding assets...
-    
-    Args:
-        docstring: The docstring to parse
-        
-    Returns:
-        Dictionary mapping parameter names to their descriptions
-    """
-    param_descriptions = {}
-    
-    if not docstring:
-        return param_descriptions
-        
-    lines = docstring.split('\n')
-    current_param = None
-    current_desc = []
-    
-    for line in lines:
-        line = line.strip()
-        
-        # Look for :param name: description pattern
-        if line.startswith(':param ') and ':' in line[7:]:
-            # Save previous parameter if exists
-            if current_param and current_desc:
-                param_descriptions[current_param] = ' '.join(current_desc).strip()
-            
-            # Parse new parameter
-            param_part = line[7:]  # Remove ':param '
-            colon_idx = param_part.find(':')
-            if colon_idx > 0:
-                current_param = param_part[:colon_idx].strip()
-                current_desc = [param_part[colon_idx + 1:].strip()]
-            else:
-                current_param = None
-                current_desc = []
-                
-        elif current_param and line and not line.startswith(':'):
-            # Continue description on next line
-            current_desc.append(line)
-        elif line.startswith(':') or not line:
-            # End of current parameter description
-            if current_param and current_desc:
-                param_descriptions[current_param] = ' '.join(current_desc).strip()
-            current_param = None
-            current_desc = []
-    
-    # Save last parameter
-    if current_param and current_desc:
-        param_descriptions[current_param] = ' '.join(current_desc).strip()
-        
-    return param_descriptions
 
 def format_type_annotation(type_annotation: Any) -> str:
     """
