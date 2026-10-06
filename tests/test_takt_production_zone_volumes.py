@@ -203,3 +203,75 @@ def test_a_zone_model_with_tbs_levels_places_an_element_once_per_level(tmp_path)
     assert (out["ST-040:V"]["level"], out["ST-040:V"]["tbs"]) == ("Stomzon", "NC/ÖVB/040/V")
     assert out["040:V1"]["tbs"] == "NC/ÖVB/040/V/V1" and "level" not in out["untagged"]
     assert {z["name"]: z["level"] for z in ingester._summary["zones"]}["FA-040:V"] == "Fasadzon"
+
+
+def test_nearest_zones_takes_the_closest_body_within_the_cap():
+    a = _box(0, 0, 0, 10, 10, 3)
+    b = _box(12, 0, 0, 22, 10, 3)
+    meshes = {"A": (a, a.reshape(-1, 3).min(axis=0), a.reshape(-1, 3).max(axis=0)),
+              "B": (b, b.reshape(-1, 3).min(axis=0), b.reshape(-1, 3).max(axis=0))}
+    pts = [
+        (-1.0, 5, 1.5),    # 1 m west of A
+        (11.5, 5, 1.5),    # in the gap, closer to B
+        (11.0, 5, 1.5),    # exactly between A and B: the first zone id wins
+        (5, 5, -0.5),      # half a metre under A's floor
+        (-3.0, 5, 4.0),    # 3 m west and 1 m above A: the gaps combine
+        (40.0, 5, 1.5),    # 18 m from B: past the cap
+    ]
+    assert tp.nearest_zones(meshes, pts, 4.0) == [
+        ("A", 1.0), ("B", 0.5), ("A", 1.0), ("A", 0.5), ("A", 3.16), None,
+    ]
+
+
+def test_the_nearest_zone_rule_is_opt_in_and_only_on_the_named_levels(tmp_path):
+    """A riser in a shaft the interior zones leave out goes to the nearest interior zone and frame
+    sector; the façade band never claims it, and a pump far outside stays unassigned."""
+    import ifcopenshell
+    import ifcopenshell.api
+
+    def zones(f, body, storey):
+        for name, level, box in (
+            ("040:V1", "Taktzon", (0, 0, 0, 10, 10, 3)),
+            ("040:V2", "Taktzon", (12, 0, 0, 22, 10, 3)),   # a 2 m shaft between x 10 and 12
+            ("ST-040:V", "Stomzon", (0, 0, 0.15, 10, 10, 3.15)),
+            ("FA-040:N", "Fasadzon", (0, 7, 0, 22, 11, 3)),   # 2.9 m from the riser
+        ):
+            z = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcSpatialZone", name=name,
+                                     predefined_type="CONSTRUCTION")
+            z.ObjectType = "Taktzon"
+            _prism(f, body, z, *box)
+            ifcopenshell.api.run("spatial.reference_structure", f, products=[z], relating_structure=storey)
+            pset = ifcopenshell.api.run("pset.add_pset", f, product=z, name="Taktplanering")
+            ifcopenshell.api.run("pset.edit_pset", f, pset=pset, properties={"TaktLevel": level})
+
+    def elements(f, body, storey):
+        for name, box in (("riser", (11.6, 4, 0, 11.8, 4.2, 3)), ("pump-far", (60, 60, 0, 61, 61, 1))):
+            e = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcFlowSegment", name=name)
+            _prism(f, body, e, *box)
+            ifcopenshell.api.run("spatial.assign_container", f, products=[e], relating_structure=storey)
+
+    zone_file = _model(tmp_path / "zones.ifc", zones)
+    element_file = _model(tmp_path / "elements.ifc", elements)
+    names = {e.GlobalId: e.Name for path in (zone_file, element_file)
+             for e in ifcopenshell.open(str(path)).by_type("IfcRoot")}
+
+    def run(**kwargs):
+        ingester = tp.Ingester([zone_file, element_file], logging.getLogger("t"), adjacency=False,
+                               num_threads=1, **kwargs)
+        ingester.extract()
+        return ingester, {(names[r.subject_global_id], names[r.object_global_id]): r
+                          for r in ingester._relationships if r.relationship_type == tp.CONTAINS_ELEMENT_TYPE}
+
+    # Off by default: the riser in the shaft is in no zone body.
+    _ingester, members = run()
+    assert members == {}
+
+    ingester, members = run(nearest_max_m=4.0, nearest_levels="Taktzon, Stomzon")
+    assert sorted(members) == [("040:V2", "riser"), ("ST-040:V", "riser")]
+    edge = members[("040:V2", "riser")]
+    assert edge.evidence["method"] == tp.ZONE_NEAREST_METHOD and edge.confidence == 0.6
+    assert edge.evidence["distanceM"] == pytest.approx(0.3, abs=0.01)
+    assert members[("ST-040:V", "riser")].evidence["distanceM"] == pytest.approx(1.7, abs=0.01)
+    summary = ingester._summary
+    assert summary["nearest_zone_memberships"] == 2 and summary["nearest_levels"] == ["Stomzon", "Taktzon"]
+    assert summary["unassigned_elements"] == 1   # the pump, 38 m past every zone

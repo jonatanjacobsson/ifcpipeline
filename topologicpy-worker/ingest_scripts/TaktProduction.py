@@ -97,6 +97,20 @@ ZONE_VOLUME_METHOD = "point_in_zone_volume"
 # An element whose centre lies in no zone (it straddles a façade line, or its centre falls in a
 # void) goes to the zone holding most of a 3×3 grid of points across its bounding box.
 ZONE_SAMPLE_METHOD = "points_in_zone_volume"
+# Opt-in, per level: an element that no zone body of a level holds, by its centre or by most of
+# its extent, goes to the zone body of that level nearest its reference point. Such an element
+# sits in a shaft or core the zones leave out, just past a façade line, under the lowest floor
+# or on the roof. The distance adds the horizontal gap to the zone's plan footprint to the
+# vertical gap to its height band. Only zones within ``nearest_max_m`` count, so an element far
+# outside every zone stays unassigned. The edge carries the distance, so a plan can tell an
+# element placed by proximity from one a zone holds.
+#
+# It belongs only on levels that divide the whole floor (interior zones, frame sectors), never on
+# a band such as a façade level: there, nearly every element lies outside every zone on purpose,
+# and the nearest band zone would claim interior work.
+ZONE_NEAREST_METHOD = "nearest_zone_volume"
+# Edge confidence per zone-body method: held by the centre, by most of the extent, by proximity.
+_VOLUME_CONFIDENCE = {ZONE_VOLUME_METHOD: 0.95, ZONE_SAMPLE_METHOD: 0.85, ZONE_NEAREST_METHOD: 0.6}
 Z_BIAS_M = 0.15
 THIN_M = 0.5
 # Points tested against a zone mesh at once: (points × triangles) arrays stay a few MB.
@@ -279,6 +293,53 @@ def points_in_mesh(points, triangles):
     return inside
 
 
+def nearest_zones(meshes, points, max_m: float):
+    """For each of ``points`` (N, 3): ``(zone id, distance m)`` of the nearest zone body, or None.
+
+    ``meshes`` is zone id → (triangles, bbox min, bbox max), as ``_zone_meshes`` returns. The
+    distance is the horizontal distance to the zone's plan footprint (0 over it) combined with
+    the vertical gap to its height band (0 within it). Only zones within ``max_m`` count. On a
+    tie the first zone id wins, so the answer does not depend on the order of ``meshes``.
+    """
+    import numpy as np
+    import shapely
+
+    pts = np.asarray(points, dtype=float).reshape(-1, 3)
+    best = np.full(len(pts), np.inf)
+    owner = np.full(len(pts), -1)
+    zone_ids = sorted(meshes)
+    xy = shapely.points(pts[:, 0], pts[:, 1])
+    for zi, zid in enumerate(zone_ids):
+        triangles, lo, hi = meshes[zid]
+        near = np.nonzero(np.all(pts >= np.asarray(lo) - max_m, axis=1)
+                          & np.all(pts <= np.asarray(hi) + max_m, axis=1))[0]
+        if not len(near):
+            continue
+        footprint = _footprint(triangles)
+        if footprint is None:
+            continue
+        z = pts[near, 2]
+        gap = np.maximum(0.0, np.maximum(lo[2] - z, z - hi[2]))
+        dist = np.hypot(shapely.distance(footprint, xy[near]), gap)
+        better = (dist <= max_m) & (dist < best[near])
+        best[near[better]] = dist[better]
+        owner[near[better]] = zi
+    return [(zone_ids[o], round(float(d), 2)) if o >= 0 else None for o, d in zip(owner, best)]
+
+
+def _footprint(triangles):
+    """A zone body's plan footprint: the union of its triangles' XY projections (None if flat)."""
+    import numpy as np
+    import shapely
+
+    tri = np.asarray(triangles, dtype=float)[:, :, :2]
+    a, b = tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]
+    tri = tri[np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) > 2e-9]   # vertical faces project to lines
+    if not len(tri):
+        return None
+    return shapely.union_all(shapely.polygons(tri))
+
+
 def _zone_node_id(storey_key: str, partition: Optional[str]) -> str:
     """Deterministic synthetic GlobalId for a derived zone."""
     base = "taktzone_" + storey_key.replace(":", "-")
@@ -371,6 +432,8 @@ class Ingester(_Base):
         num_threads: int = 0,
         zone_level_property: str = ZONE_LEVEL_PROPERTY,
         zone_tbs_property: str = ZONE_TBS_PROPERTY,
+        nearest_max_m: float = 0.0,
+        nearest_levels: str = "",
     ):
         """Resolve takt zones and their element membership from IFC models.
 
@@ -398,6 +461,8 @@ class Ingester(_Base):
         :param num_threads: Geometry-iterator threads (0 = auto: the container's CPU quota, else cpu_count-1).
         :param zone_level_property: Property (any pset) naming an IfcSpatialZone's TBS level; an element is placed in one zone per level.
         :param zone_tbs_property: Property (any pset) holding an IfcSpatialZone's TBS path, passed on with the zone.
+        :param nearest_max_m: An element no zone body of a level holds goes to that level's nearest zone body within this distance (m); 0 (the default) turns it off.
+        :param nearest_levels: Comma-separated TBS levels the nearest-zone rule applies to (empty: every level). Name only levels that divide the whole floor.
         """
         super().__init__(ifc_files, log)
         zone_source = (zone_source or "auto").strip().lower()
@@ -430,6 +495,10 @@ class Ingester(_Base):
         self.num_threads = int(num_threads) or _cpu_allowance()
         self.zone_level_property = zone_level_property or ZONE_LEVEL_PROPERTY
         self.zone_tbs_property = zone_tbs_property or ZONE_TBS_PROPERTY
+        self.nearest_max_m = max(0.0, float(nearest_max_m or 0.0))
+        self.nearest_levels = {lv.strip() for lv in str(nearest_levels or "").split(",") if lv.strip()}
+        # (element gid, zone id) → distance (m), for memberships the nearest zone decided.
+        self._nearest_distance: Dict[Tuple[str, str], float] = {}
         self._temp_paths: List[Path] = []
         # Rung-1 zones: the IfcSpatialZone entity and its file's (area, volume) scales, so a
         # zone's own body can decide membership and its own Qto can stand for its area.
@@ -603,6 +672,10 @@ class Ingester(_Base):
             "member_spaces": sum(len(z.member_spaces) for z in zones.values()),
             "excluded_aggregate_spaces": len(excluded_aggregates),
             "unassigned_elements": unassigned_elements,
+            # Memberships the nearest zone body decided (one per element and level), and the cap.
+            "nearest_zone_memberships": len(self._nearest_distance),
+            "nearest_max_m": self.nearest_max_m,
+            "nearest_levels": sorted(self.nearest_levels),
             "edges_by_type": dict(sorted(by_type.items())),
             "adjacency_method": "+".join(sorted(adjacency_methods)) or None,
             "adjacent_zone_pairs": adjacent_pairs,
@@ -932,7 +1005,7 @@ class Ingester(_Base):
                     assignments.append((zid, "contained_in_member_space", 1.0, sgid))
             elif egid in volume_zone:
                 for zid, method in volume_zone[egid]:
-                    assignments.append((zid, method, 0.95 if method == ZONE_VOLUME_METHOD else 0.85, None))
+                    assignments.append((zid, method, _VOLUME_CONFIDENCE[method], None))
             elif rung == "derived":
                 zone = self._derived_zone_for_element(
                     egid, aabb, elem_storey_gid, storey_elev_key,
@@ -985,8 +1058,10 @@ class Ingester(_Base):
                     evidence["volumeM3"] = round(volume, 3)
                 if qty_source:
                     evidence["qtySource"] = qty_source
-                if method in (ZONE_VOLUME_METHOD, ZONE_SAMPLE_METHOD):
+                if method in _VOLUME_CONFIDENCE:
                     evidence["elementFile"] = file_of.get(id(element_ifc[egid]))
+                if method == ZONE_NEAREST_METHOD:
+                    evidence["distanceM"] = self._nearest_distance.get((egid, zid))
                 self._relationships.append(Relationship(
                     subject_global_id=zid,
                     object_global_id=egid,
@@ -1057,10 +1132,21 @@ class Ingester(_Base):
                 if len(votes):
                     counts = np.bincount(votes)
                     found[gid] = (zone_ids[int(np.argmax(counts))], ZONE_SAMPLE_METHOD)
+        by_extent = len(found) - by_centre
+        # Last: the nearest zone body of this level, within nearest_max_m.
+        rest = [gids[k] for k in np.nonzero(free)[0] if gids[k] not in found]
+        if rest and self.nearest_max_m > 0 and (not self.nearest_levels or level in self.nearest_levels):
+            index = {g: k for k, g in enumerate(gids)}
+            hits = nearest_zones(meshes, points[[index[g] for g in rest]], self.nearest_max_m)
+            for gid, hit in zip(rest, hits):
+                if hit is not None:
+                    found[gid] = (hit[0], ZONE_NEAREST_METHOD)
+                    self._nearest_distance[(gid, hit[0])] = hit[1]
         self.log.info(
-            "takt: %d of %d element(s) in %d zone volume(s)%s: %d by their centre, %d by most of their extent",
+            "takt: %d of %d element(s) in %d zone volume(s)%s: %d by their centre, %d by most of their "
+            "extent, %d by the nearest zone within %.1f m",
             len(found), len(gids), len(meshes), f" of level {level!r}" if level else "",
-            by_centre, len(found) - by_centre,
+            by_centre, by_extent, len(found) - by_centre - by_extent, self.nearest_max_m,
         )
         return found
 
