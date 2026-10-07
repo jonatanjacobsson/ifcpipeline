@@ -17,11 +17,33 @@ logger = logging.getLogger(__name__)
 WORKER_NAME = "ifctester-worker"
 
 
+def _local_ids_schema():
+    """ifctester's IDS schema, built from local files before ifctester builds its own.
+
+    ``ifctester.ids.get_schema()`` builds it from ``ids.xsd``, which imports W3C
+    schemas by ``http://www.w3.org/...`` URL, so xmlschema fetches from www.w3.org in
+    every process that builds it: once per job here, since each validation runs in a
+    fresh spawn child. W3C throttles repeated automated fetches, and xmlschema waits
+    up to 300 s per attempt. With ``allow="local"`` the W3C namespaces come from
+    xmlschema's own copies (W3C's ``xml.xsd`` is byte-identical to its copy), so
+    the IDS validates exactly as before.
+    """
+    import xmlschema
+    from ifctester import ids
+
+    if ids.schema is None:
+        ids.schema = xmlschema.XMLSchema(
+            os.path.join(os.path.dirname(ids.__file__), "ids.xsd"), allow="local"
+        )
+    return ids.schema
+
+
 def _validate_and_report(ifc_path: str, ids_path: str, output_path: str, report_type: str):
     import ifcopenshell
     import ifctester
     from ifctester import reporter
 
+    _local_ids_schema()  # before ifctester.ids.open() builds its own over HTTP
     my_ids = ifctester.ids.open(ids_path)
     my_ifc = ifcopenshell.open(ifc_path)
     my_ids.validate(my_ifc)
