@@ -594,6 +594,13 @@ class RevitExecuteRequest(BaseModel):
         }
 
 # IfcCoord Worker Classes
+class IfcCoordModel(BaseModel):
+    """An extra model in an IfcCoord federation run."""
+    id: str = Field(..., description="Model id used in the clash matrix, e.g. 'M1'")
+    path: str = Field(..., description="IFC filename under /uploads (or S3 key)")
+    discipline: str = Field(default="other", description="mechanical, plumbing, electrical, structural, ...")
+
+
 class IfcCoordRequest(BaseModel):
     """Request model for IfcCoord operations"""
     path_a: str = Field(..., description="First federated IFC filename under /uploads")
@@ -605,6 +612,25 @@ class IfcCoordRequest(BaseModel):
     max_rounds: int = Field(default=10, description="Maximum coordination/fixing rounds")
     max_auto_apply: Optional[int] = Field(default=None, description="Hard cap of auto-applied fixes")
     output_subdir: Optional[str] = Field(default=None, description="Optional custom output subdirectory name under /output/coord")
+    # --- federation / existing voids (all optional; path_a/path_b runs are unchanged) ---
+    models: Optional[List[IfcCoordModel]] = Field(
+        default=None,
+        description="Extra models to coordinate against (whole-federation sign-off; uses the in-memory geometry engine)",
+    )
+    discipline_a: Optional[str] = Field(default=None, description="Discipline of path_a (federation priorities)")
+    discipline_b: Optional[str] = Field(default=None, description="Discipline of path_b")
+    matrix: Optional[List[List[str]]] = Field(
+        default=None,
+        description="Clash matrix as [[model_id, model_id], ...]; ids are 'A', 'B' and the ids of `models`. Default: A vs B only",
+    )
+    priority: Optional[Dict[str, int]] = Field(
+        default=None,
+        description="Discipline priority (higher = harder to move), e.g. {'mechanical': 40, 'electrical': 10}",
+    )
+    void_paths: Optional[List[str]] = Field(
+        default=None,
+        description="Structural provision-for-void models (e.g. S2-200-SM-VOIDS.ifc). Clashes a void fully covers are exempt from the run",
+    )
 
 
 # TopologicPy Worker Classes
