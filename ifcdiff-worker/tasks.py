@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import re
 import tempfile
 import shutil
 from multiprocessing import get_context
@@ -18,6 +19,66 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 WORKER_NAME = "ifcdiff-worker"
+
+# ifcdiff resolves these by comparing entity_instance objects drawn from two
+# different ifcopenshell.file handles. entity_instance.__eq__ folds the file
+# pointer into identity, so they never compare equal and every element that has
+# a container or an aggregate is reported changed even between byte-identical
+# files. Worse, the branches short-circuit, so a falsely-flagged element is
+# never property/type/classification checked and its real changes are hidden.
+# Upstream fix: IfcOpenShell/IfcOpenShell#9312. Drop these until it lands.
+_BROKEN_RELATIONSHIPS = frozenset({"aggregate", "container"})
+
+# ifcdiff's property branch passes exclude_regex_paths=[r".*id$"] to suppress
+# the pset bookkeeping key, but DeepDiff paths read root['Pset_Foo']['id'] and
+# end in "']", so the filter never matches and every re-export reports its
+# renumbered STEP ids as property changes.
+# Upstream fix: IfcOpenShell/IfcOpenShell#9296 (defect 4).
+_PSET_ID_PATH = re.compile(r"\['id'\]$")
+
+
+def sanitize_relationships(relationships):
+    """Drop the relationships whose ifcdiff implementation only yields noise."""
+    if not relationships:
+        return relationships
+    kept = [r for r in relationships if r not in _BROKEN_RELATIONSHIPS]
+    dropped = sorted(set(relationships) - set(kept))
+    if dropped:
+        logger.info("Dropping always-true ifcdiff relationships: %s", ", ".join(dropped))
+    return kept
+
+
+def prune_false_positives(change_register):
+    """Strip pset-id-only property diffs, and elements left with nothing real.
+
+    Returns (pruned_register, stats).
+    """
+    pruned = {}
+    stats = {"elements_dropped": 0, "id_only_paths_dropped": 0}
+    for global_id, change in change_register.items():
+        cleaned = dict(change)
+        pset_diff = cleaned.get("properties_changed")
+        if isinstance(pset_diff, dict):
+            surviving = {}
+            for kind, entries in pset_diff.items():
+                # Only path-keyed mappings can be filtered; anything else
+                # (e.g. DeepDiff's set-valued report types) passes through.
+                if not isinstance(entries, dict):
+                    surviving[kind] = entries
+                    continue
+                real = {p: v for p, v in entries.items() if not _PSET_ID_PATH.search(p)}
+                stats["id_only_paths_dropped"] += len(entries) - len(real)
+                if real:
+                    surviving[kind] = real
+            if surviving:
+                cleaned["properties_changed"] = surviving
+            else:
+                del cleaned["properties_changed"]
+        if cleaned:
+            pruned[global_id] = cleaned
+        else:
+            stats["elements_dropped"] += 1
+    return pruned, stats
 
 
 def _current_job_id():
@@ -258,11 +319,12 @@ def _execute_ifcdiff(job_data: dict) -> dict:
         logger.info("IFC files opened successfully.")
 
         # Initialize IfcDiff
-        logger.info(f"Initializing IfcDiff: relationships={request.relationships}, shallow={request.is_shallow}, filter='{request.filter_elements}'")
+        relationships = sanitize_relationships(request.relationships)
+        logger.info(f"Initializing IfcDiff: relationships={relationships}, shallow={request.is_shallow}, filter='{request.filter_elements}'")
         ifc_diff_instance = IfcDiff(
-            old_ifc_file, 
-            new_ifc_file, 
-            relationships=request.relationships, 
+            old_ifc_file,
+            new_ifc_file,
+            relationships=relationships,
             is_shallow=request.is_shallow,
             filter_elements=request.filter_elements
         )
@@ -270,7 +332,17 @@ def _execute_ifcdiff(job_data: dict) -> dict:
         # Perform the diff operation
         logger.info("Running diff comparison...")
         ifc_diff_instance.diff()
-        logger.info("Diff comparison completed.")
+        raw_changed = len(ifc_diff_instance.change_register)
+        ifc_diff_instance.change_register, prune_stats = prune_false_positives(
+            ifc_diff_instance.change_register
+        )
+        logger.info(
+            "Diff comparison completed: %d changed (%d raw, %d dropped as pset-id-only churn across %d paths).",
+            len(ifc_diff_instance.change_register),
+            raw_changed,
+            prune_stats["elements_dropped"],
+            prune_stats["id_only_paths_dropped"],
+        )
 
         # Export the results using safe JSON export
         logger.info(f"Exporting diff results to {output_path}...")
