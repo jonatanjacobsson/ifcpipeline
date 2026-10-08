@@ -1,0 +1,10 @@
+# Overlay adding the ifcfast IDS shadow run to the *currently deployed* ifctester-worker image.
+# build: docker build -f ifctester-worker/Dockerfile.shadow-overlay --build-arg BASE=ifcpipeline-ifctester-worker:pre-shadow \
+#          -t ifcpipeline-ifctester-worker:latest ifctester-worker/overlay
+ARG BASE=ifcpipeline-ifctester-worker:pre-shadow
+FROM ${BASE}
+USER root
+RUN pip install --no-cache-dir "ifcfast>=0.6.2,<0.7" && python -c "import ifcopenshell, ifctester, ifcfast; print(ifcopenshell.version, ifcfast.__version__)"
+COPY shadow.py dup_pset_patch.py apply_hook.py /app/
+RUN python /app/apply_hook.py && python -m py_compile /app/tasks.py /app/shadow.py /app/dup_pset_patch.py
+USER 1000:1000
