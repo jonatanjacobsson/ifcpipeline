@@ -1,0 +1,10 @@
+# Second overlay: run the ifcfast IDS shadow as its own RQ job after the IfcTester job
+# instead of in-process (in-process it OOM-killed the real IDS job on 005-A _Undertak).
+# build: docker build -f ifctester-worker/Dockerfile.shadow-deferred \
+#          -t ifcpipeline-ifctester-worker:shadow-deferred ifctester-worker/overlay
+ARG BASE=ifcpipeline-ifctester-worker:shadow
+FROM ${BASE}
+USER root
+COPY shadow.py apply_defer.py /app/
+RUN python /app/apply_defer.py && python -m py_compile /app/tasks.py /app/shadow.py
+USER 1000:1000
