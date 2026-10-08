@@ -264,6 +264,10 @@ class Patcher:
                 self.target_file = self._create_lightweight_ifc()
             else:
                 self.target_file = self.file
+                # Idempotent: a rerun on an already-patched model (e.g. an n8n
+                # retry of the whole processing subflow) must replace the grid,
+                # not add a second one on top of it.
+                self._remove_existing_grid()
                 ifcopenshell.api.unit.assign_unit(self.target_file)
             
             self._setup_contexts()
@@ -324,7 +328,37 @@ class Patcher:
         except Exception as e:
             self.logger.error(f"Error during CeilingGridsGlobal patch: {str(e)}", exc_info=True)
             raise
-    
+
+    def _remove_existing_grid(self) -> None:
+        """Remove grid elements a previous run of this recipe left in the model.
+
+        Every level tags its elements IfcBeam / ObjectType "Grid Covering" with
+        a "Ceiling_" name, so real beams are never touched. Removal goes through
+        RemoveElements' bulk path; per-element remove_product is far too slow
+        for tens of thousands of beams.
+        """
+        old = [
+            b for b in self.file.by_type("IfcBeam")
+            if b.ObjectType == "Grid Covering" and (b.Name or "").startswith("Ceiling_")
+        ]
+        if not old:
+            return
+        import os
+        import sys
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        from RemoveElements import Patcher as RemoveElements
+
+        remover = RemoveElements(self.file, self.logger, query="IfcBeam")
+        remover._select_elements = lambda: old
+        remover.patch()
+        self.stats["removed_existing_grid"] = len(old)
+        self.logger.warning(
+            f"CeilingGridsGlobal: removed {len(old)} grid elements from a previous run "
+            "before regenerating"
+        )
+
     # ------------------------------------------------------------------ #
     #  Lightweight IFC creation (replaces append_asset extraction)        #
     # ------------------------------------------------------------------ #
