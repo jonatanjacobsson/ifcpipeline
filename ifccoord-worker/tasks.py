@@ -21,6 +21,7 @@ _ARTIFACT_CONTENT_TYPES = {
     ".bcf": "application/octet-stream",
     ".bcfzip": "application/octet-stream",
     ".json": "application/json",
+    ".html": "text/html; charset=utf-8",
 }
 
 
@@ -155,10 +156,15 @@ def _upload_artifacts_to_s3(
         ("report_json_path", "proposals_json", None),
         ("manifest_path", "manifest", None),
         ("fixed_only_ifc_a", "fixed_only", "patched"),
+        ("html_report_path", "html_report", None),
     ]
 
-    for attr, prefix, guid_role in specs:
-        local = getattr(result, attr, None)
+    # federation runs also produce a patched copy of every extra model
+    artifacts = [(getattr(result, attr, None), prefix, role) for attr, prefix, role in specs]
+    for mid, extra_path in (getattr(result, "patched_extra", None) or {}).items():
+        artifacts.append((extra_path, f"patched_{mid}", "patched"))
+
+    for local, prefix, guid_role in artifacts:
         if not local or not os.path.isfile(local):
             continue
         key = f"{base_dir}/{os.path.basename(local)}"
@@ -222,6 +228,9 @@ def run_coordination_task(job_data: dict) -> dict:
         input_b_key: Optional[str] = None
         input_a_pin: Optional[str] = None
         input_b_pin: Optional[str] = None
+        extra_models: List[Dict[str, Any]] = []
+        void_files: List[str] = []
+        extra_keys: List[str] = []
 
         if s3_enabled:
             tmpdir = tempfile.mkdtemp(prefix="ifccoord-")
@@ -235,6 +244,14 @@ def run_coordination_task(job_data: dict) -> dict:
             input_b_key, path_b_resolved = _stage_input_from_s3(
                 request.path_b, inputs_dir, "File B", input_b_pin
             )
+            for m in request.models or []:
+                key, local = _stage_input_from_s3(m.path, inputs_dir, f"Model {m.id}", s3.pin_for(request, m.path))
+                extra_keys.append(key)
+                extra_models.append({"id": m.id, "path": local, "discipline": m.discipline})
+            for i, vp in enumerate(request.void_paths or []):
+                key, local = _stage_input_from_s3(vp, inputs_dir, f"Void model {i}", s3.pin_for(request, vp))
+                extra_keys.append(key)
+                void_files.append(local)
             output_dir = os.path.join(tmpdir, "out")
             os.makedirs(output_dir, exist_ok=True)
             policy_scratch = tmpdir
@@ -246,6 +263,16 @@ def run_coordination_task(job_data: dict) -> dict:
                 raise FileNotFoundError(f"File A not found: {request.path_a}")
             if not os.path.exists(path_b_resolved):
                 raise FileNotFoundError(f"File B not found: {request.path_b}")
+            for m in request.models or []:
+                local = resolve_ifc_path(m.path)
+                if not os.path.exists(local):
+                    raise FileNotFoundError(f"Model {m.id} not found: {m.path}")
+                extra_models.append({"id": m.id, "path": local, "discipline": m.discipline})
+            for vp in request.void_paths or []:
+                local = resolve_ifc_path(vp)
+                if not os.path.exists(local):
+                    raise FileNotFoundError(f"Void model not found: {vp}")
+                void_files.append(local)
             subdir = request.output_subdir or f"job_{job_id}"
             output_dir = os.path.join("/output/coord", subdir)
             os.makedirs(output_dir, exist_ok=True)
@@ -258,6 +285,18 @@ def run_coordination_task(job_data: dict) -> dict:
             f"Running coordination on {request.path_a} vs {request.path_b} (mode: {request.mode})"
         )
         logger.info(f"Output directory: {output_dir}")
+
+        if request.priority:
+            policy = policy or (
+                Policy.from_file(policy_path_resolved) if policy_path_resolved else Policy.default()
+            )
+            policy_path_resolved = None
+            fed = policy.data.setdefault("federation", {}).setdefault("priority", {})
+            fed.update({k.lower(): int(v) for k, v in request.priority.items()})
+        model_meta = {
+            "a": {"id": "A", "discipline": request.discipline_a or ""},
+            "b": {"id": "B", "discipline": request.discipline_b or ""},
+        }
 
         # Run coordination engine. work_root lives inside output_dir so it is
         # contained and (in S3 mode) cleaned up with the temp dir.
@@ -273,6 +312,10 @@ def run_coordination_task(job_data: dict) -> dict:
             clash_options=request.clash_options,
             output_dir=output_dir,
             logger=logger,
+            extra_models=extra_models or None,
+            model_meta=model_meta,
+            matrix=[(str(p[0]), str(p[1])) for p in request.matrix] if request.matrix else None,
+            void_paths=void_files or None,
         )
 
         summary_dict = result.summary.to_dict() if result.summary else {}
@@ -297,7 +340,7 @@ def run_coordination_task(job_data: dict) -> dict:
             artifacts = _upload_artifacts_to_s3(
                 result,
                 base_dir,
-                [input_a_key, input_b_key],
+                [input_a_key, input_b_key, *extra_keys],
                 pins,
                 _current_job_id(),
             )
@@ -320,6 +363,7 @@ def run_coordination_task(job_data: dict) -> dict:
                     "manifest_path": to_str(result.manifest_path),
                     "patched_ifc_a": to_str(result.patched_ifc_a),
                     "patched_ifc_b": to_str(result.patched_ifc_b),
+                    "patched_extra": {k: to_str(v) for k, v in (result.patched_extra or {}).items()},
                     "fixed_only_ifc_a": to_str(result.fixed_only_ifc_a),
                 }
             )
