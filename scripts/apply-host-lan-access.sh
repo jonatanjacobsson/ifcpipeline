@@ -17,10 +17,16 @@ set -a
 source .env
 set +a
 
+# shellcheck source=lib/host-lan.sh
+source "$ROOT/scripts/lib/host-lan.sh"
+
 WORKER_HOST="${WORKER_HOSTNAME:-bimbotw1}"
-DETECTED_LAN="$(bash "$ROOT/scripts/detect-pipeline-lan-ip.sh" 2>/dev/null || true)"
+# Resolve the worker's CURRENT address first and detect the LAN IP toward it: the
+# WORKER_VM_IP in .env may be stale after DHCP drift, and routing toward a stale
+# address can pick a Docker bridge.
 DETECTED_WORKER="$(getent hosts "$WORKER_HOST" 2>/dev/null | awk '{print $1}' | head -1 || true)"
 DETECTED_WORKER="${DETECTED_WORKER:-${WORKER_VM_IP:-}}"
+DETECTED_LAN="$(WORKER_VM_IP="$DETECTED_WORKER" bash "$ROOT/scripts/detect-pipeline-lan-ip.sh" || true)"
 
 sync_env_ip() {
   local key="$1" val="$2"
@@ -46,6 +52,10 @@ if [[ -n "$DETECTED_WORKER" && "${WORKER_VM_IP:-}" != "$DETECTED_WORKER" ]]; the
 fi
 
 WORKER_VM_IP="${WORKER_VM_IP:-$DETECTED_WORKER}"
+
+if [[ -n "${PIPELINE_LAN_IP:-}" ]] && is_docker_bridge_ip "$PIPELINE_LAN_IP"; then
+  echo "warn: PIPELINE_LAN_IP=${PIPELINE_LAN_IP} in .env is a Docker bridge address; remote workers cannot reach it. Set it to this host's LAN IP." >&2
+fi
 
 echo "==> Ensuring redis, postgres, seaweedfs use reboot-safe host port bindings"
 docker compose \

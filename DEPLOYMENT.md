@@ -336,6 +336,7 @@ worker VM, so if it is missing the queue has zero consumers anywhere.
 | Connection refused to Redis/SeaweedFS | Re-run `./scripts/apply-host-lan-access.sh`; update `.env.remote` with current `PIPELINE_LAN_IP` |
 | Workers crash-loop with `redis ... Timeout connecting to server` after a primary reboot/IP change | Stale IP baked into containers. **Recreate** (not restart) — see [Worker health check](#worker-health-check-track-expected-vs-actual) |
 | Worker VM missing a worker / queue has no consumer | Started via hand-typed `up -d` that omitted a service; use `./scripts/start-remote-workers.sh`. Verify with the broker queue check above |
+| `.env` / `.env.remote` has `PIPELINE_LAN_IP=172.17.0.1` (or another `172.x.0.1`) | A Docker bridge gateway: detection once routed toward a stale `WORKER_VM_IP` inside a bridge subnet. The scripts now resolve the worker first and never pick a bridge (`scripts/lib/host-lan.sh`); re-run `./scripts/apply-host-lan-access.sh` |
 | Broker port unreachable from worker though host firewall is open | `redis`/`postgres`/`seaweedfs` was recreated without the `host-lan` overlay (shows `6379/tcp`, no `0.0.0.0:6379->`). Re-run `./scripts/apply-host-lan-access.sh` |
 | Postgres auth fails | `POSTGRES_PASSWORD` matches primary `.env` |
 | S3 errors | `S3_ENDPOINT_URL` uses primary LAN IP `:8333`, not `http://seaweedfs:8333` |
