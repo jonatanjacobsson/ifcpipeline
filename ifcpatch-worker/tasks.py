@@ -119,6 +119,14 @@ logging.basicConfig(level=logging.INFO)
 
 WORKER_NAME = "ifcpatch-worker"
 
+# Recipes that write something other than an IFC (PipeBottomLinesDwg writes a DWG)
+# upload it under its own content type, so nothing downstream reads it as STEP.
+_OUTPUT_CONTENT_TYPES = {
+    ".dwg": "image/vnd.dwg",
+    ".json": "application/json",
+    ".csv": "text/csv",
+}
+
 
 def _current_job_id():
     try:
@@ -809,7 +817,9 @@ def _execute_ifcpatch_core(
                     "original_filename": original_filename,
                     "output_filename": output_filename,
                 },
-                content_type="application/x-step",
+                content_type=_OUTPUT_CONTENT_TYPES.get(
+                    os.path.splitext(output_path)[1].lower(), "application/x-step"
+                ),
             )
             result.update(
                 {
