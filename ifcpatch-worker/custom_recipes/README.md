@@ -153,6 +153,30 @@ result.write("modified.ifc")
 **Documentation**: [LUBEKALK_README.md](LUBEKALK_README.md); command line: `scripts/export_lubekalk_import.py`
 **Use Case**: Model-based ventilation estimating (VVS-kalkyl) in Lubekalk
 
+### PipeBottomLinesIfc / PipeBottomLinesDwg
+**Description**: The vattengång (VG, outside bottom) lines of the pipes and conduits in an IFC.
+- **PipeBottomLinesIfc** writes an IFC4 of annotations for viewers such as StreamBIM. It has one coloured tube per run, plus level markers: upside-down pyramids with the level as 3D text. Use `content` `lines` / `markers` to get two files.
+- **PipeBottomLinesDwg** writes the same runs as a DWG of 3D polylines, one layer per group and size.
+
+Both recipes:
+- **Ports:** read connectors from `IfcDistributionPort`. Where an element has none, they read them from the body (MagiCAD, Civil 3D) or from long round proxies (CAD conversions).
+- **Joining:** elbows become arcs, and pieces are joined into runs per group and diameter.
+- **Selection:** with no selector, only what lies in the ground is drawn.
+- **Groups:** taken from a named property, else from the connected line's system, else one `Ledning N` per line.
+
+**Arguments** (positional; `-` means empty, trailing ones can be left out):
+- PipeBottomLinesIfc: `selector`, `content`, `color_rules`, `group_properties`, `run_pset`, `offset_x`, `offset_y`, `offset_z`, `rotation_deg`.
+- PipeBottomLinesDwg: `selector`, `color_rules`, `group_properties`, `offset_x`, `offset_y`, `offset_z`, `rotation_deg`.
+
+Everything else is a class constant. Each recipe's docstring documents its arguments and constants.
+**Requirements**:
+- PipeBottomLinesIfc needs IfcOpenShell, numpy and shapely.
+- PipeBottomLinesDwg also needs the .NET 8 runtime, pythonnet and ACadSharp.dll. The Dockerfile installs them; elsewhere, `pipe_bottom_lines/dwg.py` lists the steps.
+- A missing one stops the job before any geometry is read, with an error that names it.
+
+**Tests**: `tests/test_pipe_bottom_lines.py`. The DWG tests skip without .NET.
+**Use Case**: Ground-works coordination, with VG levels on site drawings and in the model viewer.
+
 Add descriptions of your custom recipes here as you create them.
 
 ## Testing Your Recipe
