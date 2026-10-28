@@ -14,6 +14,27 @@ RUN apt-get update && apt-get install -y \
     libccd-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# PipeBottomLinesDwg writes DWG with ACadSharp (MIT, https://github.com/DomCR/ACadSharp),
+# a .NET 8 library, through pythonnet (requirements.txt): the .NET runtime goes
+# to /opt/dotnet and the DLL from the ACadSharp NuGet package to /opt/acadsharp,
+# checked against its sha256. PipeBottomLinesIfc does not need them.
+ARG DOTNET_RUNTIME_VERSION=8.0.21
+ARG ACADSHARP_VERSION=3.8.0
+ARG ACADSHARP_DLL_SHA256=13544512673b3124a8d6452ab02a3a8e11d40da05a1c6a8b586c14da3b322d22
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && bash /tmp/dotnet-install.sh --runtime dotnet --version "${DOTNET_RUNTIME_VERSION}" --install-dir /opt/dotnet \
+    && curl -fsSL "https://www.nuget.org/api/v2/package/ACadSharp/${ACADSHARP_VERSION}" -o /tmp/acadsharp.nupkg \
+    && mkdir -p /opt/acadsharp \
+    && unzip -j /tmp/acadsharp.nupkg lib/net8.0/ACadSharp.dll -d /opt/acadsharp \
+    && echo "${ACADSHARP_DLL_SHA256}  /opt/acadsharp/ACadSharp.dll" | sha256sum -c - \
+    && rm -f /tmp/dotnet-install.sh /tmp/acadsharp.nupkg \
+    && rm -rf /var/lib/apt/lists/*
+ENV DOTNET_ROOT=/opt/dotnet \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    PYTHONNET_RUNTIME=coreclr \
+    ACADSHARP_DLL=/opt/acadsharp/ACadSharp.dll
+
 # Upgrade pip to latest version for better dependency resolution
 RUN python -m pip install --upgrade pip
 
