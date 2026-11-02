@@ -797,9 +797,10 @@ def test_slope_markers_sit_on_each_straight_stretch_pointing_downhill():
     assert [slope_text(v) for v in (10.04, 2.46, 0.0, 17.0)] == [u"10\u2030", u"2.5\u2030", u"0\u2030", u"17\u2030"]
 
 
-def test_a_slope_marker_is_a_flat_arrow_on_a_post_with_the_slope_in_its_shaft():
+def test_a_slope_marker_is_a_wedge_arrow_on_a_post_with_the_slope_in_its_shaft():
     import numpy
-    from pipe_bottom_lines.ifc_output import (SLOPE_THICKNESS, TEXT_RELIEF, TEXT_SINK, SlopeSpot, slope_shapes)
+    from pipe_bottom_lines.ifc_output import (SLOPE_TAIL, SLOPE_THICKNESS, SLOPE_TIP, TEXT_RELIEF, TEXT_SINK,
+                                              SlopeSpot, slope_shapes)
 
     downhill = numpy.array([-1.0, 0.0, -0.01]) / numpy.linalg.norm([-1.0, 0.0, -0.01])
     out = numpy.array([-0.01, 0.0, 1.0]) / numpy.linalg.norm([-0.01, 0.0, 1.0])
@@ -807,15 +808,22 @@ def test_a_slope_marker_is_a_flat_arrow_on_a_post_with_the_slope_in_its_shaft():
     # Shaft, head and post, each a closed convex solid.
     assert len(solids) == 3
     shaft, head, post = ([numpy.array(c) for c in corners] for corners, _t in solids)
-    # Plate parallel to the line, its top as far out as a level marker's (the size).
-    for corner in shaft + head:
-        assert corner.dot(out) == pytest.approx(0.15) or corner.dot(out) == pytest.approx(0.15 - SLOPE_THICKNESS)
+    # A flat top parallel to the line, as far out as a level marker's plate (the size).
+    corners = shaft + head
+    tops = [c for c in corners if c.dot(out) == pytest.approx(0.15)]
+    assert len(tops) == len(corners) // 2
     # The head points downhill: its tip is the arrow's furthest point that way.
     tip = max(head, key=lambda c: c.dot(downhill))
     assert tip.dot(downhill) > max(c.dot(downhill) for c in shaft)
-    # The post runs from the line up to the plate.
+    # A wedge: SLOPE_TAIL thick at the tail, thinning to SLOPE_TIP at the tip.
+    unders = sorted((c for c in corners if c.dot(out) < 0.15 - 1e-9), key=lambda c: c.dot(downhill))
+    assert 0.15 - unders[0].dot(out) == pytest.approx(SLOPE_TAIL)
+    assert 0.15 - unders[-1].dot(out) == pytest.approx(SLOPE_TIP)
+    thick = [0.15 - c.dot(out) for c in unders]
+    assert thick == sorted(thick, reverse=True)
+    # The post runs from the line up to the underside.
     assert min(c.dot(out) for c in post) == pytest.approx(0.0)
-    assert max(c.dot(out) for c in post) == pytest.approx(0.15 - SLOPE_THICKNESS)
+    assert 0.15 - SLOPE_TAIL < max(c.dot(out) for c in post) < 0.15 - SLOPE_TIP
     # "10‰": 1, 0 and the per mille sign, set into the shaft's top, within it.
     assert len(text) == 3
     lo, hi = min(c.dot(downhill) for c in shaft), max(c.dot(downhill) for c in shaft)
@@ -830,6 +838,7 @@ def test_a_slope_marker_is_a_flat_arrow_on_a_post_with_the_slope_in_its_shaft():
     solids, _text = slope_shapes(SlopeSpot((2.5, 0.0, 1.0), numpy.array([1.0, 0.0, 0.0]), 0.15,
                                            numpy.array([0.0, 0.0, 1.0]), 0.0))
     assert len(solids) == 2
+    assert sorted({round(c[2], 9) for c in solids[0][0]}) == pytest.approx([0.15 - SLOPE_THICKNESS, 0.15])
 
 
 def sloping_run():

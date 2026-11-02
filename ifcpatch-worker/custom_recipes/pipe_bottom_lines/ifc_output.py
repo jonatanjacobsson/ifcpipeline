@@ -29,10 +29,11 @@ value Revit gives a pipe as its "+VG" at its lower end.
 
 Slope markers (build's slopes) are flat arrows, one on the middle of every
 straight stretch of a run at least SLOPE_MIN_LENGTH long and no steeper than
-WALL_SINE: a plate SLOPE_THICKNESS thick, parallel to the line and square to
-"out", as high above it as a level marker's plate, on a thin post down to
-the line. The arrow points the way the water runs, downhill; a level stretch
-gets a plate without a head. Its shaft carries the slope in per mille
+WALL_SINE: a wedge with a flat top parallel to the line and square to "out",
+as high above it as a level marker's plate, on a thin post down to the
+line. It is SLOPE_TAIL thick at its tail and thins to SLOPE_TIP at its tip,
+so even from the side it falls the way the water runs, downhill. A level
+stretch gets a plate SLOPE_THICKNESS thick, without a head. Its shaft carries the slope in per mille
 ("10‰") as 3D text, set in the way the levels are. Each is its own
 IfcAnnotation, named after its slope ("VG 10‰"), with the slope in MÅTT as
 "Lutning" ("10 ‰") and "Lutning promille" (a number).
@@ -144,7 +145,10 @@ SLOPE_SHAFT = 0.5
 SLOPE_MARGIN = 0.12
 SLOPE_HEAD_LENGTH = 0.45
 SLOPE_HEAD_WIDTH = 1.0
-# The plate's thickness and the post's width (metres).
+# The wedge's thickness at its tail and its tip, a level stretch's plate's
+# thickness, and the post's width (metres).
+SLOPE_TAIL = 0.045
+SLOPE_TIP = 0.003
 SLOPE_THICKNESS = 0.015
 SLOPE_POST = 0.012
 
@@ -963,8 +967,11 @@ def slope_shapes(spot):
     one solid per glyph, set into the shaft's top the way a level marker's
     text is set into its plate, reading left to right.
 
-    The arrow lies parallel to the line, its top as far out of it as a level
-    marker's plate (the marker size), pointing the way the water runs."""
+    The arrow's top lies parallel to the line, as far out of it as a level
+    marker's plate (the marker size), pointing the way the water runs. Its
+    underside rises from SLOPE_TAIL below the top at the tail to SLOPE_TIP at
+    the tip: a wedge that falls toward the tip. A level stretch's plate is
+    SLOPE_THICKNESS throughout."""
     size = spot.size
     out = _unit(spot.out)
     ahead = _unit(spot.direction - out * out.dot(spot.direction))
@@ -978,26 +985,40 @@ def slope_shapes(spot):
     head_length = 0.0 if flat else SLOPE_HEAD_LENGTH * size
     total = shaft_length + head_length
     top = out * size
-    middle = out * (size - SLOPE_THICKNESS / 2.0)
+    tail, neck, tip_at = -total / 2.0, total / 2.0 - head_length, total / 2.0
+
+    def thickness(at):
+        """Below the top, at distance at along the arrow from the point."""
+        if flat:
+            return SLOPE_THICKNESS
+        return SLOPE_TAIL + (SLOPE_TIP - SLOPE_TAIL) * (at - tail) / total
+
+    def corner(at, across_):
+        """Top and underside corners at distance at along, across_ to the side."""
+        on_top = top + ahead * at + side * across_
+        return [tuple(on_top), tuple(on_top - out * thickness(at))]
+
     # The shaft from the tail to the head's base, the arrow centred on the point.
-    shaft_centre = middle + ahead * (-total / 2.0 + shaft_length / 2.0)
-    solids = [(_box(shaft_centre, ahead, side, out, shaft_length, shaft_width, SLOPE_THICKNESS), _box_triangles())]
+    half_shaft = shaft_width / 2.0
+    shaft = []
+    for at in (tail, neck):
+        for across_ in (-half_shaft, half_shaft):
+            shaft += corner(at, across_)
+    # Corners: (tail|neck) x (-|+ side) x (top|underside), as _box orders them.
+    solids = [(shaft, _box_triangles())]
     if not flat:
-        base = middle + ahead * (total / 2.0 - head_length)
-        tip = middle + ahead * (total / 2.0)
         half = SLOPE_HEAD_WIDTH * size / 2.0
-        corners = []
-        for depth in (-SLOPE_THICKNESS / 2.0, SLOPE_THICKNESS / 2.0):
-            corners += [tuple(base + side * half + out * depth), tuple(base - side * half + out * depth),
-                        tuple(tip + out * depth)]
-        solids.append((corners, [(0, 1, 2), (3, 4, 5), (0, 1, 4), (0, 4, 3), (1, 2, 5), (1, 5, 4),
-                                 (2, 0, 3), (2, 3, 5)]))
-    post_height = size - SLOPE_THICKNESS
+        a_top, a_bottom = corner(neck, half)
+        b_top, b_bottom = corner(neck, -half)
+        t_top, t_bottom = corner(tip_at, 0.0)
+        solids.append(([a_top, b_top, t_top, a_bottom, b_bottom, t_bottom],
+                       [(0, 1, 2), (3, 4, 5), (0, 1, 4), (0, 4, 3), (1, 2, 5), (1, 5, 4), (2, 0, 3), (2, 3, 5)]))
+    post_height = size - thickness(0.0)
     solids.append((_box(out * (post_height / 2.0), ahead, side, out, SLOPE_POST, SLOPE_POST, post_height),
                    _box_triangles()))
     along = reading_direction(ahead)
     across = numpy.cross(out, along)
-    centre = top + (shaft_centre - middle) - out * out.dot(shaft_centre - middle)
+    centre = top + ahead * ((tail + neck) / 2.0)
     text = []
     for points, triangles in glyphs:
         corners = [tuple(centre + along * ((x - width / 2.0) * height) + across * ((y - 0.5) * height)
