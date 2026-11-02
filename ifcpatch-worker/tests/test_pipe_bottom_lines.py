@@ -583,7 +583,8 @@ def test_ifc_lines_and_markers_can_be_two_files(tmp_path):
 def test_the_ifc_recipe_writes_only_markers_or_only_lines():
     from PipeBottomLinesIfc import Patcher
 
-    for content, wanted in (("markers", {u"VG Markör"}), ("lines", {"VG Linjer"}), ("", {"VG Linjer", u"VG Markör"})):
+    for content, wanted in (("markers", {u"VG Markör", u"VG Lutning"}), ("lines", {"VG Linjer"}),
+                            ("", {"VG Linjer", u"VG Markör", u"VG Lutning"})):
         patcher = Patcher(elbow_run(500.0).f, logging.getLogger("test"), "", content, json.dumps(KRAFT),
                           "Projekt.Systembeteckning")
         patcher.patch()
@@ -848,32 +849,30 @@ def sloping_run():
     return m
 
 
-def test_the_ifc_recipe_adds_slope_markers_only_when_asked():
+def test_the_ifc_recipe_writes_slope_markers_with_the_markers():
     from PipeBottomLinesIfc import Patcher
     from pipe_bottom_lines.labels import SLOPE_TYPE
 
-    base = ["", "", json.dumps(KRAFT), "Projekt.Systembeteckning", "", "0", "0", "0", "0"]
-    for value, wanted in (("yes", 1), ("ja", 1), ("no", 0), ("-", 0), ("", 0)):
-        patcher = Patcher(sloping_run().f, logging.getLogger("test"), *(base + [value]))
+    args = ["", json.dumps(KRAFT), "Projekt.Systembeteckning"]
+    for content, wanted in (("markers", 1), ("all", 1), ("-", 1), ("lines", 0)):
+        patcher = Patcher(sloping_run().f, logging.getLogger("test"), "", content, *args)
         patcher.patch()
         out = patcher.get_output()
         slopes = [a for a in out.by_type("IfcAnnotation") if a.ObjectType == SLOPE_TYPE]
-        assert len(slopes) == wanted, value
+        assert len(slopes) == wanted, content
         assert patcher.get_summary()["ifc_slope_markers"] == wanted
-    patcher = Patcher(sloping_run().f, logging.getLogger("test"), *(base + ["yes"]))
+    patcher = Patcher(sloping_run().f, logging.getLogger("test"), "", "markers", *args)
     patcher.patch()
     out = patcher.get_output()
     (slope,) = [a for a in out.by_type("IfcAnnotation") if a.ObjectType == SLOPE_TYPE]
     assert slope.Name == u"VG 10\u2030"
-    assert [t.Name for t in out.by_type("IfcTypeProduct")] == ["VG Linjer", u"VG Markör", SLOPE_TYPE]
+    assert [t.Name for t in out.by_type("IfcTypeProduct")] == [u"VG Markör", SLOPE_TYPE]
     props = {p.Name: p.NominalValue.wrappedValue for r in slope.IsDefinedBy
              for p in r.RelatingPropertyDefinition.HasProperties}
     assert props == {"Lutning": u"10 \u2030", "Lutning promille": pytest.approx(10.0)}
     # Halfway along, above the line.
     place = slope.ObjectPlacement.RelativePlacement.Location.Coordinates
     assert place[0] == pytest.approx(5000.0, abs=1.0) and place[1] == pytest.approx(0.0, abs=30.0)
-    with pytest.raises(ValueError):
-        Patcher(sloping_run().f, logging.getLogger("test"), *(base + ["maybe"]))
 
 
 def test_markers_point_out_of_the_pipe_with_the_level_set_into_their_plate():
@@ -1271,7 +1270,7 @@ def test_ifc_recipe_fixed_options():
     assert (patcher.long_bend_min, patcher.bend_segment) == (0.0, pytest.approx(0.05))
     assert patcher.include_connected_fittings
     with pytest.raises(TypeError):
-        Patcher(elbow_run(500.0).f, logging.getLogger("test"), *([""] * 11))
+        Patcher(elbow_run(500.0).f, logging.getLogger("test"), *([""] * 10))
 
 
 def test_a_selector_draws_what_it_picks_in_the_ground_or_not():
@@ -1550,8 +1549,8 @@ def test_the_names_the_output_shows_come_from_labels():
     patcher.patch()
     out = patcher.get_output()
     annotations = out.by_type("IfcAnnotation")
-    assert {a.ObjectType for a in annotations} == {labels.LINE_TYPE, labels.POINT_TYPE}
-    assert {t.Name for t in out.by_type("IfcTypeProduct")} == {labels.LINE_TYPE, labels.POINT_TYPE}
+    assert {a.ObjectType for a in annotations} == {labels.LINE_TYPE, labels.POINT_TYPE, labels.SLOPE_TYPE}
+    assert {t.Name for t in out.by_type("IfcTypeProduct")} == {labels.LINE_TYPE, labels.POINT_TYPE, labels.SLOPE_TYPE}
     line = [a for a in annotations if a.ObjectType == labels.LINE_TYPE][0]
     assert line.Name.startswith(labels.LAYER_PREFIX + " - ")
     assert set(ifcopenshell.util.element.get_psets(line)[labels.RUN_PSET]) >= {
