@@ -36,14 +36,13 @@ The output is that IFC, not the model: name the output file ``*.ifc``.
   other joints only where no marker of the run is closer than
   MARKER_SPACING_MM along it. On a riser the marker stands beside it,
   pointing at the wall the line runs on.
-- With ``slope_markers``, slope markers of type "VG Lutning", named "VG
-  10‰": a flat arrow on the middle of every straight stretch of a run at
+- Slope markers of type "VG Lutning", named "VG 10‰", come with the level
+  markers (``content`` ``markers`` or ``all``): a flat arrow on the middle of every straight stretch of a run at
   least 1 m long and gentler than 10°, parallel to the line and as high
   above it as the level markers' plates, on a thin post down to it. It
   points downhill, the way the water runs (a level stretch gets no head),
   and carries the slope in per mille ("10‰") as 3D text in its shaft. They
-  go with the level markers (``content`` ``markers`` or ``all``) and carry
-  the slope as MÅTT "Lutning" ("10 ‰") and "Lutning promille" (a number).
+  carry the slope as MÅTT "Lutning" ("10 ‰") and "Lutning promille" (a number).
 - A marker shows the level of the pipe end it marks, rounded half up: a
   pipe's lower-end marker reads the same as the pipe's own Revit "+VG". It
   carries it as MÅTT "+VG" ("+12.75") and "Höjd UK Plushöjd" (a number, for
@@ -53,7 +52,7 @@ The output is that IFC, not the model: name the output file ``*.ifc``.
 - A run and its markers share one Description ("Spillvatten - 75mm #4
   (+12.48 → +12.65)"), so grouping by Description isolates a run.
 - ``content`` splits them: ``lines`` writes only the runs, ``markers`` only
-  the markers (same GlobalIds as in the full file), so they can be two files
+  the level and slope markers (same GlobalIds as in the full file), so they can be two files
   on two viewer layers.
 - The source model's length unit and map conversion; runs and markers in its
   world coordinates, so the IFC overlays the model in a federation.
@@ -93,7 +92,7 @@ shift every argument after it.
                       ground or not. Empty: every pipe, conduit and fitting
                       (not cable trays) in the ground.
     content:          ``all`` (default), ``lines`` (the runs only) or
-                      ``markers`` (the level markers only).
+                      ``markers`` (the level and slope markers only).
     color_rules:      JSON list of {"name", "color", "selector"}; the first rule
                       whose IfcOpenShell selector matches an element colours it
                       and names its layer. Empty: colours come from the model.
@@ -114,8 +113,6 @@ shift every argument after it.
     offset_z:         metres added to Z (default ``0``).
     rotation_deg:     degrees runs and markers are turned about the origin,
                       counter-clockwise in plan, before the offset (default ``0``).
-    slope_markers:    ``yes`` adds a slope marker (‰, an arrow downhill) on
-                      every straight stretch; ``no`` (default) leaves them out.
 
 Fixed in the code (class attributes, the same for every job): the size is
 the outside diameter; every conduit bend is cut into BEND_SEGMENT_MM (50)
@@ -168,11 +165,10 @@ class Patcher(PipeBottomLinesDwg.Patcher):
                  offset_x: str = "0",
                  offset_y: str = "0",
                  offset_z: str = "0",
-                 rotation_deg: str = "0",
-                 slope_markers: str = "no"):
+                 rotation_deg: str = "0"):
         """
         :param selector: IfcOpenShell selector for the elements to draw, in the ground or not; empty draws every pipe, conduit and fitting in the ground.
-        :param content: "all", "lines" (the runs only) or "markers" (the level markers only).
+        :param content: "all", "lines" (the runs only) or "markers" (the level and slope markers only).
         :param color_rules: JSON list of {"name", "color", "selector"}; first match colours an element and names its layer.
         :param group_properties: Comma-separated Pset.Property or Property names naming the group (element, then its line); "auto" uses the line's system, else "Ledning N".
         :param run_pset: Property set for the runs' levels and diameter: "VG", another name, "Name:Prefix" for prefixed labels, or "none".
@@ -180,7 +176,6 @@ class Patcher(PipeBottomLinesDwg.Patcher):
         :param offset_y: Metres added to Y, after the rotation.
         :param offset_z: Metres added to Z.
         :param rotation_deg: Degrees runs and markers are turned about the origin, counter-clockwise, before the offset.
-        :param slope_markers: "yes" adds a slope marker (per mille, an arrow downhill) on every straight stretch; "no" leaves them out.
         """
         self._init(file, logger, selector, color_rules, group_properties, offset_x, offset_y, offset_z, rotation_deg)
         content, run_pset = PipeBottomLinesDwg._blank(content), PipeBottomLinesDwg._blank(run_pset)
@@ -190,10 +185,6 @@ class Patcher(PipeBottomLinesDwg.Patcher):
         self.run_pset = _or_default(run_pset, "VG").strip()
         if self.run_pset.lower() == "none":
             self.run_pset = None
-        slope_markers = (_or_default(PipeBottomLinesDwg._blank(slope_markers), "no")).strip().lower()
-        if slope_markers not in ("yes", "no", "ja", "nej", "true", "false", "on", "off", "1", "0"):
-            raise ValueError("slope_markers must be yes or no, not %r" % slope_markers)
-        self.slopes = slope_markers in ("yes", "ja", "true", "on", "1")
         self.tube_radius = self.TUBE_DIAMETER_MM * MM / 2
         self.polyline = self.WRITE_POLYLINE
         self.marker_size = self.MARKER_SIZE_MM * MM
@@ -208,7 +199,7 @@ class Patcher(PipeBottomLinesDwg.Patcher):
             self.report, self.file, self.marker_size, self.marker_spacing,
             tube_radius=self.tube_radius, polyline=self.polyline,
             lines=self.content != "markers", markers=self.content != "lines", run_pset=self.run_pset,
-            rotation_deg=self.rotation, offset=self.offset, slopes=self.slopes)
+            rotation_deg=self.rotation, offset=self.offset, slopes=self.content != "lines")
         slopes = sum(1 for a in self._output.by_type("IfcAnnotation") if a.ObjectType == SLOPE_TYPE)
         self._ifc_counts = (lines, markers, slopes)
         self.log_move()
