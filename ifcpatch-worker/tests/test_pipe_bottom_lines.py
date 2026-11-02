@@ -583,7 +583,8 @@ def test_ifc_lines_and_markers_can_be_two_files(tmp_path):
 def test_the_ifc_recipe_writes_only_markers_or_only_lines():
     from PipeBottomLinesIfc import Patcher
 
-    for content, wanted in (("markers", {u"VG Markör"}), ("lines", {"VG Linjer"}), ("", {"VG Linjer", u"VG Markör"})):
+    for content, wanted in (("markers", {u"VG Markör", u"VG Lutning"}), ("lines", {"VG Linjer"}),
+                            ("", {"VG Linjer", u"VG Markör", u"VG Lutning"})):
         patcher = Patcher(elbow_run(500.0).f, logging.getLogger("test"), "", content, json.dumps(KRAFT),
                           "Projekt.Systembeteckning")
         patcher.patch()
@@ -750,7 +751,9 @@ def test_every_glyph_is_one_watertight_solid():
     from pipe_bottom_lines import font
     holes = {"0": 1, "4": 1, "6": 1, "8": 2, "9": 1}
     for char in "0123456789+-.":
-        outline, advance = font.glyph_outline(char)
+        outlines, advance = font.glyph_outline(char)
+        assert len(outlines) == 1, char
+        outline = outlines[0]
         assert outline.is_valid and len(outline.interiors) == holes.get(char, 0), char
         minx, miny, maxx, maxy = outline.bounds
         assert minx >= 0.0 and maxx <= advance + 1e-9 and miny >= 0.0 and maxy <= 1.0 + 1e-9, char
@@ -760,9 +763,116 @@ def test_every_glyph_is_one_watertight_solid():
         assert watertight and volume == pytest.approx(outline.area), char
     # Digits stand on the baseline and reach the cap line.
     for char in "0123456789":
-        assert font.glyph_outline(char)[0].bounds[1] == pytest.approx(0.0, abs=0.01), char
-        assert font.glyph_outline(char)[0].bounds[3] == pytest.approx(1.0, abs=0.01), char
+        assert font.glyph_outline(char)[0][0].bounds[1] == pytest.approx(0.0, abs=0.01), char
+        assert font.glyph_outline(char)[0][0].bounds[3] == pytest.approx(1.0, abs=0.01), char
     assert font.glyph_prism("x") is None
+
+
+def test_the_per_mille_sign_is_its_slash_and_three_rings_each_watertight():
+    from pipe_bottom_lines import font
+    outlines, advance = font.glyph_outline(u"\u2030")
+    assert len(outlines) == 4 and sorted(len(o.interiors) for o in outlines) == [0, 1, 1, 1]
+    for outline in outlines:
+        minx, miny, maxx, maxy = outline.bounds
+        assert minx >= 0.0 and maxx <= advance + 1e-9 and miny >= 0.0 and maxy <= 1.0 + 1e-9
+    points, triangles, _advance = font.glyph_prism(u"\u2030")
+    watertight, volume = _closed_and_outward(points, triangles)
+    assert watertight and volume == pytest.approx(sum(o.area for o in outlines))
+
+
+def test_slope_markers_sit_on_each_straight_stretch_pointing_downhill():
+    from pipe_bottom_lines.ifc_output import slope_spots, slope_text
+
+    # Uphill in run order: 50 mm over 5 m in two lengths, a riser, a 0.8 m stub, 3 m level.
+    line = [(0.0, 0.0, 1.0), (2.0, 0.0, 1.02), (5.0, 0.0, 1.05), (5.0, 0.0, 2.0), (5.8, 0.0, 2.0),
+            (5.8, 3.0, 2.0)]
+    spots = slope_spots(line, 0.15)
+    assert len(spots) == 2
+    sloped, level = spots
+    # One marker for both lengths, in the middle, pointing back down the run.
+    assert sloped.point == pytest.approx((2.5, 0.0, 1.025))
+    assert sloped.permille == pytest.approx(10.0)
+    assert sloped.direction[0] < 0 and sloped.direction[2] < 0
+    assert sloped.out[2] > 0.99 and abs(sloped.out.dot(sloped.direction)) < 1e-9
+    assert level.permille == pytest.approx(0.0) and level.point == pytest.approx((5.8, 1.5, 2.0))
+    assert [slope_text(v) for v in (10.04, 2.46, 0.0, 17.0)] == [u"10\u2030", u"2.5\u2030", u"0\u2030", u"17\u2030"]
+
+
+def test_a_slope_marker_is_a_wedge_arrow_on_a_post_with_the_slope_in_its_shaft():
+    import numpy
+    from pipe_bottom_lines.ifc_output import (SLOPE_TAIL, SLOPE_THICKNESS, SLOPE_TIP, TEXT_RELIEF, TEXT_SINK,
+                                              SlopeSpot, slope_shapes)
+
+    downhill = numpy.array([-1.0, 0.0, -0.01]) / numpy.linalg.norm([-1.0, 0.0, -0.01])
+    out = numpy.array([-0.01, 0.0, 1.0]) / numpy.linalg.norm([-0.01, 0.0, 1.0])
+    solids, text = slope_shapes(SlopeSpot((2.5, 0.0, 1.0), downhill, 0.15, out, 10.0))
+    # Shaft, head and post, each a closed convex solid.
+    assert len(solids) == 3
+    shaft, head, post = ([numpy.array(c) for c in corners] for corners, _t in solids)
+    # A flat top parallel to the line, as far out as a level marker's plate (the size).
+    corners = shaft + head
+    tops = [c for c in corners if c.dot(out) == pytest.approx(0.15)]
+    assert len(tops) == len(corners) // 2
+    # The head points downhill: its tip is the arrow's furthest point that way.
+    tip = max(head, key=lambda c: c.dot(downhill))
+    assert tip.dot(downhill) > max(c.dot(downhill) for c in shaft)
+    # A wedge: SLOPE_TAIL thin at the tail, thickening to SLOPE_TIP at the tip.
+    unders = sorted((c for c in corners if c.dot(out) < 0.15 - 1e-9), key=lambda c: c.dot(downhill))
+    assert 0.15 - unders[0].dot(out) == pytest.approx(SLOPE_TAIL)
+    assert 0.15 - unders[-1].dot(out) == pytest.approx(SLOPE_TIP)
+    thick = [0.15 - c.dot(out) for c in unders]
+    assert thick == sorted(thick) and SLOPE_TIP > SLOPE_TAIL
+    # The post runs from the line up to the underside.
+    assert min(c.dot(out) for c in post) == pytest.approx(0.0)
+    assert 0.15 - SLOPE_TIP < max(c.dot(out) for c in post) < 0.15 - SLOPE_TAIL
+    # "10‰": 1, 0 and the per mille sign, set into the shaft's top, within it.
+    assert len(text) == 3
+    lo, hi = min(c.dot(downhill) for c in shaft), max(c.dot(downhill) for c in shaft)
+    for glyph, triangles in text:
+        watertight, volume = _closed_and_outward(glyph, triangles)
+        assert watertight and volume > 0
+        levels = sorted({round(numpy.array(c).dot(out), 9) for c in glyph})
+        assert levels == pytest.approx([0.15 - TEXT_SINK, 0.15 + TEXT_RELIEF])
+        for corner in map(numpy.array, glyph):
+            assert lo - 1e-9 <= corner.dot(downhill) <= hi + 1e-9
+    # A level stretch: no head.
+    solids, _text = slope_shapes(SlopeSpot((2.5, 0.0, 1.0), numpy.array([1.0, 0.0, 0.0]), 0.15,
+                                           numpy.array([0.0, 0.0, 1.0]), 0.0))
+    assert len(solids) == 2
+    assert sorted({round(c[2], 9) for c in solids[0][0]}) == pytest.approx([0.15 - SLOPE_THICKNESS, 0.15])
+
+
+def sloping_run():
+    """One conduit 10 m long falling 100 mm (10 per mille) toward X = 0."""
+    m = Model()
+    m.conduit("Conduit with Fittings:SRN 50 - Gul:1", (0, 0, 1000), (10000, 0, 1100))
+    return m
+
+
+def test_the_ifc_recipe_writes_slope_markers_with_the_markers():
+    from PipeBottomLinesIfc import Patcher
+    from pipe_bottom_lines.labels import SLOPE_TYPE
+
+    args = ["", json.dumps(KRAFT), "Projekt.Systembeteckning"]
+    for content, wanted in (("markers", 1), ("all", 1), ("-", 1), ("lines", 0)):
+        patcher = Patcher(sloping_run().f, logging.getLogger("test"), "", content, *args)
+        patcher.patch()
+        out = patcher.get_output()
+        slopes = [a for a in out.by_type("IfcAnnotation") if a.ObjectType == SLOPE_TYPE]
+        assert len(slopes) == wanted, content
+        assert patcher.get_summary()["ifc_slope_markers"] == wanted
+    patcher = Patcher(sloping_run().f, logging.getLogger("test"), "", "markers", *args)
+    patcher.patch()
+    out = patcher.get_output()
+    (slope,) = [a for a in out.by_type("IfcAnnotation") if a.ObjectType == SLOPE_TYPE]
+    assert slope.Name == u"VG 10\u2030"
+    assert [t.Name for t in out.by_type("IfcTypeProduct")] == [u"VG Markör", SLOPE_TYPE]
+    props = {p.Name: p.NominalValue.wrappedValue for r in slope.IsDefinedBy
+             for p in r.RelatingPropertyDefinition.HasProperties}
+    assert props == {"Lutning": u"10 \u2030", "Lutning promille": pytest.approx(10.0)}
+    # Halfway along, above the line.
+    place = slope.ObjectPlacement.RelativePlacement.Location.Coordinates
+    assert place[0] == pytest.approx(5000.0, abs=1.0) and place[1] == pytest.approx(0.0, abs=30.0)
 
 
 def test_markers_point_out_of_the_pipe_with_the_level_set_into_their_plate():
@@ -1439,8 +1549,8 @@ def test_the_names_the_output_shows_come_from_labels():
     patcher.patch()
     out = patcher.get_output()
     annotations = out.by_type("IfcAnnotation")
-    assert {a.ObjectType for a in annotations} == {labels.LINE_TYPE, labels.POINT_TYPE}
-    assert {t.Name for t in out.by_type("IfcTypeProduct")} == {labels.LINE_TYPE, labels.POINT_TYPE}
+    assert {a.ObjectType for a in annotations} == {labels.LINE_TYPE, labels.POINT_TYPE, labels.SLOPE_TYPE}
+    assert {t.Name for t in out.by_type("IfcTypeProduct")} == {labels.LINE_TYPE, labels.POINT_TYPE, labels.SLOPE_TYPE}
     line = [a for a in annotations if a.ObjectType == labels.LINE_TYPE][0]
     assert line.Name.startswith(labels.LAYER_PREFIX + " - ")
     assert set(ifcopenshell.util.element.get_psets(line)[labels.RUN_PSET]) >= {

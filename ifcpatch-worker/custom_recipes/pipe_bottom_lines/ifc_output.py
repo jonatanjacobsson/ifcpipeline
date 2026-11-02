@@ -27,9 +27,21 @@ only where no marker is closer than the marker spacing along the run. A
 marker shows the level of the joint it marks, the pipe's end: the same
 value Revit gives a pipe as its "+VG" at its lower end.
 
-Runs are of type LINE_TYPE ("VG Linjer") and markers of POINT_TYPE ("VG
-Markör"): their ObjectType, and an IfcTypeProduct of that name each, so a
-viewer can filter or colour the two apart.
+Slope markers (build's slopes) are flat arrows, one on the middle of every
+straight stretch of a run at least SLOPE_MIN_LENGTH long and no steeper than
+WALL_SINE: a wedge with a flat top parallel to the line and square to "out",
+as high above it as a level marker's plate, on a thin post down to the
+line. It is SLOPE_TAIL thin at its tail and thickens to SLOPE_TIP at its
+tip, so even from the side its head stands out the way the water runs, downhill. A level
+stretch gets a plate SLOPE_THICKNESS thick, without a head. Its shaft carries the slope in per mille
+("10‰") as 3D text, set in the way the levels are. Each is its own
+IfcAnnotation, named after its slope ("VG 10‰"), with the slope in MÅTT as
+"Lutning" ("10 ‰") and "Lutning promille" (a number).
+
+Runs are of type LINE_TYPE ("VG Linjer"), markers of POINT_TYPE ("VG
+Markör") and slope markers of SLOPE_TYPE ("VG Lutning"): their ObjectType,
+and an IfcTypeProduct of that name each, so a viewer can filter or colour
+them apart.
 
 They are annotations, so they carry little. Markers carry their level in
 MÅTT like the pipes: "+VG" as a label in signed metres with two decimals
@@ -79,7 +91,7 @@ from pipe_bottom_lines import font, naming
 from pipe_bottom_lines.labels import (
     LAYER_PREFIX, LEVEL_LABEL, LEVEL_NUMBER, LEVEL_PSET, LINE_STYLE, LINE_TYPE, MARKER_NAME, MARKER_STYLE,
     POINT_TYPE, PROJECT_DESCRIPTION, PROJECT_NAME, RUN_DIAMETER, RUN_DIAMETER_PREFIXED, RUN_LEVEL_END,
-    RUN_LEVEL_START, RUN_PSET, SITE_NAME, TEXT_STYLE)
+    RUN_LEVEL_START, RUN_PSET, SITE_NAME, SLOPE_LABEL, SLOPE_NAME, SLOPE_NUMBER, SLOPE_TYPE, TEXT_STYLE)
 
 GUID_NAMESPACE = uuid.UUID("6f1d3c52-8a0e-4c47-9a53-2f6b1f0c9e11")
 # The names the output shows (LINE_TYPE, POINT_TYPE, the property sets and
@@ -119,6 +131,26 @@ WALL_MERGE = 0.0005
 # (half a marker, onto its own pipe) only where that changes its height by
 # at most this (metres); on steeper pipes and risers it sits on the joint.
 LEVEL_TOLERANCE = 0.003
+# Slope markers: on straight stretches at least this long (metres); line
+# segments less than SLOPE_BEND_DEG apart in direction are one stretch.
+SLOPE_MIN_LENGTH = 1.0
+SLOPE_BEND_DEG = 1.0
+# The slope's decimals in per mille ("2.5‰", "10‰"); below SLOPE_FLAT it is level, no arrowhead.
+SLOPE_DECIMALS = 1
+SLOPE_FLAT = 0.05
+# The arrow, in units of the marker size: its text height, the shaft's
+# width and its margin round the text, the head's length and width.
+SLOPE_TEXT = 0.3
+SLOPE_SHAFT = 0.5
+SLOPE_MARGIN = 0.12
+SLOPE_HEAD_LENGTH = 0.45
+SLOPE_HEAD_WIDTH = 1.0
+# The wedge's thickness at its tail and its tip, a level stretch's plate's
+# thickness, and the post's width (metres).
+SLOPE_TAIL = 0.003
+SLOPE_TIP = 0.045
+SLOPE_THICKNESS = 0.015
+SLOPE_POST = 0.012
 
 
 def _split_pset(run_pset):
@@ -152,6 +184,15 @@ def run_description(layer, number, start, end):
     return u"%s #%d (%s \u2192 %s)" % (name, number, vg_label(start[2]), vg_label(end[2]))
 
 
+def slope_text(permille, space=u""):
+    """10.04 -> "10‰", 2.46 -> "2.5‰": per mille, rounded half up, no trailing ".0"."""
+    value = _rounded(permille, SLOPE_DECIMALS)
+    text = u"{:f}".format(value)
+    if u"." in text:
+        text = text.rstrip(u"0").rstrip(u".")
+    return text + space + u"\u2030"
+
+
 def level_text(z):
     """12.4253 -> "+12.425", the way levels are written on Swedish drawings."""
     return u"{:+f}".format(_rounded(z, 3))
@@ -180,6 +221,9 @@ class _Mover(object):
     def spot(self, spot):
         if not self.moves:
             return spot
+        if isinstance(spot, SlopeSpot):
+            return SlopeSpot(self.point(spot.point), self.vector(spot.direction), spot.size, self.vector(spot.out),
+                             spot.permille)
         return MarkerSpot(self.point(spot.point), self.vector(spot.direction), spot.size, self.vector(spot.out),
                           spot.level + float(self.offset[2]))
 
@@ -527,6 +571,33 @@ class _Writer(object):
         ])
         return product
 
+    def slope_marker(self, cell, spot, layer, rgb, description=None):
+        """A slope marker at spot (a SlopeSpot): arrow, post and slope text."""
+        f = self.f
+        key = "slope:%s:%d:%d:%d" % ((layer,) + tuple(cell))
+        solids, text = slope_shapes(spot)
+        items = [self._faces(solids, rgb, MARKER_STYLE)]
+        if text:
+            items.append(self._faces(text, TEXT_RGB, TEXT_STYLE, wound=True))
+        shape = f.create_entity(
+            "IfcShapeRepresentation", ContextOfItems=self.body_ctx, RepresentationIdentifier="Body",
+            RepresentationType="Tessellation", Items=items)
+        self._layer_items.setdefault(layer, []).append(shape)
+        if self.line_placement == "world":
+            placement = f.create_entity("IfcLocalPlacement", RelativePlacement=self._axis(self.world(spot.point)))
+        else:
+            placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=self.site_placement,
+                                        RelativePlacement=self._axis(self.local(spot.point)))
+        product = f.create_entity(
+            "IfcAnnotation", GlobalId=_guid(key), Name=SLOPE_NAME % slope_text(spot.permille),
+            Description=description, ObjectType=SLOPE_TYPE, ObjectPlacement=placement,
+            Representation=f.create_entity("IfcProductDefinitionShape", Representations=[shape]))
+        self._pset(product, LEVEL_PSET, key, [
+            (SLOPE_LABEL, "IfcLabel", slope_text(spot.permille, u" ")),
+            (SLOPE_NUMBER, "IfcReal", float(_rounded(spot.permille, SLOPE_DECIMALS))),
+        ])
+        return product
+
     def finish(self, products, part=""):
         """Contain products in the site, type them and fill the layers; part
         ("lines" or "markers") keeps a split file's containment its own."""
@@ -535,7 +606,7 @@ class _Writer(object):
             f.create_entity("IfcRelContainedInSpatialStructure",
                             GlobalId=_guid("contained:" + self.project_key + (":" + part if part else "")),
                             RelatedElements=products, RelatingStructure=self.site)
-        for object_type in (LINE_TYPE, POINT_TYPE):
+        for object_type in (LINE_TYPE, POINT_TYPE, SLOPE_TYPE):
             typed = [product for product in products if product.ObjectType == object_type]
             if not typed:
                 continue
@@ -573,6 +644,18 @@ class MarkerSpot(object):
         self.direction = direction
         self.size = size
         self.out = out
+
+
+class SlopeSpot(MarkerSpot):
+    """Where a slope marker goes: the middle of its stretch, the way the water
+    runs there (downhill), its size, which way is out of the pipe and the
+    slope in per mille."""
+
+    __slots__ = ("permille",)
+
+    def __init__(self, point, direction, size, out, permille):
+        MarkerSpot.__init__(self, point, direction, size, out)
+        self.permille = permille
 
 
 def _unit(v):
@@ -833,6 +916,117 @@ def run_markers(run, pieces, spacing=MARKER_SPACING, min_size=MARKER_MIN_SIZE, i
     return list(unique.values())
 
 
+def slope_spots(points, size, min_length=SLOPE_MIN_LENGTH):
+    """The slope markers of a run's line (points in run order, metres): one
+    SlopeSpot of size on the middle of each straight stretch at least
+    min_length long and no steeper than WALL_SINE. Segments less than
+    SLOPE_BEND_DEG apart in direction are one stretch, so a pipe in many
+    lengths gets one marker."""
+    same = math.cos(math.radians(SLOPE_BEND_DEG))
+    stretches = []   # [start, end, direction]
+    for a, b in zip(points, points[1:]):
+        if _length([a, b]) < WALL_MERGE:
+            continue
+        direction = _unit(numpy.subtract(b, a, dtype=float))
+        if stretches and stretches[-1][2].dot(direction) >= same:
+            stretches[-1][1] = b
+            stretches[-1][2] = _unit(numpy.subtract(b, stretches[-1][0], dtype=float))
+        else:
+            stretches.append([a, b, direction])
+    up = numpy.array([0.0, 0.0, 1.0])
+    spots = []
+    for a, b, direction in stretches:
+        length = _length([a, b])
+        if length < min_length or abs(direction[2]) >= WALL_SINE:
+            continue
+        level = math.hypot(direction[0], direction[1])
+        permille = abs(direction[2]) / level * 1000.0
+        downhill = direction if direction[2] <= 0 else -direction
+        middle = tuple((numpy.array(a, dtype=float) + numpy.array(b, dtype=float)) / 2.0)
+        out = _unit(up - up.dot(downhill) * downhill)
+        spots.append(SlopeSpot(middle, downhill, size, out, permille))
+    return spots
+
+
+def _box(centre, u, v, w, du, dv, dw):
+    """The 8 corners of a box about centre: du, dv, dw long along u, v, w."""
+    return [tuple(centre + u * (x * du / 2.0) + v * (y * dv / 2.0) + w * (z * dw / 2.0))
+            for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
+
+
+def _box_triangles():
+    """Triangles of _box's corners (index = x*4 + y*2 + z, each 0 or 1), any winding."""
+    faces = [(0, 1, 3, 2), (4, 5, 7, 6), (0, 1, 5, 4), (2, 3, 7, 6), (0, 2, 6, 4), (1, 3, 7, 5)]
+    return [t for a, b, c, d in faces for t in ((a, b, c), (a, c, d))]
+
+
+def slope_shapes(spot):
+    """(solids, text) around the line point at the origin, in metres: the
+    arrow's shaft, its head (none on a level stretch) and the post down to
+    the line, each a convex shape ([corners], [triangles]); the slope text
+    one solid per glyph, set into the shaft's top the way a level marker's
+    text is set into its plate, reading left to right.
+
+    The arrow's top lies parallel to the line, as far out of it as a level
+    marker's plate (the marker size), pointing the way the water runs. Its
+    underside drops from SLOPE_TAIL below the top at the tail to SLOPE_TIP at
+    the tip: a wedge that is fattest at its head. A level stretch's plate is
+    SLOPE_THICKNESS throughout."""
+    size = spot.size
+    out = _unit(spot.out)
+    ahead = _unit(spot.direction - out * out.dot(spot.direction))
+    side = numpy.cross(out, ahead)
+    glyphs, width = font.text_prisms(slope_text(spot.permille))
+    height = SLOPE_TEXT * size
+    margin = SLOPE_MARGIN * size
+    shaft_length = width * height + 2.0 * margin
+    shaft_width = SLOPE_SHAFT * size
+    flat = spot.permille < SLOPE_FLAT
+    head_length = 0.0 if flat else SLOPE_HEAD_LENGTH * size
+    total = shaft_length + head_length
+    top = out * size
+    tail, neck, tip_at = -total / 2.0, total / 2.0 - head_length, total / 2.0
+
+    def thickness(at):
+        """Below the top, at distance at along the arrow from the point."""
+        if flat:
+            return SLOPE_THICKNESS
+        return SLOPE_TAIL + (SLOPE_TIP - SLOPE_TAIL) * (at - tail) / total
+
+    def corner(at, across_):
+        """Top and underside corners at distance at along, across_ to the side."""
+        on_top = top + ahead * at + side * across_
+        return [tuple(on_top), tuple(on_top - out * thickness(at))]
+
+    # The shaft from the tail to the head's base, the arrow centred on the point.
+    half_shaft = shaft_width / 2.0
+    shaft = []
+    for at in (tail, neck):
+        for across_ in (-half_shaft, half_shaft):
+            shaft += corner(at, across_)
+    # Corners: (tail|neck) x (-|+ side) x (top|underside), as _box orders them.
+    solids = [(shaft, _box_triangles())]
+    if not flat:
+        half = SLOPE_HEAD_WIDTH * size / 2.0
+        a_top, a_bottom = corner(neck, half)
+        b_top, b_bottom = corner(neck, -half)
+        t_top, t_bottom = corner(tip_at, 0.0)
+        solids.append(([a_top, b_top, t_top, a_bottom, b_bottom, t_bottom],
+                       [(0, 1, 2), (3, 4, 5), (0, 1, 4), (0, 4, 3), (1, 2, 5), (1, 5, 4), (2, 0, 3), (2, 3, 5)]))
+    post_height = size - thickness(0.0)
+    solids.append((_box(out * (post_height / 2.0), ahead, side, out, SLOPE_POST, SLOPE_POST, post_height),
+                   _box_triangles()))
+    along = reading_direction(ahead)
+    across = numpy.cross(out, along)
+    centre = top + ahead * ((tail + neck) / 2.0)
+    text = []
+    for points, triangles in glyphs:
+        corners = [tuple(centre + along * ((x - width / 2.0) * height) + across * ((y - 0.5) * height)
+                         + out * (z * (TEXT_RELIEF + TEXT_SINK) - TEXT_SINK)) for x, y, z in points]
+        text.append((corners, triangles))
+    return solids, text
+
+
 def reading_direction(direction):
     """The pipe's direction, turned so text along it reads left to right
     seen from above (east, else north, else up)."""
@@ -868,17 +1062,19 @@ def marker_shapes(spot):
 
 def build(source, pieces, runs, marker_size=MARKER_MIN_SIZE, marker_spacing=MARKER_SPACING,
           tube_radius=TUBE_DIAMETER / 2, line_placement="world", polyline=False, lines=True, markers=True,
-          run_pset=RUN_PSET, rotation_deg=0.0, offset=(0.0, 0.0, 0.0)):
+          run_pset=RUN_PSET, rotation_deg=0.0, offset=(0.0, 0.0, 0.0), slopes=False):
     """An ifcopenshell.file with each run (a chain.Chain over pieces) as a line
     annotation, a tube of tube_radius (metres) and with polyline its 3D
     polyline, and level markers on its joints. Without lines it holds only
     the markers, without markers only the lines. The runs' levels and
     diameter go in the property set run_pset ("Name" or "Name:Prefix"; None:
-    none). With rotation_deg
+    none). With slopes, the markers also take a slope marker on each
+    straight stretch (slope_spots). With rotation_deg
     and offset, everything is turned and moved into another coordinate
     system first (_Mover).
 
-    Returns (file, lines, markers), the counts written.
+    Returns (file, lines, markers), the counts written; markers counts the
+    level markers, not the slope markers.
     """
     if not lines and not markers:
         raise ValueError("Neither lines nor markers to write")
@@ -899,6 +1095,7 @@ def build(source, pieces, runs, marker_size=MARKER_MIN_SIZE, marker_spacing=MARK
     # two runs on one layer with a marker on the very same point show it once.
     numbers = {}
     spots = OrderedDict()
+    slope_markers = OrderedDict()
     segments = {}
 
     def is_pipe(piece):
@@ -917,8 +1114,9 @@ def build(source, pieces, runs, marker_size=MARKER_MIN_SIZE, marker_spacing=MARK
         rgb = run.key[1]
         # The run's id: its first piece by element and order, whichever way the run points.
         key = "run:%s:%d" % min(ids[number] for number, _reverse in run.pieces)
-        points, shown = wall_run(run, pieces)
-        points = [mover.point(p) for p in points + ([points[0]] if run.closed else [])]
+        line, shown = wall_run(run, pieces)
+        line += [line[0]] if run.closed else []
+        points = [mover.point(p) for p in line]
         numbers[layer] = numbers.get(layer, 0) + 1
         description = run_description(layer, numbers[layer], points[0], points[-1])
         if lines:
@@ -927,7 +1125,12 @@ def build(source, pieces, runs, marker_size=MARKER_MIN_SIZE, marker_spacing=MARK
             for spot in run_markers(run, shown, marker_spacing, marker_size, is_pipe):
                 # Keyed by the unmoved point, so a marker's GlobalId does not depend on the move.
                 spots.setdefault((layer, point_key(spot.point)), (mover.spot(spot), rgb, description))
+            if slopes:
+                for spot in slope_spots(line, marker_width(members[0], marker_size)):
+                    slope_markers.setdefault((layer, point_key(spot.point)), (mover.spot(spot), rgb, description))
     for (layer, cell), (spot, rgb, description) in spots.items():
         products.append(writer.marker(cell, spot, layer, rgb, description))
+    for (layer, cell), (spot, rgb, description) in slope_markers.items():
+        products.append(writer.slope_marker(cell, spot, layer, rgb, description))
     writer.finish(products, "" if lines and markers else ("lines" if lines else "markers"))
     return writer.f, len(runs) if lines else 0, len(spots)

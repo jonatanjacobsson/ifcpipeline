@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""The level markers' lettering: a monoline font of the characters a level needs.
+"""The markers' lettering: a monoline font of the characters a level or a slope needs.
 
 The glyphs are drawn the way DIN 1451 draws its digits: one stroke width
 (STROKE, a seventh of the height), straight lines and round bowls, a flat
 top on the 3 and 5 and straight tails on the 6 and 9, so no part of a glyph
 is thinner than the stroke and small text stays readable. Each glyph is its
 centre-lines (in units of the text height, baseline at 0, cap line at 1)
-widened to the stroke, joined, cut to its cell and triangulated: one outline,
-holes and all (0, 4, 6, 8, 9), so glyph_prism gives every glyph as one
-watertight solid with no overlapping or loose faces.
+widened to the stroke, joined, cut to its cell and triangulated: one outline
+per part, holes and all (0, 4, 6, 8, 9), so glyph_prism gives every glyph as
+watertight solids with no overlapping or loose faces. Only the per mille
+sign (‰) has more than one part: its slash and its three rings.
 """
 
 import math
@@ -76,6 +77,8 @@ _GLYPHS = {
     "+": (0.46, [("line", [(0.0, 0.5), (0.46, 0.5)]), ("line", [(0.23, 0.27), (0.23, 0.73)])]),
     "-": (0.38, [("line", [(0.0, 0.5), (0.38, 0.5)])]),
     ".": (0.16, [("dot", [(0.0, 0.0), (0.16, 0.16)])]),
+    u"\u2030": (1.16, [("ring", _ring(0.18, 0.80, 0.11, 0.13)), ("line", [(0.16, -0.1), (0.70, 1.1)]),
+                       ("ring", _ring(0.58, 0.20, 0.11, 0.13)), ("ring", _ring(0.98, 0.20, 0.11, 0.13))]),
 }
 
 
@@ -85,8 +88,9 @@ def characters():
 
 @lru_cache(maxsize=None)
 def glyph_outline(char):
-    """(polygon, advance) of char: its strokes widened, joined and cut to its
-    cell, outer ring anticlockwise. None for a character the font lacks."""
+    """(polygons, advance) of char: its strokes widened, joined and cut to its
+    cell, one polygon per part, outer rings anticlockwise. None for a
+    character the font lacks."""
     if char not in _GLYPHS:
         return None
     advance, strokes = _GLYPHS[char]
@@ -98,14 +102,15 @@ def glyph_outline(char):
         line = LinearRing(points) if kind == "ring" else LineString(points)
         parts.append(line.buffer(STROKE / 2.0, cap_style="flat", join_style="mitre", mitre_limit=3.0))
     shape = unary_union(parts).intersection(box(0.0, 0.0, advance, 1.0)).simplify(SIMPLIFY)
-    if shape.geom_type != "Polygon" or not shape.is_valid:
-        raise ValueError("glyph %r is not one clean outline: %s" % (char, shape.geom_type))
-    return orient(shape, 1.0), advance
+    if shape.geom_type not in ("Polygon", "MultiPolygon") or not shape.is_valid:
+        raise ValueError("glyph %r is not clean outlines: %s" % (char, shape.geom_type))
+    polygons = list(shape.geoms) if shape.geom_type == "MultiPolygon" else [shape]
+    return tuple(orient(polygon, 1.0) for polygon in polygons), advance
 
 
 @lru_cache(maxsize=None)
 def glyph_prism(char):
-    """char as one closed solid of unit relief: (points, triangles, advance).
+    """char as closed solids of unit relief, one per part: (points, triangles, advance).
 
     points are (x, y, z): x along the text, y up the glyph, z 0 at its base
     and 1 at its face; triangles index points and are wound outwards (seen
@@ -114,25 +119,25 @@ def glyph_prism(char):
     found = glyph_outline(char)
     if found is None:
         return None
-    polygon, advance = found
-    rings = [list(polygon.exterior.coords)[:-1]] + [list(r.coords)[:-1] for r in polygon.interiors]
-    flat, index, loops = [], {}, []
-    for ring in rings:
-        loop = []
-        for x, y in ring:
-            key = (round(x, 9), round(y, 9))
-            if key not in index:
-                index[key] = len(flat)
-                flat.append((x, y))
-            loop.append(index[key])
-        loops.append(loop)
-    top = []
-    for triangle in shapely.constrained_delaunay_triangles(polygon).geoms:
-        corners = [index[(round(x, 9), round(y, 9))] for x, y in list(triangle.exterior.coords)[:-1]]
-        (ax, ay), (bx, by), (cx, cy) = (flat[i] for i in corners)
-        if (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0:
-            corners = [corners[0], corners[2], corners[1]]
-        top.append(tuple(corners))
+    polygons, advance = found
+    flat, index, loops, top = [], {}, [], []
+    for polygon in polygons:
+        rings = [list(polygon.exterior.coords)[:-1]] + [list(r.coords)[:-1] for r in polygon.interiors]
+        for ring in rings:
+            loop = []
+            for x, y in ring:
+                key = (round(x, 9), round(y, 9))
+                if key not in index:
+                    index[key] = len(flat)
+                    flat.append((x, y))
+                loop.append(index[key])
+            loops.append(loop)
+        for triangle in shapely.constrained_delaunay_triangles(polygon).geoms:
+            corners = [index[(round(x, 9), round(y, 9))] for x, y in list(triangle.exterior.coords)[:-1]]
+            (ax, ay), (bx, by), (cx, cy) = (flat[i] for i in corners)
+            if (bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0:
+                corners = [corners[0], corners[2], corners[1]]
+            top.append(tuple(corners))
     n = len(flat)
     points = [(x, y, 0.0) for x, y in flat] + [(x, y, 1.0) for x, y in flat]
     triangles = [(a + n, b + n, c + n) for a, b, c in top] + [(a, c, b) for a, b, c in top]
