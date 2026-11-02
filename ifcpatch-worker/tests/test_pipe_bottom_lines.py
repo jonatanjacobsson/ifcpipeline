@@ -815,15 +815,15 @@ def test_a_slope_marker_is_a_wedge_arrow_on_a_post_with_the_slope_in_its_shaft()
     # The head points downhill: its tip is the arrow's furthest point that way.
     tip = max(head, key=lambda c: c.dot(downhill))
     assert tip.dot(downhill) > max(c.dot(downhill) for c in shaft)
-    # A wedge: SLOPE_TAIL thick at the tail, thinning to SLOPE_TIP at the tip.
+    # A wedge: SLOPE_TAIL thin at the tail, thickening to SLOPE_TIP at the tip.
     unders = sorted((c for c in corners if c.dot(out) < 0.15 - 1e-9), key=lambda c: c.dot(downhill))
     assert 0.15 - unders[0].dot(out) == pytest.approx(SLOPE_TAIL)
     assert 0.15 - unders[-1].dot(out) == pytest.approx(SLOPE_TIP)
     thick = [0.15 - c.dot(out) for c in unders]
-    assert thick == sorted(thick, reverse=True)
+    assert thick == sorted(thick) and SLOPE_TIP > SLOPE_TAIL
     # The post runs from the line up to the underside.
     assert min(c.dot(out) for c in post) == pytest.approx(0.0)
-    assert 0.15 - SLOPE_TAIL < max(c.dot(out) for c in post) < 0.15 - SLOPE_TIP
+    assert 0.15 - SLOPE_TIP < max(c.dot(out) for c in post) < 0.15 - SLOPE_TAIL
     # "10‰": 1, 0 and the per mille sign, set into the shaft's top, within it.
     assert len(text) == 3
     lo, hi = min(c.dot(downhill) for c in shaft), max(c.dot(downhill) for c in shaft)

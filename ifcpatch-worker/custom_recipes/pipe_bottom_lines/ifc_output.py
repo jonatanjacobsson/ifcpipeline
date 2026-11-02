@@ -31,8 +31,8 @@ Slope markers (build's slopes) are flat arrows, one on the middle of every
 straight stretch of a run at least SLOPE_MIN_LENGTH long and no steeper than
 WALL_SINE: a wedge with a flat top parallel to the line and square to "out",
 as high above it as a level marker's plate, on a thin post down to the
-line. It is SLOPE_TAIL thick at its tail and thins to SLOPE_TIP at its tip,
-so even from the side it falls the way the water runs, downhill. A level
+line. It is SLOPE_TAIL thin at its tail and thickens to SLOPE_TIP at its
+tip, so even from the side its head stands out the way the water runs, downhill. A level
 stretch gets a plate SLOPE_THICKNESS thick, without a head. Its shaft carries the slope in per mille
 ("10‰") as 3D text, set in the way the levels are. Each is its own
 IfcAnnotation, named after its slope ("VG 10‰"), with the slope in MÅTT as
@@ -147,8 +147,8 @@ SLOPE_HEAD_LENGTH = 0.45
 SLOPE_HEAD_WIDTH = 1.0
 # The wedge's thickness at its tail and its tip, a level stretch's plate's
 # thickness, and the post's width (metres).
-SLOPE_TAIL = 0.045
-SLOPE_TIP = 0.003
+SLOPE_TAIL = 0.003
+SLOPE_TIP = 0.045
 SLOPE_THICKNESS = 0.015
 SLOPE_POST = 0.012
 
@@ -969,8 +969,8 @@ def slope_shapes(spot):
 
     The arrow's top lies parallel to the line, as far out of it as a level
     marker's plate (the marker size), pointing the way the water runs. Its
-    underside rises from SLOPE_TAIL below the top at the tail to SLOPE_TIP at
-    the tip: a wedge that falls toward the tip. A level stretch's plate is
+    underside drops from SLOPE_TAIL below the top at the tail to SLOPE_TIP at
+    the tip: a wedge that is fattest at its head. A level stretch's plate is
     SLOPE_THICKNESS throughout."""
     size = spot.size
     out = _unit(spot.out)
