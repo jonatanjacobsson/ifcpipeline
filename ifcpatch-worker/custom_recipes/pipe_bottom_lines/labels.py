@@ -20,6 +20,10 @@ LINE_TYPE = u"VG Linjer"
 POINT_TYPE = u"VG Markör"
 # A marker's Name: its level after this, "VG +12.425".
 MARKER_NAME = u"VG %s"
+# Slope markers (the recipe's slope_markers): their ObjectType and type, and
+# their Name, the slope after this: "VG 10‰".
+SLOPE_TYPE = u"VG Lutning"
+SLOPE_NAME = u"VG %s"
 
 # The runs' property set when the recipe names none, and its labels.
 RUN_PSET = u"VG"
@@ -35,6 +39,9 @@ RUN_DIAMETER_PREFIXED = u"diameter"
 LEVEL_PSET = u"MÅTT"
 LEVEL_LABEL = u"+VG"
 LEVEL_NUMBER = u"Höjd UK Plushöjd"
+# A slope marker's slope, in LEVEL_PSET: as a label ("10 ‰") and as a number in per mille.
+SLOPE_LABEL = u"Lutning"
+SLOPE_NUMBER = u"Lutning promille"
 
 # Style names (surface styles: "<name> RRGGBB"), and the site and project.
 LINE_STYLE = u"VG-linje"
