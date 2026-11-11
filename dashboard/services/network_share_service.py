@@ -41,9 +41,11 @@ def check_mount() -> dict:
 
 
 def _safe_path(subpath: str) -> str | None:
-    mount = settings.NETWORK_SHARE_PATH
-    target = os.path.normpath(os.path.join(mount, subpath))
-    if not target.startswith(mount):
+    # Resolve symlinks and compare whole path components: a plain prefix check
+    # lets "../share-other" escape when the mount is "/mnt/share".
+    mount = os.path.realpath(settings.NETWORK_SHARE_PATH)
+    target = os.path.realpath(os.path.join(mount, subpath))
+    if os.path.commonpath([mount, target]) != mount:
         return None
     return target
 
@@ -53,7 +55,7 @@ def browse_files(subpath: str = "") -> list:
     if not target or not os.path.isdir(target):
         return []
 
-    mount = settings.NETWORK_SHARE_PATH
+    mount = os.path.realpath(settings.NETWORK_SHARE_PATH)
     entries = []
     try:
         for name in sorted(os.listdir(target)):
@@ -92,7 +94,7 @@ def browse_and_open_from_rel(rel: str) -> tuple[str, str | None]:
     target = _safe_path(rel)
     if not target:
         return "", None
-    mount = settings.NETWORK_SHARE_PATH
+    mount = os.path.realpath(settings.NETWORK_SHARE_PATH)
     if os.path.isdir(target):
         return rel.rstrip("/"), None
     if os.path.isfile(target):
@@ -113,7 +115,7 @@ def resolve_network_share_paths(path_q: str = "", open_q: str | None = None) -> 
     """
     path_q = (path_q or "").strip().replace("\\", "/")
     open_q = (open_q or "").strip().replace("\\", "/") if open_q else ""
-    mount = settings.NETWORK_SHARE_PATH
+    mount = os.path.realpath(settings.NETWORK_SHARE_PATH)
     if open_q:
         target = _safe_path(open_q)
         if target and os.path.isfile(target):

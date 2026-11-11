@@ -36,6 +36,28 @@
     return d.innerHTML;
   }
 
+  // Attribute values: escapeHtml leaves quotes alone, so a filename with " could break out.
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Delegated clicks: paths travel in data-path, never inside inline JS, so a
+  // filename like x');alert(1);(' cannot run as script.
+  const NS_ACTIONS = {
+    browse: p => browseNs(p),
+    ifc: p => openIfcFile(p),
+    pdf: p => openPdfFile(p),
+    edit: p => openFile(p),
+  };
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-ns-action]');
+    if (!el || !(el.closest('#ns-files') || el.closest('#ns-breadcrumb'))) return;
+    const fn = NS_ACTIONS[el.dataset.nsAction];
+    if (!fn) return;
+    e.preventDefault();
+    fn(el.dataset.path || '');
+  });
+
   function formatBytes(b) {
     if (!b || b === 0) return '0 B';
     const u = ['B', 'KB', 'MB', 'GB'];
@@ -234,8 +256,7 @@
     nsCurrentFile = { path, name, isIfc: true };
 
     document.querySelectorAll('#ns-files .file-item').forEach(el => {
-      const onclick = el.getAttribute('onclick') || '';
-      el.classList.toggle('active', onclick.includes(escapeHtml(path)));
+      el.classList.toggle('active', el.dataset.path === path);
     });
 
     try {
@@ -289,8 +310,7 @@
     nsCurrentFile = { path, name, isPdf: true };
 
     document.querySelectorAll('#ns-files .file-item').forEach(el => {
-      const onclick = el.getAttribute('onclick') || '';
-      el.classList.toggle('active', onclick.includes(escapeHtml(path)));
+      el.classList.toggle('active', el.dataset.path === path);
     });
   }
 
@@ -321,9 +341,9 @@
 
   function renderNsBreadcrumb(path) {
     const parts = path.split('/').filter(Boolean);
-    let html = `<a href="#" onclick="NsHtmx.browseNs('');return false">/network-share</a>`;
+    let html = `<a href="#" data-ns-action="browse" data-path="">/network-share</a>`;
     let acc = '';
-    parts.forEach(p => { acc += (acc ? '/' : '') + p; const c = acc; html += ` <span class="sep">/</span> <a href="#" onclick="NsHtmx.browseNs('${escapeHtml(c)}');return false">${escapeHtml(p)}</a>`; });
+    parts.forEach(p => { acc += (acc ? '/' : '') + p; const c = acc; html += ` <span class="sep">/</span> <a href="#" data-ns-action="browse" data-path="${escapeAttr(c)}">${escapeHtml(p)}</a>`; });
     setHtml('ns-breadcrumb', html);
   }
 
@@ -341,18 +361,19 @@
       const size = f.is_dir ? '' : `<span class="file-size">${formatBytes(f.size)}</span>`;
 
       if (f.is_dir) {
-        icon = dirIcon; cls = 'dir'; click = `onclick="NsHtmx.browseNs('${escapeHtml(f.path)}')"`;
+        icon = dirIcon; cls = 'dir'; click = 'browse';
       } else if (f.ifc_viewable) {
-        icon = ifcIcon; cls = 'file ifc'; click = `onclick="NsHtmx.openIfcFile('${escapeHtml(f.path)}')"`;
+        icon = ifcIcon; cls = 'file ifc'; click = 'ifc';
       } else if (f.pdf_viewable) {
-        icon = fileIcon; cls = 'file'; click = `onclick="NsHtmx.openPdfFile('${escapeHtml(f.path)}')"`;
+        icon = fileIcon; cls = 'file'; click = 'pdf';
       } else if (f.editable) {
-        icon = editIcon; cls = 'file'; click = `onclick="NsHtmx.openFile('${escapeHtml(f.path)}')"`;
+        icon = editIcon; cls = 'file'; click = 'edit';
       } else {
         icon = fileIcon; cls = 'file'; click = '';
       }
       if (isActive) cls += ' active';
-      return `<li class="file-item ${cls}" ${click}>${icon}<span class="file-name">${escapeHtml(f.name)}</span>${size}</li>`;
+      const action = click ? ` data-ns-action="${click}"` : '';
+      return `<li class="file-item ${cls}"${action} data-path="${escapeAttr(f.path)}">${icon}<span class="file-name">${escapeHtml(f.name)}</span>${size}</li>`;
     }).join(''));
   }
 
@@ -445,8 +466,7 @@
       nsEditMode = false;
 
       document.querySelectorAll('#ns-files .file-item').forEach(el => {
-        const onclick = el.getAttribute('onclick') || '';
-        el.classList.toggle('active', onclick.includes(escapeHtml(data.path)));
+        el.classList.toggle('active', el.dataset.path === data.path);
       });
     } catch (err) {
       console.error('Open file error:', err);
