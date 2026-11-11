@@ -268,11 +268,8 @@ class Patcher:
             "Accept": "application/json"
         }
         
-        # Debug logging (mask API key for security)
-        masked_key = self.api_key[:8] + "..." if len(self.api_key) > 8 else "***"
+        # Never log the headers: they carry the API key.
         self.logger.debug(f"Creating upload slot at: {url}")
-        self.logger.debug(f"Using API key: {masked_key}")
-        self.logger.debug(f"Headers: {dict(headers)}")
         
         try:
             response = requests.post(url, headers=headers, timeout=30)

@@ -6,6 +6,7 @@ if not hasattr(typing, 'NotRequired'):
 
 import logging
 import os
+import re
 import sys
 import importlib
 import inspect
@@ -336,6 +337,36 @@ def load_custom_recipe(recipe_name: str):
         logger.error(f"Error loading custom recipe '{recipe_name}': {str(e)}")
         raise
 
+_SECRET_PARAM_RE = re.compile(r"(api_?key|token|secret|password)", re.IGNORECASE)
+
+
+def redact_arguments(recipe_name: str, arguments: List[Any], use_custom: bool = False) -> List[Any]:
+    """Return a copy of ``arguments`` with values for secret-named recipe parameters masked.
+
+    Positional arguments map onto the Patcher ``__init__`` parameters after
+    ``file``/``logger``/``src``. Use the result for logs, job results and audit
+    metadata; never pass it to the recipe.
+    """
+    if not arguments:
+        return arguments
+    try:
+        module_name = recipe_name if use_custom else f"ifcpatch.recipes.{recipe_name}"
+        patcher_class = importlib.import_module(module_name).Patcher
+        param_names = [
+            name
+            for name, param in inspect.signature(patcher_class.__init__).parameters.items()
+            if name not in ("self", "file", "logger", "src")
+            and param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.POSITIONAL_ONLY)
+        ]
+    except Exception:
+        # Unknown signature: mask everything rather than risk leaking a secret.
+        return ["***"] * len(arguments)
+    return [
+        "***" if i < len(param_names) and _SECRET_PARAM_RE.search(param_names[i]) and value else value
+        for i, value in enumerate(arguments)
+    ]
+
+
 def filter_arguments_for_recipe(recipe_name: str, arguments: List[Any], use_custom: bool = False) -> List[Any]:
     """
     Filter arguments to match what the recipe actually expects.
@@ -445,7 +476,10 @@ def filter_arguments_for_recipe(recipe_name: str, arguments: List[Any], use_cust
                         f"({', '.join(all_params)}), but {len(arguments)} argument(s) were provided. "
                         f"Filtering to first {max_params} argument(s)."
                     )
-                    logger.debug(f"Filtered arguments: {filtered_args} (removed: {arguments[max_params:]})")
+                    logger.debug(
+                        f"Filtered arguments: {redact_arguments(recipe_name, filtered_args)} "
+                        f"(removed {len(arguments) - max_params})"
+                    )
                 elif len(filtered_args) > 0:
                     logger.debug(
                         f"Recipe '{recipe_name}': Passing {len(filtered_args)} argument(s) "
@@ -679,7 +713,8 @@ def _execute_ifcpatch_core(
 
     logger.info(f"Recipe: {request.recipe}")
     logger.info(f"Arguments count: {len(arguments) if arguments else 0}")
-    logger.info(f"Arguments: {arguments}")
+    safe_arguments = redact_arguments(request.recipe, arguments, request.use_custom)
+    logger.info(f"Arguments: {safe_arguments}")
 
     # Pre-flight breadcrumb so any subsequent SIGSEGV in the work-horse can be
     # tied to a specific input file + recipe + arg set when post-mortem'ing
@@ -702,7 +737,7 @@ def _execute_ifcpatch_core(
                 f"PRE-IFCOPENSHELL DEBUG: top types = "
                 f"{_types.most_common(15)}"
             )
-            logger.info(f"PRE-IFCOPENSHELL DEBUG: full args = {arguments!r}")
+            logger.info(f"PRE-IFCOPENSHELL DEBUG: full args = {safe_arguments!r}")
     except Exception as _bcerr:
         logger.warning(f"PRE-IFCOPENSHELL breadcrumb failed: {_bcerr}")
 
@@ -785,6 +820,7 @@ def _execute_ifcpatch_core(
         s3_ctx["output_key"] if s3_ctx else (request.output_file or output_path)
     )
 
+    safe_request_arguments = redact_arguments(request.recipe, request.arguments, request.use_custom)
     result: dict = {
         "success": True,
         "message": f"Successfully applied recipe '{request.recipe}'",
@@ -792,7 +828,7 @@ def _execute_ifcpatch_core(
         "recipe": request.recipe,
         "is_custom": request.use_custom,
         "output_size_bytes": output_size,
-        "arguments_used": request.arguments,
+        "arguments_used": safe_request_arguments,
         "original_filename": original_filename,
         "output_filename": output_filename,
     }
@@ -812,7 +848,7 @@ def _execute_ifcpatch_core(
                 metadata={
                     "recipe": request.recipe,
                     "is_custom": request.use_custom,
-                    "arguments": request.arguments,
+                    "arguments": safe_request_arguments,
                     "output_size_bytes": output_size,
                     "original_filename": original_filename,
                     "output_filename": output_filename,
