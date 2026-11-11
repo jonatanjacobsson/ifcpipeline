@@ -1,8 +1,12 @@
 #!/bin/bash
-CONTAINER_NAME="ifc_pipeline_postgres"
+set -euo pipefail
+
+CONTAINER_NAME="${POSTGRES_CONTAINER:-ifc_pipeline_postgres_objectstorage}"
+DB_USER="${POSTGRES_USER:-ifcpipeline}"
+DB_NAME="${POSTGRES_DB:-ifcpipeline}"
 
 # Run VACUUM ANALYZE to optimize the database
-docker exec $CONTAINER_NAME psql -U ifcpipeline -d ifcpipeline -c "VACUUM ANALYZE;"
+docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -c "VACUUM ANALYZE;"
 
 # Log database statistics
-docker exec $CONTAINER_NAME psql -U ifcpipeline -d ifcpipeline -c "SELECT pg_database_size('ifcpipeline');" 
+docker exec "$CONTAINER_NAME" psql -U "$DB_USER" -d "$DB_NAME" -c "SELECT pg_size_pretty(pg_database_size(current_database()));"
