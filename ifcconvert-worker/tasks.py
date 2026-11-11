@@ -21,6 +21,25 @@ def _current_job_id():
     except Exception:
         return None
 
+
+# Auxiliary files IfcConvert reads (filter, material) or writes (cache) must stay
+# inside the shared volumes; otherwise a request can read or overwrite any file
+# in the container.
+AUX_FILE_ROOTS = ("/uploads", "/output")
+# cache_file is written, so it may not land among the uploaded inputs.
+AUX_WRITE_ROOTS = ("/output",)
+
+
+def _confine_aux_path(path: str, field: str, extra_roots: tuple = (), roots: tuple = AUX_FILE_ROOTS) -> str:
+    allowed = tuple(roots) + tuple(extra_roots)
+    resolved = os.path.realpath(path)
+    for root in allowed:
+        root = os.path.realpath(root)
+        if os.path.commonpath([root, resolved]) == root:
+            return resolved
+    raise ValueError(f"{field} must be under {', '.join(allowed)}: {path}")
+
+
 def run_ifcconvert(job_data: dict) -> dict:
     """
     Process an IFC conversion job using the IfcConvert executable.
@@ -91,6 +110,8 @@ def run_ifcconvert(job_data: dict) -> dict:
                 version_id=s3_ctx.get("input_pin"),
             )
         
+        aux_roots = (s3_ctx["tmpdir"],) if s3_ctx else ()
+
         logger.info(f"Processing paths:")
         logger.info(f"  Input path:  {input_path}")
         logger.info(f"  Output path: {output_path}")
@@ -153,7 +174,7 @@ def run_ifcconvert(job_data: dict) -> dict:
         if request.cache:
             command.append("--cache")
             if request.cache_file:
-                command.extend(["--cache-file", request.cache_file])
+                command.extend(["--cache-file", _confine_aux_path(request.cache_file, "cache_file", aux_roots, AUX_WRITE_ROOTS)])
         if request.stderr_progress:
             command.append("--stderr-progress")
         if request.yes:
@@ -214,11 +235,14 @@ def run_ifcconvert(job_data: dict) -> dict:
             enabled_options.append(f"exclude+={exclude_plus_type}({len(request.exclude_plus)} items)")
         
         if request.filter_file:
-            command.extend(["--filter-file", request.filter_file])
+            command.extend(["--filter-file", _confine_aux_path(request.filter_file, "filter_file", aux_roots)])
         
         # Geometry options - Materials and rendering
         if request.default_material_file:
-            command.extend(["--default-material-file", request.default_material_file])
+            command.extend([
+                "--default-material-file",
+                _confine_aux_path(request.default_material_file, "default_material_file", aux_roots),
+            ])
         if request.exterior_only:
             command.extend([f"--exterior-only={request.exterior_only}"])
         if request.apply_default_materials:
