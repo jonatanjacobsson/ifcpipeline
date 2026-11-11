@@ -17,12 +17,45 @@ message so n8n's RETRYABLE_ERROR_PATTERNS classifies the failure as retryable).
 
 import logging
 import time
+from datetime import datetime, timezone
 from queue import Empty
 from typing import Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["drain_and_join"]
+__all__ = ["drain_and_join", "job_result_timeout"]
+
+# After the deadline drain_and_join waits join_timeout (60 s) and then up to 30 s
+# for SIGTERM; keep that plus slack inside the RQ job timeout so we, not RQ's
+# death penalty, stop the child (RQ would orphan it).
+_JOB_TIMEOUT_MARGIN = 120
+
+
+def job_result_timeout(default: int = 7200) -> int:
+    """Seconds to wait for a spawned child: what is left of the current RQ job's timeout.
+
+    Time the job already spent (downloads, file open) is subtracted. Falls back
+    to ``default`` outside an RQ job or when the job has no timeout.
+    """
+    try:
+        from rq import get_current_job
+
+        job = get_current_job()
+        timeout = int(job.timeout) if job is not None and job.timeout else None
+        started_at = getattr(job, "started_at", None) if job is not None else None
+    except Exception:
+        timeout = None
+        started_at = None
+    if not timeout or timeout <= 0:
+        return default
+    elapsed = 0
+    if started_at is not None:
+        try:
+            now = datetime.now(started_at.tzinfo or timezone.utc).replace(tzinfo=started_at.tzinfo)
+            elapsed = max(int((now - started_at).total_seconds()), 0)
+        except Exception:
+            elapsed = 0
+    return max(timeout - elapsed - _JOB_TIMEOUT_MARGIN, 60)
 
 
 def drain_and_join(

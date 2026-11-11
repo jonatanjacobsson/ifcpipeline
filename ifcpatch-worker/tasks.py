@@ -111,7 +111,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, get_type_hints, get_origin, get_args
 from shared.classes import IfcPatchRequest, IfcPatchListRecipesRequest
 from shared import object_storage as s3
-from shared.spawn_isolation import drain_and_join
+from shared.spawn_isolation import drain_and_join, job_result_timeout
 from shared.docstring_params import parse_docstring_params
 
 # Set up logging
@@ -542,7 +542,7 @@ def _run_recipe_in_spawn_isolation(
     proc = ctx.Process(target=_isolated_recipe_worker, args=(q, payload))
     proc.start()
     got, status, data = drain_and_join(
-        proc, q, result_timeout=60, operation=f"ifcpatch recipe {request.recipe!r}"
+        proc, q, result_timeout=job_result_timeout(), operation=f"ifcpatch recipe {request.recipe!r}"
     )
     if proc.exitcode == 0:
         if not got:

@@ -10,7 +10,7 @@ from ifcdiff import IfcDiff
 from shared.classes import IfcDiffRequest
 from shared.db_client import save_diff_result
 from shared import object_storage as s3
-from shared.spawn_isolation import drain_and_join
+from shared.spawn_isolation import drain_and_join, job_result_timeout
 from collections.abc import Set, Sequence
 
 # Set up logging
@@ -401,7 +401,7 @@ def _run_ifcdiff_in_spawn_isolation(job_data: dict) -> dict:
     proc = ctx.Process(target=_isolated_ifcdiff_worker, args=(result_queue, job_data))
     proc.start()
     got, status, data = drain_and_join(
-        proc, result_queue, result_timeout=60, operation="ifcdiff"
+        proc, result_queue, result_timeout=job_result_timeout(), operation="ifcdiff"
     )
 
     if proc.exitcode == 0:

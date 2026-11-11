@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from shared.spawn_isolation import drain_and_join  # noqa: E402
+from shared.spawn_isolation import drain_and_join, job_result_timeout  # noqa: E402
 
 # Comfortably over the 64 KB pipe buffer that triggers the deadlock.
 LARGE = 1024 * 1024
@@ -108,3 +108,23 @@ def _sleep_forever(q, payload):
     import time
 
     time.sleep(3600)
+
+
+def test_job_result_timeout_follows_rq_job(monkeypatch):
+    """Long jobs get the RQ job's timeout, not a fixed 60 s that killed them at ~2 min."""
+    import rq
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(rq, "get_current_job", lambda: SimpleNamespace(timeout=7200))
+    assert job_result_timeout() == 7200 - 120
+    started = datetime.now(timezone.utc) - timedelta(seconds=600)
+    monkeypatch.setattr(rq, "get_current_job", lambda: SimpleNamespace(timeout=7200, started_at=started))
+    assert 7200 - 600 - 120 - 2 <= job_result_timeout() <= 7200 - 600 - 120
+    naive = datetime.utcnow() - timedelta(seconds=600)
+    monkeypatch.setattr(rq, "get_current_job", lambda: SimpleNamespace(timeout=7200, started_at=naive))
+    assert 7200 - 600 - 120 - 2 <= job_result_timeout() <= 7200 - 600 - 120
+    monkeypatch.setattr(rq, "get_current_job", lambda: SimpleNamespace(timeout=30))
+    assert job_result_timeout() == 60
+    monkeypatch.setattr(rq, "get_current_job", lambda: None)
+    assert job_result_timeout(default=1234) == 1234

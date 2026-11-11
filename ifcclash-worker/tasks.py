@@ -14,7 +14,7 @@ from multiprocessing import get_context
 from ifcclash.ifcclash import Clasher, ClashSettings
 from shared.db_client import save_clash_result
 from shared import audit_db
-from shared.spawn_isolation import drain_and_join
+from shared.spawn_isolation import drain_and_join, job_result_timeout
 from shared import object_storage as s3
 from typing import Tuple, List, Dict, Any, Optional
 
@@ -770,7 +770,7 @@ def _run_clash_in_spawn_isolation(
     )
     proc.start()
     got, status, data = drain_and_join(
-        proc, q, result_timeout=60, operation="ifcclash"
+        proc, q, result_timeout=job_result_timeout(), operation="ifcclash"
     )
 
     if proc.exitcode == 0:
