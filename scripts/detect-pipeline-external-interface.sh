@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Print the NIC used to reach the worker VM (for DOCKER-USER firewall scoping).
+# Never prints a Docker bridge (see scripts/lib/host-lan.sh): firewall rules scoped
+# to one would leave the LAN NIC unfiltered.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/host-lan.sh
+source "$ROOT/scripts/lib/host-lan.sh"
 
 if [[ -f "$ROOT/.env" ]]; then
   set -a
@@ -18,9 +22,13 @@ if [[ -z "$worker_ip" ]]; then
 fi
 
 if [[ -n "$worker_ip" ]]; then
-  ip route get "${worker_ip}/32" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
+  lan_dev_toward "${worker_ip}/32"
   exit 0
 fi
 
 # Fallback: default route interface.
-ip route show default 2>/dev/null | awk '{print $5; exit}'
+dev="$(default_route_dev)"
+if [[ -z "$dev" ]] || is_docker_bridge_dev "$dev"; then
+  exit 1
+fi
+echo "$dev"
