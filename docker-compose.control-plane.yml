@@ -345,6 +345,14 @@ services:
     image: postgres:14
     container_name: ifc_pipeline_postgres_objectstorage
     restart: unless-stopped
+    # /dev/shm holds Postgres' dynamic shared memory (dynamic_shared_memory_type=posix):
+    # parallel VACUUM, parallel index builds and parallel hash joins. Docker's default
+    # 64 MB is too small: a parallel VACUUM alone needs ~maintenance_work_mem (128 MB)
+    # and fails with "could not resize shared memory segment ... No space left on device".
+    # shared_buffers is NOT in /dev/shm (shared_memory_type=mmap). tmpfs pages count
+    # against the 2G memory limit below, so keep this at ~2x maintenance_work_mem
+    # rather than sizing it like shared_buffers.
+    shm_size: 256m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ifcpipeline}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
