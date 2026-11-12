@@ -1242,8 +1242,14 @@ def test_ifc_recipe_returns_the_annotations_as_its_output(tmp_path):
     summary = patcher.get_summary()
     assert (summary["ifc_lines"], summary["ifc_markers"]) == (1, 4)
     assert summary["rotation_deg"] == 0.0 and summary["offset_m"] == [0.0, 0.0, 0.0]
+    # Validate the file as written, which is what the worker hands back. ifcopenshell 0.8.0's
+    # validator reports the derived (*) attributes of in-memory IfcSIUnit and representation
+    # sub-contexts as "derived in subtype" errors; the same model re-read from disk is clean
+    # there, and on 0.9.0 both are clean.
+    path = tmp_path / "pipe_bottom_lines.ifc"
+    out.write(str(path))
     logger = ifcopenshell.validate.json_logger()
-    ifcopenshell.validate.validate(out, logger)
+    ifcopenshell.validate.validate(ifcopenshell.open(str(path)), logger)
     assert logger.statements == []
 
 
