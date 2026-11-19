@@ -165,6 +165,10 @@ class Patcher:
         # output stays schema-valid for strict importers.
         if self.fix_orphaned_fillings:
             extra_openings = self._fix_orphaned_hosts(remove_ids)
+            # Openings often match the query themselves (they inherit the host's
+            # psets), so only add the ones not already queued: removing an
+            # entity twice leaves a dead instance that segfaults on .id().
+            extra_openings = [o for o in (extra_openings or []) if o.id() not in remove_ids]
             if extra_openings:
                 elements = list(elements) + extra_openings
                 remove_ids.update(e.id() for e in extra_openings)
@@ -462,12 +466,18 @@ class Patcher:
 
     def _remove_entities(self, entities: list, label: str) -> None:
         removed = 0
+        seen: Set[int] = set()
         for entity in entities:
+            # Read the id before removing: a removed instance must not be touched again.
+            eid = entity.id()
+            if eid in seen:
+                continue
+            seen.add(eid)
             try:
                 self.file.remove(entity)
                 removed += 1
             except Exception as e:
-                self.logger.debug(f"Could not remove {label} #{entity.id()}: {e}")
+                self.logger.debug(f"Could not remove {label} #{eid}: {e}")
         self.logger.info(f"RemoveElements: removed {removed} {label}(s)")
 
     def _remove_entities_by_id(self, entity_ids: Set[int], label: str) -> None:
